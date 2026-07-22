@@ -15,31 +15,7 @@ BE1, BE2가 같은 레포를 사용하되 각자 작업 브랜치를 나누어 �
 - 프론트엔드 연동용 Mock API
 - 서버 상태 확인 API
 
-## 팀 역할
-
-### BE1: AI/RAG/DB 담당
-
-주 작업 브랜치:
-
-```bash
-git checkout be1/rag-db
-```
-
-주요 담당 파일:
-
-- `app/routers/rag.py`: RAG 검색 API 라우터
-- `app/services/embedding.py`: 임베딩 모델 래퍼
-- `app/db/chroma_client.py`: ChromaDB 클라이언트 생성
-- `scripts/embed_chroma.py`: JSONL 데이터셋을 ChromaDB에 임베딩
-- `scripts/generate_fake_dataset.py`: 테스트용 QA 데이터셋 생성
-
-BE1 작업 메모:
-
-- 1주차에는 RAG 파일이 서버에 자동 등록되어 있지 않습니다.
-- 2주차 이후 실제 DB/모델 연결이 준비되면 `app/__init__.py`에 RAG 라우터를 추가하면 됩니다.
-- 무거운 모델 또는 DB 의존성은 서버 시작에 영향을 줄 수 있으니 가능한 라우터 내부나 서비스 생성 시점에 로딩합니다.
-
-### BE2: 파일 시스템/전처리/Mock API 담당
+## BE2: 파일 시스템/전처리/Mock API 담당
 
 주 작업 브랜치:
 
@@ -50,14 +26,13 @@ git checkout be2/preprocess-fileops
 주요 담당 파일:
 
 - `app/routers/preprocess.py`: 파일/폴더 텍스트 추출 API
-- `app/services/fileops.py`: 파일 추출, 이동, 이름 변경 관련 로직
+- `app/services/fileops.py`: 파일 탐색과 텍스트 추출/정규화 로직
 - `app/routers/mock.py`: 프론트엔드 연동용 Mock API
 - `scripts/extract_first_page.py`: 전처리 로직 단독 실행 스크립트
 
 BE2 작업 메모:
 
 - 1주차 핵심은 PDF 첫 페이지, TXT/MD 텍스트 추출이 안정적으로 되는 것입니다.
-- 실제 파일 이동/이름 변경은 3주차 기능이므로 지금은 `move_and_rename` 보조 함수 수준으로만 유지합니다.
 - FE가 붙기 쉽게 API 응답 구조를 갑자기 바꾸지 말고, 바꿔야 하면 README에 같이 기록합니다.
 
 ## 브랜치 규칙
@@ -67,13 +42,6 @@ BE2 작업 메모:
 ```bash
 git checkout dev
 git pull origin dev
-git checkout be1/rag-db
-git merge dev
-```
-
-BE2는 마지막 줄만 자기 브랜치로 바꿉니다.
-
-```bash
 git checkout be2/preprocess-fileops
 git merge dev
 ```
@@ -108,10 +76,10 @@ Settings > Branches > Default branch > dev
 ## 설치 및 실행
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+python3 -m pip install -r requirements.txt
+python3 -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 브라우저에서 API 문서를 확인하려면 서버 실행 후 아래 주소로 들어갑니다.
@@ -125,7 +93,32 @@ http://127.0.0.1:8000/docs
 - `GET /` - 서버 실행 확인
 - `GET /health` - 상태 확인
 - `GET /mock/dataset?limit=5` - 프론트엔드 개발용 더미 데이터
+- `POST /api/analyze` - 프론트엔드 파일 분석 화면용 Mock API
 - `POST /preprocess/extract-first-page` - 파일 또는 폴더의 지원 문서 텍스트 추출
+
+## Mock API 요청 예시
+
+아직 실제 AI/RAG가 연결되지 않았기 때문에, 어떤 파일 경로를 보내도 정해진 더미 분석 결과를 돌려줍니다.
+FE는 이 응답으로 로딩 스피너, 결과 카드, 추천 폴더/파일명 화면을 먼저 개발할 수 있습니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/Users/me/Documents/report.pdf"}'
+```
+
+응답 예시:
+
+```json
+{
+  "original_path": "/Users/me/Documents/report.pdf",
+  "recommended_name": "report_정리본.pdf",
+  "recommended_folder": "업무",
+  "summary": "이 문서는 프로젝트 진행 상황과 다음 작업을 정리한 문서로 가정한 Mock 분석 결과입니다.",
+  "confidence": 0.92,
+  "tags": ["mock", "업무", "자동분류"]
+}
+```
 
 ## 전처리 API 요청 예시
 
@@ -135,10 +128,25 @@ http://127.0.0.1:8000/docs
 }
 ```
 
+응답의 텍스트 필드는 용도별로 나뉩니다.
+
+- `raw_text`: PDF에서 최대한 그대로 추출한 원문 확인용 텍스트
+- `normalized_text`: 합자, 줄끝 하이픈, 일반 줄바꿈을 정리한 검색/임베딩용 텍스트
+- `preview_text`: `max_chars` 기준으로 단어 중간을 피해서 자른 화면 표시용 텍스트
+
 ## 전처리 스크립트
 
 ```bash
-python scripts/extract_first_page.py /path/to/file-or-folder
+python3 scripts/extract_first_page.py /path/to/file-or-folder
+```
+
+## RAG 정답 데이터셋 보조 스크립트
+
+PDF/TXT/MD에서 추출한 텍스트를 바탕으로 개발용 질문/답변 JSONL을 만듭니다.
+PDF는 `app/services/fileops.py`의 전처리 로직을 재사용하므로 첫 페이지만 읽습니다.
+
+```bash
+python3 scripts/generate_fake_dataset.py -n 1000 --source-dir /path/to/sample-docs --out fake_dataset.jsonl
 ```
 
 ## 간단 검증 명령
@@ -147,5 +155,6 @@ python scripts/extract_first_page.py /path/to/file-or-folder
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/sidepj_pycache python3 -m compileall main.py app scripts
-python scripts/extract_first_page.py README.md
+python3 scripts/extract_first_page.py README.md
+python3 scripts/generate_fake_dataset.py -n 3 --source-dir . --out /tmp/fake_dataset_test.jsonl
 ```

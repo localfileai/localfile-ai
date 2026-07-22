@@ -29,7 +29,8 @@ def main():
         if item["error"]:
             print(f"ERROR: {item['error']}\n")
         else:
-            print(f"{item['text']}\n")
+            # 검색/임베딩에서 실제로 사용할 정규화 텍스트를 먼저 보여줍니다.
+            print(f"{item['normalized_text']}\n")
 
 
 if __name__ == "__main__":

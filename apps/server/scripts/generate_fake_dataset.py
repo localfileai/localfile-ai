@@ -7,7 +7,16 @@
 
 import json
 import random
+import sys
 from pathlib import Path
+from typing import List, Optional
+
+# 스크립트를 `python scripts/...` 형태로 실행해도 app 패키지를 import할 수 있게 합니다.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.services.fileops import extract_from_path
 
 
 TEMPLATES = [
@@ -28,19 +37,25 @@ def make_pair(source_text: str, idx: int) -> dict:
     return {"id": idx, "question": q, "context": source_text[:2000], "answer": answer}
 
 
-def generate_count(n: int, source_dir: Path = None):
+def load_source_texts(source_dir: Optional[Path]) -> List[str]:
+    """PDF/TXT/MD 문서에서 전처리된 텍스트만 모아 데이터셋 재료로 사용합니다."""
+    samples = []
+    if not source_dir or not source_dir.exists():
+        return samples
+
+    # 1주차 핵심 전처리 로직을 재사용합니다.
+    # PDF는 첫 페이지만, TXT/MD는 텍스트를 읽어 AI가 과하게 긴 문서를 받지 않도록 합니다.
+    for item in extract_from_path(str(source_dir), max_chars=2000):
+        # RAG 데이터셋은 검색/임베딩 품질이 중요하므로 정규화된 텍스트를 사용합니다.
+        if item["normalized_text"] and not item["error"]:
+            samples.append(item["normalized_text"])
+    return samples
+
+
+def generate_count(n: int, source_dir: Optional[Path] = None):
     """지정한 개수만큼 가짜 QA 데이터를 생성합니다."""
     out = []
-    samples = []
-    if source_dir and source_dir.exists():
-        for f in source_dir.iterdir():
-            if f.suffix.lower() in {".pdf", ".txt", ".md"}:
-                try:
-                    # 개발용 데이터 생성이라 TXT/MD는 단순 텍스트 읽기로 충분합니다.
-                    text = f.read_text(encoding="utf-8", errors="ignore")
-                except Exception:
-                    text = ""
-                samples.append(text)
+    samples = load_source_texts(source_dir)
 
     for i in range(1, n + 1):
         src = random.choice(samples) if samples else f"예시 텍스트 {i}"
