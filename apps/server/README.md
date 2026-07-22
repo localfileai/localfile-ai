@@ -3,7 +3,8 @@
 LocalFileAI 프로젝트의 백엔드 공용 저장소입니다.
 
 BE1, BE2가 같은 레포를 사용하되 각자 작업 브랜치를 나누어 개발합니다.
-`main` 브랜치는 서로 합의된 코드만 올리는 기준 브랜치로 사용합니다.
+`dev` 브랜치는 서로 합의된 개발 코드를 모으는 기준 브랜치로 사용합니다.
+`main` 브랜치는 최종 제출 또는 안정 버전이 필요할 때만 사용합니다.
 
 ## 현재 구현 범위
 
@@ -61,20 +62,20 @@ BE2 작업 메모:
 
 ## 브랜치 규칙
 
-작업 전에는 항상 최신 `main`을 기준으로 자기 브랜치를 업데이트합니다.
+작업 전에는 항상 최신 `dev`를 기준으로 자기 브랜치를 업데이트합니다.
 
 ```bash
-git checkout main
-git pull origin main
+git checkout dev
+git pull origin dev
 git checkout be1/rag-db
-git merge main
+git merge dev
 ```
 
 BE2는 마지막 줄만 자기 브랜치로 바꿉니다.
 
 ```bash
 git checkout be2/preprocess-fileops
-git merge main
+git merge dev
 ```
 
 작업 후에는 자기 브랜치에 커밋하고 push합니다.
@@ -89,9 +90,20 @@ git push
 주의할 점:
 
 - `main`에 직접 작업하지 않습니다.
+- 평소 개발 기준은 `dev`입니다.
 - 상대방 담당 파일을 수정해야 하면 먼저 말하고 진행합니다.
 - `.venv`, `.env`, `__pycache__` 같은 로컬 파일은 커밋하지 않습니다.
 - 충돌이 나면 임의로 지우지 말고, 어느 쪽 코드가 필요한지 확인한 뒤 정리합니다.
+
+## GitHub 기본 브랜치 설정
+
+GitHub 저장소 설정에서 기본 브랜치를 `dev`로 바꿉니다.
+
+```text
+Settings > Branches > Default branch > dev
+```
+
+이 설정은 저장소 관리자 권한이 있는 사람이 GitHub 웹에서 변경해야 합니다.
 
 ## 설치 및 실행
 
