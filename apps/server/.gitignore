@@ -1,0 +1,19 @@
+# Python 가상환경과 캐시
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 로컬 환경변수
+.env
+.env.*
+
+# OS/에디터 설정
+.DS_Store
+.vscode/
+.idea/
+
+# 빌드 결과물
+dist/
+build/
+*.egg-info/
