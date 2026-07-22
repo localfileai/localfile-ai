@@ -4,11 +4,3 @@ uvicorn[standard]
 
 # PDF 첫 페이지 텍스트 추출용
 PyMuPDF
-
-# RAG/벡터 검색 실험용
-chromadb
-sentence-transformers
-
-# 스크립트 진행률 표시 및 임베딩 배열 처리용
-tqdm
-numpy

@@ -22,7 +22,12 @@ class ExtractedDocument(BaseModel):
     path: str
     name: str
     extension: str
-    text: str
+    # raw_text는 PDF에서 최대한 그대로 뽑은 원문 확인용 텍스트입니다.
+    raw_text: str = ""
+    # normalized_text는 검색, 요약, 임베딩에 쓰기 좋게 정리한 텍스트입니다.
+    normalized_text: str = ""
+    # preview_text는 max_chars 기준으로 단어 중간을 피해서 자른 화면 표시용 텍스트입니다.
+    preview_text: str = ""
     # 폴더 처리 중 일부 파일만 실패할 수 있으므로 파일별 에러를 응답에 포함합니다.
     error: str = ""
 
@@ -32,3 +37,20 @@ class ExtractPathResponse(BaseModel):
 
     count: int
     items: List[ExtractedDocument]
+
+
+class MockAnalyzeRequest(BaseModel):
+    """FE가 분석 요청을 보낼 때 사용할 최소 입력값입니다."""
+
+    path: str
+
+
+class MockAnalyzeResponse(BaseModel):
+    """AI/RAG 완성 전까지 FE가 화면 개발에 사용할 가짜 분석 결과입니다."""
+
+    original_path: str
+    recommended_name: str
+    recommended_folder: str
+    summary: str
+    confidence: float
+    tags: List[str]
