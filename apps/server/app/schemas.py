@@ -54,3 +54,184 @@ class MockAnalyzeResponse(BaseModel):
     summary: str
     confidence: float
     tags: List[str]
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "original_path": "/Users/alex/Documents/report.pdf",
+                "recommended_name": "report_summary.pdf",
+                "recommended_folder": "업무/프로젝트A",
+                "summary": "프로젝트 A의 진행 상황과 다음 단계(요약): 1) 데이터 수집 완료, 2) 모델 학습 진행 필요, 3) 배포 계획 수립.",
+                "confidence": 0.91,
+                "tags": ["프로젝트A", "요약", "업무"]
+            }
+        }
+
+
+# --- 추가된 문서/응답 모델 ---
+class SearchItem(BaseModel):
+    name: str
+    ext: str
+    path: str
+    modified: str
+    score: int
+    snippet: str
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "name": "TSN_스케줄링_발표자료.pdf",
+                "ext": "PDF",
+                "path": "Documents/연구/TSN",
+                "modified": "2026-06-23",
+                "score": 87,
+                "snippet": "TAS와 CBS+TAS의 지터 및 처리량 비교 결과를 정리한 발표 자료입니다."
+            }
+        }
+
+
+class SearchResponse(BaseModel):
+    count: int
+    items: List[SearchItem]
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "count": 2,
+                "items": [
+                    {
+                        "name": "TSN_스케줄링_발표자료.pdf",
+                        "ext": "PDF",
+                        "path": "Documents/연구/TSN",
+                        "modified": "2026-06-23",
+                        "score": 87,
+                        "snippet": "TAS와 CBS+TAS의 지터 및 처리량 비교 결과를 정리한 발표 자료입니다."
+                    },
+                    {
+                        "name": "논문학습플랫폼_README.md",
+                        "ext": "MD",
+                        "path": "Documents/프로젝트/Paper-Learning",
+                        "modified": "2025-07-27",
+                        "score": 89,
+                        "snippet": "문단 추출 및 요약 기능 설명이 포함된 README 파일입니다."
+                    }
+                ]
+            }
+        }
+
+
+class RenameRecommendation(BaseModel):
+    id: int
+    old: str
+    next: str
+    path: str
+    ext: str
+    confidence: int
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": 1,
+                "old": "최종.pdf",
+                "next": "가치가게_캡스톤_최종발표_2025.pdf",
+                "path": "대학교/캡스톤",
+                "ext": "PDF",
+                "confidence": 96
+            }
+        }
+
+
+class RenameResponse(BaseModel):
+    count: int
+    items: List[RenameRecommendation]
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "count": 2,
+                "items": [
+                    {
+                        "id": 1,
+                        "old": "최종.pdf",
+                        "next": "가치가게_캡스톤_최종발표_2025.pdf",
+                        "path": "대학교/캡스톤",
+                        "ext": "PDF",
+                        "confidence": 96
+                    },
+                    {
+                        "id": 2,
+                        "old": "notes.txt",
+                        "next": "QR키오스크_DB설계_메모.txt",
+                        "path": "프로젝트/QR-Kiosk",
+                        "ext": "TXT",
+                        "confidence": 90
+                    }
+                ]
+            }
+        }
+
+
+class MoveRecommendation(BaseModel):
+    id: str
+    name: str
+    from_: str
+    to: str
+    confidence: int
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "value",
+                "name": "가치가게_캡스톤_최종발표.pdf",
+                "from_": "Documents/다운로드",
+                "to": "Documents/대학교/2025/캡스톤/가치가게",
+                "confidence": 96
+            }
+        }
+
+
+class MoveResponse(BaseModel):
+    current_files: List[dict]
+    recommendations: List[MoveRecommendation]
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "current_files": [
+                    {"id": "value", "name": "가치가게_캡스톤_최종발표.pdf", "ext": "PDF", "path": "Documents/다운로드"}
+                ],
+                "recommendations": [
+                    {
+                        "id": "value",
+                        "name": "가치가게_캡스톤_최종발표.pdf",
+                        "from_": "Documents/다운로드",
+                        "to": "Documents/대학교/2025/캡스톤/가치가게",
+                        "confidence": 96
+                    }
+                ]
+            }
+        }
+
+
+class ApplyRequest(BaseModel):
+    ids: List[str]
+
+    class Config:
+        schema_extra = {"example": {"ids": ["value", "tsn"]}}
+
+
+class ApplyResponse(BaseModel):
+    applied: int
+    status: str
+
+    class Config:
+        schema_extra = {"example": {"applied": 2, "status": "ok"}}
+
+
+class ReanalyzeResponse(BaseModel):
+    message: str
+    rename_count: int
+    move_count: int
+
+    class Config:
+        schema_extra = {"example": {"message": "reanalyzed", "rename_count": 4, "move_count": 3}}
