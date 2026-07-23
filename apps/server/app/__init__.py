@@ -6,10 +6,22 @@ def create_app():
     # 전처리 스크립트는 FastAPI 없이도 실행될 수 있어야 합니다.
     # 그래서 서버 실행에 필요한 import는 create_app 안에서만 수행합니다.
     from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
 
     from .routers import items, mock, preprocess
 
     app = FastAPI(title="Local File AI Backend")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # 기본 서버 확인용 라우터입니다.
     app.include_router(items.router)
