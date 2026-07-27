@@ -1,0 +1,51 @@
+name: 작업
+description: 기능 구현, 리팩터링, 실험 등 계획된 작업
+title: "[파트] "
+labels: ["type: feat"]
+body:
+  - type: dropdown
+    id: part
+    attributes:
+      label: 파트
+      options:
+        - "BE1 · AI/DB"
+        - "BE2 · 파일 시스템/API"
+        - "FE1 · Electron 아키텍처"
+        - "FE2 · UI/UX"
+        - "공통 · 여러 파트"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목표
+      description: 이 작업이 끝나면 무엇이 가능해지는지 한두 줄로
+      placeholder: 자연어 쿼리를 받아 ChromaDB에서 상위 5건을 관련도순으로 반환한다
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 체크박스로. 이게 전부 켜지면 닫습니다
+      value: |
+        - [ ]
+        - [ ]
+        - [ ] 테스트 추가
+    validations:
+      required: true
+
+  - type: textarea
+    id: deps
+    attributes:
+      label: 선행 조건 / 다른 파트 의존
+      description: 먼저 끝나야 하는 이슈가 있으면 번호로. 없으면 비워두세요
+      placeholder: "#12 (BE1 임베딩 모델 교체)가 먼저 병합돼야 함"
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 참고
+      description: 관련 문서, 기획안 항목, 검토한 라이브러리 등

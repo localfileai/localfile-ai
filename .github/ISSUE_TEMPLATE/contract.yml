@@ -1,0 +1,72 @@
+name: 계약 변경 제안
+description: API 스키마, IPC 채널 등 여러 파트가 함께 쓰는 인터페이스 변경
+title: "[계약] "
+labels: ["type: contract", "needs discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `apps/server/app/contracts/`와 IPC 채널은 4명이 함께 씁니다.
+        **코드보다 먼저 여기서 합의합니다.** 합의 없이 바꾸면 다른 사람 브랜치가 조용히 깨집니다.
+
+  - type: textarea
+    id: current
+    attributes:
+      label: 현재
+      description: 지금 스키마가 어떻게 생겼는지
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: 제안
+      description: 어떻게 바꾸자는 건지
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: 왜 필요한가
+      description: 지금 형태로는 안 되는 이유. 구체적인 사례가 있으면 좋습니다
+      placeholder: |
+        recommended_folder가 "assignment/database/2025_1학기" 문자열이라
+        FE에서 경로 세그먼트 단위로 렌더링하려면 매번 split이 필요하다.
+        구분자가 / 인지 \ 인지도 백엔드 OS에 따라 달라진다.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: affected
+    attributes:
+      label: 영향받는 파트
+      options:
+        - label: "BE1 · AI/DB"
+        - label: "BE2 · 파일 시스템/API"
+        - label: "FE1 · Electron 아키텍처"
+        - label: "FE2 · UI/UX"
+
+  - type: textarea
+    id: migration
+    attributes:
+      label: 각 파트가 해야 할 일
+      description: 병합 후 누가 무엇을 고쳐야 하는지
+      value: |
+        - BE1:
+        - BE2:
+        - FE1:
+        - FE2:
+
+  - type: checkboxes
+    id: agreed
+    attributes:
+      label: 합의
+      description: 영향받는 파트가 동의하면 체크합니다. 전부 체크된 뒤에 구현을 시작하세요
+      options:
+        - label: "@InhyeokKang"
+        - label: "@lauranofirst1"
+        - label: "@hongham"
+        - label: "@0hj2"

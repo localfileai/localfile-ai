@@ -1,0 +1,54 @@
+# 리뷰어 자동 지정
+# 아래로 갈수록 우선합니다. 마지막에 매칭된 규칙 하나만 적용됩니다.
+#
+# 주의: 여기 적힌 계정은 저장소에 write 권한이 있어야 자동 지정이 동작합니다.
+#       조직 People 화면에서 4명 모두 Member 이상인지 확인하세요.
+
+# 기본값 — 아래 규칙에 걸리지 않는 모든 파일
+*                                   @InhyeokKang
+
+# ─────────────────────────────────────────────
+# FE1 · Electron 아키텍처
+# ─────────────────────────────────────────────
+/apps/desktop/electron/             @hongham
+/apps/desktop/electron-builder.yml  @hongham
+/apps/desktop/vite.config.ts        @hongham
+
+# ─────────────────────────────────────────────
+# FE2 · UI/UX
+# ─────────────────────────────────────────────
+/apps/desktop/src/                  @0hj2
+/apps/desktop/tailwind.config.ts    @0hj2
+/apps/desktop/index.html            @0hj2
+
+# 데스크톱 공통 설정은 FE 두 명 모두
+/apps/desktop/package.json          @hongham @0hj2
+/apps/desktop/tsconfig.json         @hongham @0hj2
+
+# ─────────────────────────────────────────────
+# BE1 · AI/DB
+# ─────────────────────────────────────────────
+/apps/server/app/rag/               @InhyeokKang
+/apps/server/app/llm/               @InhyeokKang
+/apps/server/experiments/           @InhyeokKang
+
+# ─────────────────────────────────────────────
+# BE2 · 파일 시스템 / API
+# ─────────────────────────────────────────────
+/apps/server/app/api/               @lauranofirst1
+/apps/server/app/extraction/        @lauranofirst1
+/apps/server/app/watcher/           @lauranofirst1
+/apps/server/app/fileops/           @lauranofirst1
+/apps/server/app/db/                @lauranofirst1
+
+# ─────────────────────────────────────────────
+# 팀 전원 리뷰 — 한 명이 바꾸면 나머지 셋이 깨집니다
+# ─────────────────────────────────────────────
+/apps/server/app/contracts/         @InhyeokKang @lauranofirst1 @hongham @0hj2
+/packages/contracts/                @InhyeokKang @lauranofirst1 @hongham @0hj2
+
+# ─────────────────────────────────────────────
+# 인프라 · 문서
+# ─────────────────────────────────────────────
+/.github/                           @InhyeokKang
+/docs/decisions/                    @InhyeokKang

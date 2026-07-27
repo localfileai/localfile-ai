@@ -1,0 +1,51 @@
+name: 버그
+description: 의도대로 동작하지 않는 것
+title: "[버그] "
+labels: ["type: fix"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 무슨 일이 일어났나
+      description: 기대한 동작과 실제 동작
+      placeholder: |
+        기대: [승인]을 누르면 파일이 이동한다
+        실제: 파일이 열려 있으면 앱이 응답 없음 상태가 된다
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 재현 절차
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그 / 에러 메시지
+      description: 붙여넣으면 자동으로 코드 블록이 됩니다
+      render: shell
+
+  - type: input
+    id: env
+    attributes:
+      label: 환경
+      placeholder: "Windows 11 / Python 3.14.5 / Ollama 0.32.4 / RTX 3060 Ti"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: blocking
+    attributes:
+      label: 다른 작업을 막고 있나
+      options:
+        - "아니오"
+        - "예 — 이것 때문에 진행이 멈춤"
+    validations:
+      required: true
