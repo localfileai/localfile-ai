@@ -8,7 +8,7 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from .routers import items, mock, preprocess
+    from .api.routes import items, mock, preprocess
 
     app = FastAPI(title="Local File AI Backend")
 

@@ -9,15 +9,13 @@ import json
 import random
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 # 스크립트를 `python scripts/...` 형태로 실행해도 app 패키지를 import할 수 있게 합니다.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.services.fileops import extract_from_path
-
+from app.extraction.service import extract_from_path
 
 TEMPLATES = [
     # 질문 템플릿과 답변 템플릿을 짝으로 보관합니다.
@@ -31,13 +29,13 @@ def make_pair(source_text: str, idx: int) -> dict:
     """원본 텍스트 하나를 기반으로 가짜 질문/답변 한 쌍을 만듭니다."""
     title = f"문서{idx}"
     topic = random.choice(["계약", "보고서", "설명서", "회의록", "정책"])
-    summary = (source_text.strip().split('\n')[0][:120] + '...') if source_text else "요약 없음"
+    summary = (source_text.strip().split("\n")[0][:120] + "...") if source_text else "요약 없음"
     q, a = random.choice(TEMPLATES)
     answer = a.format(title=title, topic=topic, summary=summary)
     return {"id": idx, "question": q, "context": source_text[:2000], "answer": answer}
 
 
-def load_source_texts(source_dir: Optional[Path]) -> List[str]:
+def load_source_texts(source_dir: Path | None) -> list[str]:
     """PDF/TXT/MD 문서에서 전처리된 텍스트만 모아 데이터셋 재료로 사용합니다."""
     samples = []
     if not source_dir or not source_dir.exists():
@@ -52,7 +50,7 @@ def load_source_texts(source_dir: Optional[Path]) -> List[str]:
     return samples
 
 
-def generate_count(n: int, source_dir: Optional[Path] = None):
+def generate_count(n: int, source_dir: Path | None = None):
     """지정한 개수만큼 가짜 QA 데이터를 생성합니다."""
     out = []
     samples = load_source_texts(source_dir)

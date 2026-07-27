@@ -5,9 +5,7 @@ API 요청/응답에 사용하는 Pydantic 모델을 모아둔 파일입니다.
 FE와 협업할 때 응답 형태를 예측하기 쉬워집니다.
 """
 
-from typing import List
-
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ExtractPathRequest(BaseModel):
@@ -36,7 +34,7 @@ class ExtractPathResponse(BaseModel):
     """전처리 API의 전체 응답 구조입니다."""
 
     count: int
-    items: List[ExtractedDocument]
+    items: list[ExtractedDocument]
 
 
 class MockAnalyzeRequest(BaseModel):
@@ -53,19 +51,20 @@ class MockAnalyzeResponse(BaseModel):
     recommended_folder: str
     summary: str
     confidence: float
-    tags: List[str]
+    tags: list[str]
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "original_path": "/Users/alex/Documents/report.pdf",
                 "recommended_name": "report_summary.pdf",
                 "recommended_folder": "업무/프로젝트A",
                 "summary": "프로젝트 A의 진행 상황과 다음 단계(요약): 1) 데이터 수집 완료, 2) 모델 학습 진행 필요, 3) 배포 계획 수립.",
                 "confidence": 0.91,
-                "tags": ["프로젝트A", "요약", "업무"]
+                "tags": ["프로젝트A", "요약", "업무"],
             }
         }
+    )
 
 
 # --- 추가된 문서/응답 모델 ---
@@ -77,25 +76,26 @@ class SearchItem(BaseModel):
     score: int
     snippet: str
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "TSN_스케줄링_발표자료.pdf",
                 "ext": "PDF",
                 "path": "Documents/연구/TSN",
                 "modified": "2026-06-23",
                 "score": 87,
-                "snippet": "TAS와 CBS+TAS의 지터 및 처리량 비교 결과를 정리한 발표 자료입니다."
+                "snippet": "TAS와 CBS+TAS의 지터 및 처리량 비교 결과를 정리한 발표 자료입니다.",
             }
         }
+    )
 
 
 class SearchResponse(BaseModel):
     count: int
-    items: List[SearchItem]
+    items: list[SearchItem]
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "count": 2,
                 "items": [
@@ -105,7 +105,7 @@ class SearchResponse(BaseModel):
                         "path": "Documents/연구/TSN",
                         "modified": "2026-06-23",
                         "score": 87,
-                        "snippet": "TAS와 CBS+TAS의 지터 및 처리량 비교 결과를 정리한 발표 자료입니다."
+                        "snippet": "TAS와 CBS+TAS의 지터 및 처리량 비교 결과를 정리한 발표 자료입니다.",
                     },
                     {
                         "name": "논문학습플랫폼_README.md",
@@ -113,11 +113,12 @@ class SearchResponse(BaseModel):
                         "path": "Documents/프로젝트/Paper-Learning",
                         "modified": "2025-07-27",
                         "score": 89,
-                        "snippet": "문단 추출 및 요약 기능 설명이 포함된 README 파일입니다."
-                    }
-                ]
+                        "snippet": "문단 추출 및 요약 기능 설명이 포함된 README 파일입니다.",
+                    },
+                ],
             }
         }
+    )
 
 
 class RenameRecommendation(BaseModel):
@@ -128,25 +129,26 @@ class RenameRecommendation(BaseModel):
     ext: str
     confidence: int
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "old": "최종.pdf",
                 "next": "가치가게_캡스톤_최종발표_2025.pdf",
                 "path": "대학교/캡스톤",
                 "ext": "PDF",
-                "confidence": 96
+                "confidence": 96,
             }
         }
+    )
 
 
 class RenameResponse(BaseModel):
     count: int
-    items: List[RenameRecommendation]
+    items: list[RenameRecommendation]
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "count": 2,
                 "items": [
@@ -156,7 +158,7 @@ class RenameResponse(BaseModel):
                         "next": "가치가게_캡스톤_최종발표_2025.pdf",
                         "path": "대학교/캡스톤",
                         "ext": "PDF",
-                        "confidence": 96
+                        "confidence": 96,
                     },
                     {
                         "id": 2,
@@ -164,11 +166,12 @@ class RenameResponse(BaseModel):
                         "next": "QR키오스크_DB설계_메모.txt",
                         "path": "프로젝트/QR-Kiosk",
                         "ext": "TXT",
-                        "confidence": 90
-                    }
-                ]
+                        "confidence": 90,
+                    },
+                ],
             }
         }
+    )
 
 
 class MoveRecommendation(BaseModel):
@@ -178,27 +181,33 @@ class MoveRecommendation(BaseModel):
     to: str
     confidence: int
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "value",
                 "name": "가치가게_캡스톤_최종발표.pdf",
                 "from_": "Documents/다운로드",
                 "to": "Documents/대학교/2025/캡스톤/가치가게",
-                "confidence": 96
+                "confidence": 96,
             }
         }
+    )
 
 
 class MoveResponse(BaseModel):
-    current_files: List[dict]
-    recommendations: List[MoveRecommendation]
+    current_files: list[dict]
+    recommendations: list[MoveRecommendation]
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "current_files": [
-                    {"id": "value", "name": "가치가게_캡스톤_최종발표.pdf", "ext": "PDF", "path": "Documents/다운로드"}
+                    {
+                        "id": "value",
+                        "name": "가치가게_캡스톤_최종발표.pdf",
+                        "ext": "PDF",
+                        "path": "Documents/다운로드",
+                    }
                 ],
                 "recommendations": [
                     {
@@ -206,26 +215,25 @@ class MoveResponse(BaseModel):
                         "name": "가치가게_캡스톤_최종발표.pdf",
                         "from_": "Documents/다운로드",
                         "to": "Documents/대학교/2025/캡스톤/가치가게",
-                        "confidence": 96
+                        "confidence": 96,
                     }
-                ]
+                ],
             }
         }
+    )
 
 
 class ApplyRequest(BaseModel):
-    ids: List[str]
+    ids: list[str]
 
-    class Config:
-        schema_extra = {"example": {"ids": ["value", "tsn"]}}
+    model_config = ConfigDict(json_schema_extra={"example": {"ids": ["value", "tsn"]}})
 
 
 class ApplyResponse(BaseModel):
     applied: int
     status: str
 
-    class Config:
-        schema_extra = {"example": {"applied": 2, "status": "ok"}}
+    model_config = ConfigDict(json_schema_extra={"example": {"applied": 2, "status": "ok"}})
 
 
 class ReanalyzeResponse(BaseModel):
@@ -233,5 +241,6 @@ class ReanalyzeResponse(BaseModel):
     rename_count: int
     move_count: int
 
-    class Config:
-        schema_extra = {"example": {"message": "reanalyzed", "rename_count": 4, "move_count": 3}}
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"message": "reanalyzed", "rename_count": 4, "move_count": 3}}
+    )

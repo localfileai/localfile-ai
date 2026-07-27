@@ -4,11 +4,10 @@
 현재 1주차 BE2 범위에서는 PDF/TXT/MD 텍스트 추출이 핵심입니다.
 """
 
-from pathlib import Path
 import re
 import unicodedata
-from typing import Dict, Iterable, List
-
+from collections.abc import Iterable
+from pathlib import Path
 
 # 첫 페이지/텍스트 추출을 지원하는 확장자 목록입니다.
 SUPPORTED_TEXT_EXTENSIONS = {".pdf", ".txt", ".md"}
@@ -124,7 +123,7 @@ def iter_supported_files(target_path: str) -> Iterable[Path]:
             yield child
 
 
-def extract_from_path(target_path: str, max_chars: int = 1000) -> List[Dict[str, str]]:
+def extract_from_path(target_path: str, max_chars: int = 1000) -> list[dict[str, str]]:
     """경로에서 추출한 문서 정보를 API 응답에 쓰기 좋은 dict 리스트로 만듭니다."""
     results = []
     for file_path in iter_supported_files(target_path):
@@ -132,24 +131,28 @@ def extract_from_path(target_path: str, max_chars: int = 1000) -> List[Dict[str,
             raw_text = extract_first_page_text(str(file_path))
             normalized_text = normalize_pdf_text(raw_text)
             preview_text = truncate_text(normalized_text, max_chars)
-            results.append({
-                "path": str(file_path),
-                "name": file_path.name,
-                "extension": file_path.suffix.lower(),
-                "raw_text": truncate_text(raw_text, max_chars),
-                "normalized_text": truncate_text(normalized_text, max_chars),
-                "preview_text": preview_text,
-                "error": "",
-            })
+            results.append(
+                {
+                    "path": str(file_path),
+                    "name": file_path.name,
+                    "extension": file_path.suffix.lower(),
+                    "raw_text": truncate_text(raw_text, max_chars),
+                    "normalized_text": truncate_text(normalized_text, max_chars),
+                    "preview_text": preview_text,
+                    "error": "",
+                }
+            )
         except Exception as exc:
             # 한 파일에서 실패해도 전체 폴더 처리는 계속하기 위해 파일별 error에 담습니다.
-            results.append({
-                "path": str(file_path),
-                "name": file_path.name,
-                "extension": file_path.suffix.lower(),
-                "raw_text": "",
-                "normalized_text": "",
-                "preview_text": "",
-                "error": str(exc),
-            })
+            results.append(
+                {
+                    "path": str(file_path),
+                    "name": file_path.name,
+                    "extension": file_path.suffix.lower(),
+                    "raw_text": "",
+                    "normalized_text": "",
+                    "preview_text": "",
+                    "error": str(exc),
+                }
+            )
     return results

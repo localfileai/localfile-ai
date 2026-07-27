@@ -7,8 +7,8 @@ FE는 사용자가 선택한 파일/폴더 경로를 이 API에 보내 추출 �
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..schemas import ExtractPathRequest, ExtractPathResponse, ExtractedDocument
-from ..services.fileops import extract_from_path
+from ...contracts.api import ExtractedDocument, ExtractPathRequest, ExtractPathResponse
+from ...extraction.service import extract_from_path
 
 router = APIRouter(prefix="/preprocess", tags=["preprocess"])
 
