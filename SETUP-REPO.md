@@ -1,187 +1,60 @@
-# 저장소 세팅
+# 저장소 세팅 — 완료 기록
 
-한 번만 하면 되는 작업입니다. **BE1이 대표로 실행**하고 나머지는 클론만 하면 됩니다.
+초기 세팅은 끝났습니다. 이 파일은 무엇이 어떻게 설정돼 있는지에 대한 기록입니다.
+새로 합류하는 사람은 [CONTRIBUTING.md](CONTRIBUTING.md)와
+[docs/development.md](docs/development.md)를 보세요.
 
-이 파일 자체는 세팅이 끝나면 지워도 됩니다.
+## 적용된 설정
 
----
-
-## 0. gh CLI 설치
-
-아래 명령 대부분이 GitHub CLI를 씁니다. 웹 화면에서 클릭해도 되지만
-20분 걸릴 일이 2분에 끝납니다.
-
-```powershell
-winget install --id GitHub.cli
-gh auth login
-```
-
-## 1. 저장소 생성
-
-```powershell
-cd C:\Users\IHK\localfile-ai
-
-git init -b main
-git add .
-git commit -m "chore: 프로젝트 구조 및 개발 규칙 초기 설정"
-
-gh repo create localfileai/localfile-ai `
-    --private `
-    --source . `
-    --remote origin `
-    --description "내 PC의 문서를 로컬에서 검색하고 정리하는 데스크톱 앱. Ollama + ChromaDB." `
-    --push
-```
-
-> `--private`로 시작하는 걸 권합니다. 3주차쯤 앱이 동작하고 README에
-> 데모 GIF가 붙었을 때 public으로 바꾸세요. 비어 있는 상태로 공개해두는 것보다
-> 완성도가 있을 때 여는 편이 낫습니다.
->
-> public 전환: `gh repo edit localfileai/localfile-ai --visibility public`
-
-## 2. BE1 1주차 작업물 이관 — 완료됨
-
-`localfile-ai-be1/`의 코드는 이미 옮겨져 있습니다. **원본 폴더는 그대로 뒀으니**
-푸시가 끝나고 정상 동작을 확인한 뒤에 지우세요.
-
-| 원본 | 옮겨진 곳 |
+| 항목 | 상태 |
 |---|---|
-| `schemas.py` | `apps/server/app/contracts/schemas.py` — 실험이 아니라 팀 공용 계약이라 승격 |
-| `schemas.py`의 `__main__` 자체 테스트 | `apps/server/tests/test_contracts.py` — pytest 17건으로 변환 |
-| 나머지 `*.py`, `DATASET_CHANGES.md` | `apps/server/experiments/` |
-| `README.md`의 실험 결과 | [ADR-0002](docs/decisions/0002-model-selection.md) |
-| `.py.orig`, `venv/`, `chroma_db/`, 결과 CSV, `student_dataset/` | 옮기지 않음 |
+| 공개 여부 | **public** — 무료 플랜에서 브랜치 보호를 쓰려면 public이어야 합니다 |
+| 기본 브랜치 | `main` |
+| `main` 보호 | 직접 푸시 차단, PR 리뷰 1건 필수, CODEOWNERS 리뷰 필수, 리뷰 후 새 커밋 시 승인 무효화, 대화 해결 필수, force push·삭제 금지 |
+| 병합 방식 | squash only. merge commit·rebase 비활성. 병합 후 브랜치 자동 삭제 |
+| CI | `server` / `desktop` 경로 필터 워크플로 |
+| 라벨 | 파트 4 · 유형 6 · 상태 2 |
+| 마일스톤 | Week 1(종료) ~ Week 4 |
 
-실험 코드의 `from schemas import ...`는 `from app.contracts import ...`로 고쳤습니다.
-`pip install -e .` 상태면 어디서 실행하든 import됩니다.
+### 아직 안 켠 것
 
-## 3. 팀원 초대
-
-```powershell
-gh api -X PUT /orgs/localfileai/memberships/lauranofirst1 -f role=member
-gh api -X PUT /orgs/localfileai/memberships/hongham       -f role=member
-gh api -X PUT /orgs/localfileai/memberships/0hj2          -f role=member
-```
-
-저장소 권한 (CODEOWNERS가 동작하려면 **write 이상**이어야 합니다):
-
-```powershell
-gh api -X PUT /repos/localfileai/localfile-ai/collaborators/lauranofirst1 -f permission=push
-gh api -X PUT /repos/localfileai/localfile-ai/collaborators/hongham       -f permission=push
-gh api -X PUT /repos/localfileai/localfile-ai/collaborators/0hj2          -f permission=push
-```
-
-## 4. 라벨
-
-기본 라벨은 지우고 우리 것으로 채웁니다.
-
-```powershell
-# 기본 라벨 정리
-"bug","documentation","duplicate","enhancement","good first issue","help wanted","invalid","question","wontfix" |
-    ForEach-Object { gh label delete $_ --yes 2>$null }
-
-# 파트
-gh label create "part: be1" --color 0E8A16 --description "AI/DB · @InhyeokKang"
-gh label create "part: be2" --color 1D76DB --description "파일 시스템/API · @lauranofirst1"
-gh label create "part: fe1" --color 5319E7 --description "Electron 아키텍처 · @hongham"
-gh label create "part: fe2" --color D93F0B --description "UI/UX · @0hj2"
-
-# 유형
-gh label create "type: feat"     --color A2EEEF --description "기능 추가"
-gh label create "type: fix"      --color D73A4A --description "버그 수정"
-gh label create "type: docs"     --color 0075CA --description "문서"
-gh label create "type: exp"      --color FBCA04 --description "실험"
-gh label create "type: contract" --color B60205 --description "계약 변경 — 전원 합의 필요"
-gh label create "type: chore"    --color CFD3D7 --description "빌드·설정·의존성"
-
-# 상태
-gh label create "blocked"          --color 000000 --description "다른 작업에 막힘"
-gh label create "needs discussion" --color E4E669 --description "구현 전 논의 필요"
-```
-
-## 5. 마일스톤
-
-번다운이 자동으로 그려집니다. 주차를 라벨로 만들지 마세요.
-
-```powershell
-$m = @(
-    @{ t="Week 1 · 데이터셋 확보 · Mock 연동";     d="2026-07-26" },
-    @{ t="Week 2 · 모델 테스트 · 시스템 뼈대";     d="2026-08-02" },
-    @{ t="Week 3 · 모델 최적화 · 파일 제어";       d="2026-08-09" },
-    @{ t="Week 4 · 패키징 · 배포";                 d="2026-08-16" }
-)
-foreach ($x in $m) {
-    gh api -X POST /repos/localfileai/localfile-ai/milestones `
-        -f title="$($x.t)" -f due_on="$($x.d)T23:59:59Z"
-}
-```
-
-2026-07-20(월) 시작 기준, 월~일 단위입니다.
-
-## 6. main 브랜치 보호
-
-**이걸 안 하면 나머지 규칙이 전부 권고사항이 됩니다.**
-
-```powershell
-gh api -X PUT /repos/localfileai/localfile-ai/branches/main/protection `
-  --input - <<'JSON'
-{
-  "required_status_checks": null,
-  "enforce_admins": false,
-  "required_pull_request_reviews": {
-    "required_approving_review_count": 1,
-    "require_code_owner_reviews": true,
-    "dismiss_stale_reviews": true
-  },
-  "restrictions": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false,
-  "required_conversation_resolution": true
-}
-JSON
-```
-
-> PowerShell에서 heredoc이 안 되면 위 JSON을 `protection.json`으로 저장하고
-> `--input protection.json`을 쓰세요.
-
-`required_status_checks`는 일단 `null`입니다. CI가 한 번이라도 돌아야
-체크 이름이 등록됩니다. 첫 PR이 병합된 뒤 아래로 켜세요.
+**필수 상태 검사(required status checks).** CI가 한 번 돌아야 체크 이름이
+등록되므로 처음엔 켤 수 없었습니다. 지금은 `server` 워크플로가 돌았으니 켤 수 있습니다.
 
 ```powershell
 gh api -X PATCH /repos/localfileai/localfile-ai/branches/main/protection/required_status_checks `
     -f strict=true -F 'contexts[]=check'
 ```
 
-`enforce_admins`는 `false`로 뒀습니다. 4주 프로젝트에서 배포 직전에
-관리자까지 막히면 곤란합니다. 대신 **쓰지 마세요.** 쓰는 순간 규칙이 무너집니다.
+`enforce_admins`는 끈 상태입니다. 4주 프로젝트에서 배포 직전에 관리자까지
+막히면 곤란해서입니다. 대신 **쓰지 마세요.** 쓰는 순간 규칙이 무너집니다.
 
-## 7. 병합 방식
+## 통합된 저장소
 
-squash만 허용합니다. `main` 히스토리가 PR 단위로 깔끔하게 남습니다.
+| 원래 | 지금 |
+|---|---|
+| `local-file-ai-backend` | `apps/server/` — 12커밋 히스토리째 병합. **아카이브됨** |
+| `local-file-ai-frontend` | `apps/desktop/` 에서 진행 예정. 비어 있었음. **아카이브됨** |
+| `Project-Overview` | `docs/` . **아카이브됨** |
+| `localfile-ai-be1` (로컬) | `apps/server/experiments/` + `app/contracts/` |
+| `Dataset` | **그대로 둡니다.** 이 저장소가 public이 됐으므로 데이터는 private에 있어야 합니다 |
 
-```powershell
-gh repo edit localfileai/localfile-ai `
-    --enable-squash-merge `
-    --enable-merge-commit=false `
-    --enable-rebase-merge=false `
-    --delete-branch-on-merge
-```
+아카이브는 되돌릴 수 있습니다: `gh repo unarchive localfileai/<이름>`
 
-## 8. 프로젝트 보드
+`local-file-ai-backend`의 `mock/pdf/` TSN 논문 9건(24MB)은 가져오지 않았습니다.
+public 저장소에 저널 논문을 재배포하게 되기 때문입니다. 원본은 아카이브된
+저장소에 그대로 있습니다.
 
-```powershell
-gh project create --owner localfileai --title "LocalFile AI"
-```
+## 남은 작업
 
-컬럼은 `Backlog → This Week → In Progress → In Review → Done` 정도면 충분합니다.
-칸반을 정교하게 만들 시간에 이슈를 쓰는 게 낫습니다.
-
-## 9. 조직 프로필 README
-
-이 저장소와 **별개**입니다. `.github`라는 이름의 **public** 저장소가 따로 필요합니다.
-
-`C:\Users\IHK\localfileai-org-profile\`에 준비돼 있습니다.
-[그쪽 SETUP.md](../localfileai-org-profile/SETUP.md)를 보세요.
+- [ ] **FE1 GitHub 핸들 확인.** [CODEOWNERS](.github/CODEOWNERS)에 `@hongham`으로
+      적혀 있는데 조직 멤버가 아닙니다. 대신 `@kimyunzoo`가 멤버입니다.
+      조직 멤버가 아닌 계정은 CODEOWNERS에서 무시되고, `apps/desktop/electron/`에
+      대한 리뷰어 자동 지정이 동작하지 않습니다
+- [ ] `apps/desktop/` — FE1이 `npm create vite@latest`로 생성
+- [ ] `scripts/generate_contracts.py` — 계약이 하나로 합쳐진 뒤 (#5)
+- [ ] `.github/workflows/release.yml` — 4주차, Windows 러너에서 electron-builder
+- [ ] `apps/server/.env.example` — 환경 변수 확정 후
 
 ---
 
@@ -215,8 +88,6 @@ test(llm): ValidationError 재시도 경로 검증
 docs(adr): 모노레포 결정 기록 추가
 ```
 
-`git log --oneline`만 봐도 4주간 무엇이 있었는지 읽힙니다.
-
 ## 주차별 태그와 릴리스
 
 ```powershell
@@ -228,13 +99,6 @@ gh release create v0.2.0 --generate-notes --title "v0.2.0 · Week 2"
 자동 생성 노트 맨 위에 **그 주에 무엇이 가능해졌는지** 두세 줄을 직접 쓰세요.
 커밋 목록만 있으면 아무도 읽지 않습니다.
 
-```markdown
-Mock 데이터를 걷어내고 실제 Ollama와 ChromaDB를 붙였습니다.
-폴더를 선택하면 진짜로 문서를 읽고 추천을 냅니다.
-
-한국어 검색은 임베딩 모델을 bge-m3로 바꾼 뒤 상위 1건 정확도가 3/10 → 8/10.
-```
-
 ## 주차 기록
 
 [docs/weekly/](docs/weekly/)에 주가 끝날 때마다 씁니다. 30분 안에.
@@ -242,33 +106,15 @@ Mock 데이터를 걷어내고 실제 Ollama와 ChromaDB를 붙였습니다.
 "알게 된 것" 항목이 핵심입니다. 1주차의 라벨 규칙 결함 발견 같은 것 —
 **계획대로 안 된 일과 거기서 뭘 배웠는지**가 계획대로 된 일보다 더 많은 걸 말해줍니다.
 
-## ADR
-
-되돌리기 어려운 결정은 [docs/decisions/](docs/decisions/)에 남깁니다.
-"왜 exaone인가"에 실측 표로 답하는 문서가 있는 것과 없는 것은 차이가 큽니다.
-
 ## 이슈 먼저
 
 이슈 없이 커밋하지 마세요. 이슈 → 브랜치 → PR → 병합이 이어지면
-GitHub이 자동으로 타임라인을 만들어줍니다. 나중에 "이건 왜 이렇게 됐지"를
-역추적할 수 있는 유일한 경로이기도 합니다.
+GitHub이 자동으로 타임라인을 만들어줍니다.
 
 ## 데모 GIF
 
 3주차에 앱이 동작하면 README 상단에 넣으세요.
-**README에서 가장 효과가 큰 한 칸입니다.** 스크린샷 한 장이 문단 열 개보다 낫습니다.
+**README에서 가장 효과가 큰 한 칸입니다.**
 
 Windows는 [ScreenToGif](https://www.screentogif.com/)가 편합니다.
-`docs/assets/demo.gif`에 두고 README에서 참조하세요. 10초 안쪽, 5MB 이하로.
-
----
-
-# 다음에 만들 것
-
-지금 구조에 비어 있는 것들입니다. 필요할 때 채우세요.
-
-- [ ] `apps/desktop/` — FE1이 `npm create vite@latest`로 생성.
-      손으로 만든 스캐폴드보다 정확합니다. 생성 후 `electron/`과 `src/`로 나누세요
-- [ ] `scripts/generate_contracts.py` — 2주차, 계약이 안정된 뒤
-- [ ] `.github/workflows/release.yml` — 4주차, Windows 러너에서 electron-builder 패키징
-- [ ] `apps/server/.env.example` — 환경 변수가 확정되면
+`docs/assets/demo.gif`에 두고 10초 안쪽, 5MB 이하로.
