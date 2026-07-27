@@ -1,0 +1,6 @@
+# FastAPI 서버 실행용
+fastapi
+uvicorn[standard]
+
+# PDF 첫 페이지 텍스트 추출용
+PyMuPDF
