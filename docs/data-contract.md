@@ -3,8 +3,12 @@
 [`apps/server/app/contracts/schemas.py`](../apps/server/app/contracts/schemas.py)가
 **단일 기준**입니다. BE1(LLM 출력), BE2(API 응답), FE2(화면 렌더링)가 모두 이걸 봅니다.
 
-한 명이 바꾸면 나머지 셋이 깨집니다. 그래서
+한 명이 바꾸면 나머지가 깨집니다. 그래서
 [계약 변경 제안 이슈](../.github/ISSUE_TEMPLATE/contract.yml)로 먼저 합의합니다.
+
+> CODEOWNERS는 전원을 리뷰어로 요청하지만 GitHub이 강제하는 건 그중 1명의
+> 승인뿐입니다. 전원 승인을 강제하는 기능은 없습니다. **이슈의 합의 체크박스가
+> 전원 동의의 유일한 기록입니다.**
 
 ## 현재 스키마
 

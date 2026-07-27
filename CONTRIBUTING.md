@@ -92,8 +92,10 @@ PR 병합 시 squash되므로 `main` 히스토리는 PR 단위로 깔끔하게 �
 
 `apps/server/app/contracts/`는 백엔드·프론트엔드가 함께 쓰는 단일 기준입니다.
 
-1. 이슈에 `type: contract` 라벨을 달고 변경안을 적습니다.
-2. 영향받는 파트가 동의합니다.
+1. **[계약 변경 제안 이슈](../../issues/new?template=contract.yml)를 먼저 엽니다.**
+2. 영향받는 파트가 이슈의 체크박스로 동의합니다.
+   CODEOWNERS는 전원을 리뷰어로 요청하지만 GitHub이 강제하는 건 1명의 승인뿐입니다.
+   **전원 합의는 이 체크박스가 유일한 기록입니다.**
 3. Pydantic 모델을 고치고 `npm run contracts:generate`로 TypeScript 타입을 재생성합니다.
 4. PR에는 생성된 타입도 함께 커밋합니다. CI가 최신 여부를 검사합니다.
 

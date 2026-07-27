@@ -164,7 +164,10 @@ python scripts/generate_contracts.py    # → packages/contracts/index.ts
 모델을 비교하고 잘못된 결론을 낸 적이 있어([ADR-0002](docs/decisions/0002-model-selection.md))
 교차 검증을 구조로 넣었습니다. 둘 중 한 명만 승인해도 병합됩니다.
 
-`app/contracts/`는 전원 리뷰가 필요합니다.
+`app/contracts/`는 전원이 리뷰어로 지정됩니다. 다만 **GitHub이 강제하는 것은
+그중 1명의 승인**입니다. 전원 승인을 강제하는 기능은 없습니다.
+실제 합의는 [계약 변경 제안 이슈](.github/ISSUE_TEMPLATE/contract.yml)의
+체크박스로 관리합니다. 코드보다 이슈가 먼저입니다.
 
 ## 기여
 
