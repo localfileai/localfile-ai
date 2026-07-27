@@ -1,0 +1,47 @@
+name: server
+
+# apps/server/ 가 바뀔 때만 돕니다.
+# 프론트엔드만 고친 PR에서 파이썬 CI가 도는 건 낭비입니다.
+on:
+  push:
+    branches: [main]
+    paths: ["apps/server/**"]
+  pull_request:
+    paths: ["apps/server/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: apps/server/pyproject.toml
+
+      - name: 의존성 설치
+        # ai 익스트라(chromadb → onnxruntime)는 설치가 무겁고 CI에서 모델을 돌릴 수도
+        # 없으므로 제외합니다. 해당 코드는 integration 마커로 분리해 테스트하세요.
+        run: python -m pip install -e ".[files,dev]"
+
+      - name: 린트
+        run: ruff check .
+
+      - name: 포맷 확인
+        run: ruff format --check .
+
+      - name: 테스트
+        # Ollama·ChromaDB 등 실제 런타임이 필요한 테스트는 러너에서 돌 수 없습니다.
+        # @pytest.mark.integration 을 붙이고 로컬에서 돌리세요.
+        run: pytest -q -m "not integration"
