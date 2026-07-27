@@ -12,6 +12,7 @@ body:
         - "BE2 · 파일 시스템/API"
         - "FE1 · Electron 아키텍처"
         - "FE2 · UI/UX"
+        - "AI · 리서치/검증"
         - "공통 · 여러 파트"
     validations:
       required: true

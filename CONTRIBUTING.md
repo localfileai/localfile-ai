@@ -24,7 +24,8 @@ main                          보호됨. 항상 빌드 가능. 직접 푸시 금
 | `chore/ci-python-314` | 빌드·설정·의존성 |
 | `exp/be1-rag-ablation` | 실험. 병합하지 않고 결과만 문서로 남길 수 있음 |
 
-`<part>`는 `be1` `be2` `fe1` `fe2` 중 하나입니다. 브랜치 목록만 봐도 누가 뭘 하는지 보입니다.
+`<part>`는 `be1` `be2` `fe1` `fe2` `ai` 중 하나입니다.
+브랜치 목록만 봐도 누가 뭘 하는지 보입니다.
 
 **develop 브랜치는 두지 않습니다.** 4주 프로젝트에서 릴리스 브랜치를 관리하는 비용이
 얻는 것보다 큽니다. 주차별 태그로 대신합니다.
@@ -103,7 +104,7 @@ PR 병합 시 squash되므로 `main` 히스토리는 PR 단위로 깔끔하게 �
 
 | 종류 | 라벨 |
 |---|---|
-| 파트 | `part: be1` `part: be2` `part: fe1` `part: fe2` |
+| 파트 | `part: be1` `part: be2` `part: fe1` `part: fe2` `part: ai` |
 | 유형 | `type: feat` `type: fix` `type: docs` `type: exp` `type: contract` `type: chore` |
 | 상태 | `blocked` `needs discussion` `good first issue` |
 

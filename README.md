@@ -151,13 +151,20 @@ python scripts/generate_contracts.py    # → packages/contracts/index.ts
 
 | 파트 | 담당 | 소유 디렉터리 |
 |---|---|---|
-| **BE1** · AI/DB | [@InhyeokKang](https://github.com/InhyeokKang) | `app/rag` `app/llm` `app/contracts` `experiments` |
+| **BE1** · AI/DB | [@InhyeokKang](https://github.com/InhyeokKang) | `app/rag` `app/llm` `experiments` |
 | **BE2** · 파일 시스템 | [@lauranofirst1](https://github.com/lauranofirst1) | `app/api` `app/extraction` `app/watcher` `app/fileops` `app/db` |
 | **FE1** · Electron 아키텍처 | [@hongham](https://github.com/hongham) | `apps/desktop/electron` |
 | **FE2** · UI/UX | [@0hj2](https://github.com/0hj2) | `apps/desktop/src` |
+| **AI** · 리서치/검증 | [@kimyunzoo](https://github.com/kimyunzoo) | `app/rag` `app/llm` `experiments` `docs/decisions` (BE1과 공동) |
 
 리뷰어는 [CODEOWNERS](.github/CODEOWNERS)로 자동 지정됩니다.
-`packages/contracts/` 변경은 4명 전원 리뷰가 필요합니다.
+
+**AI 트랙은 두 명이 함께 봅니다.** 모델 선정, 임베딩, 프롬프트는 한 번 정하면
+되돌리기 비싸고 수치 해석이 틀리기 쉽습니다. 1주차에 무작위 라벨 데이터셋으로
+모델을 비교하고 잘못된 결론을 낸 적이 있어([ADR-0002](docs/decisions/0002-model-selection.md))
+교차 검증을 구조로 넣었습니다. 둘 중 한 명만 승인해도 병합됩니다.
+
+`app/contracts/`는 전원 리뷰가 필요합니다.
 
 ## 기여
 

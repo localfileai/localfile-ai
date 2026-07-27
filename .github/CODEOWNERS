@@ -26,11 +26,15 @@
 /apps/desktop/tsconfig.json         @hongham @0hj2
 
 # ─────────────────────────────────────────────
-# BE1 · AI/DB
+# BE1 · AI/DB  +  AI · 리서치/검증
+#
+# AI 트랙은 두 명이 함께 봅니다. 모델 선정, 임베딩, 프롬프트는 한 번 정하면
+# 되돌리기 비싸고 수치 해석이 틀리기 쉬운 영역이라 교차 검증이 필요합니다.
+# 둘 중 한 명만 승인해도 병합됩니다. 강인혁님이 자리를 비워도 막히지 않습니다.
 # ─────────────────────────────────────────────
-/apps/server/app/rag/               @InhyeokKang
-/apps/server/app/llm/               @InhyeokKang
-/apps/server/experiments/           @InhyeokKang
+/apps/server/app/rag/               @InhyeokKang @kimyunzoo
+/apps/server/app/llm/               @InhyeokKang @kimyunzoo
+/apps/server/experiments/           @InhyeokKang @kimyunzoo
 
 # ─────────────────────────────────────────────
 # BE2 · 파일 시스템 / API
@@ -51,4 +55,7 @@
 # 인프라 · 문서
 # ─────────────────────────────────────────────
 /.github/                           @InhyeokKang
-/docs/decisions/                    @InhyeokKang
+
+# ADR은 결정의 근거를 남기는 문서입니다. 모델·RAG 관련 결정이 대부분이라
+# AI 트랙 두 명이 함께 봅니다.
+/docs/decisions/                    @InhyeokKang @kimyunzoo

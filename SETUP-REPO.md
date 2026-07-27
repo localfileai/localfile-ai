@@ -55,10 +55,10 @@ public 저장소에 저널 논문을 재배포하게 되기 때문입니다. 원
 
 ## 남은 작업
 
-- [ ] **FE1 GitHub 핸들 확인.** [CODEOWNERS](.github/CODEOWNERS)에 `@hongham`으로
-      적혀 있는데 조직 멤버가 아닙니다. 대신 `@kimyunzoo`가 멤버입니다.
-      조직 멤버가 아닌 계정은 CODEOWNERS에서 무시되고, `apps/desktop/electron/`에
-      대한 리뷰어 자동 지정이 동작하지 않습니다
+- [ ] **@hongham(FE1) 초대 수락.** 조직 초대가 2026-07-20에 발송됐으나 아직
+      대기 중입니다. 수락 전까지는 CODEOWNERS에서 무시되어
+      `apps/desktop/electron/` 리뷰어 자동 지정이 동작하지 않습니다.
+      GitHub 알림이나 가입 메일에서 Join을 눌러야 합니다
 - [ ] `apps/desktop/` — FE1이 `npm create vite@latest`로 생성
 - [ ] `scripts/generate_contracts.py` — 계약이 하나로 합쳐진 뒤 (#5)
 - [ ] `.github/workflows/release.yml` — 4주차, Windows 러너에서 electron-builder

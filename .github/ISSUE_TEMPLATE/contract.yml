@@ -48,6 +48,7 @@ body:
         - label: "BE2 · 파일 시스템/API"
         - label: "FE1 · Electron 아키텍처"
         - label: "FE2 · UI/UX"
+        - label: "AI · 리서치/검증"
 
   - type: textarea
     id: migration
@@ -66,7 +67,8 @@ body:
       label: 합의
       description: 영향받는 파트가 동의하면 체크합니다. 전부 체크된 뒤에 구현을 시작하세요
       options:
-        - label: "@InhyeokKang"
-        - label: "@lauranofirst1"
-        - label: "@hongham"
-        - label: "@0hj2"
+        - label: "@InhyeokKang (BE1)"
+        - label: "@lauranofirst1 (BE2)"
+        - label: "@hongham (FE1)"
+        - label: "@0hj2 (FE2)"
+        - label: "@kimyunzoo (AI)"

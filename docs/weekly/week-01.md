@@ -25,6 +25,11 @@
 - CORS 설정 (Vite 개발 서버 5173 허용)
 - PR 10건 병합
 
+### AI · 리서치/검증
+
+- 데모용 데이터셋 생성기 작성 (`Dataset` 저장소)
+- BE1의 모델·임베딩 판단에 대한 교차 검토
+
 ### FE1 · Electron 아키텍처
 
 <!-- TODO: 앱 창 띄우기, IPC 폴더 선택, Drag&Drop
@@ -45,8 +50,9 @@
   같은 것을 다르게 부르고 있고 `confidence`는 단위까지 다르다(0.0~1.0 vs 0~100).
   Mock을 실제 LLM으로 바꾸는 순간 FE가 깨진다.
   → [data-contract.md](../data-contract.md) 참고, 2주차 최우선
-- `generate_student_dataset.py`가 `Dataset` 저장소와 BE1 로컬 양쪽에 있다.
-  어느 쪽이 최신인지 확인 필요
+- **`generate_student_dataset.py`가 두 벌 있다.** `Dataset` 저장소(AI)와
+  BE1 로컬 양쪽에서 각각 만들어졌다. 저장소가 갈라져 있으니 같은 걸 두 번 만든
+  것도 모르고 있었다. 어느 쪽을 남길지 정해야 한다
 
 ## 알게 된 것
 

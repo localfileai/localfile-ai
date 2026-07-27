@@ -145,7 +145,7 @@ python test_models.py --sample 30 --seed 42
 | `apps/desktop/electron/` | FE1 |
 | `apps/desktop/src/` | FE2 |
 | `apps/server/app/api` `extraction` `watcher` `fileops` `db` | BE2 |
-| `apps/server/app/rag` `llm` + `experiments/` | BE1 |
+| `apps/server/app/rag` `llm` + `experiments/` + `docs/decisions/` | BE1 · AI (공동) |
 | `apps/server/app/contracts/` `packages/contracts/` | 전원 합의 |
 
 [CODEOWNERS](../.github/CODEOWNERS)가 리뷰어를 자동 지정합니다.
