@@ -1,0 +1,41 @@
+# ── Python ──────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# ── Node ────────────────────────────────────
+node_modules/
+dist/
+dist-electron/
+release/
+*.local
+
+# ── 로컬 데이터 ─────────────────────────────
+# 사용자 문서와 임베딩은 절대 커밋하지 않습니다.
+chroma_db/
+*.sqlite3
+*.db
+data/
+
+# 실험 산출물. 결론은 docs/decisions/ 에 남기고 원본 CSV는 커밋하지 않습니다.
+# 재현이 필요하면 seed와 명령어가 ADR에 적혀 있어야 합니다.
+apps/server/experiments/**/results/
+apps/server/experiments/**/*.csv
+apps/server/experiments/**/student_dataset/
+
+# ── 환경 ────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── 에디터 · OS ─────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
