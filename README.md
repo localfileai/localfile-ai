@@ -90,7 +90,9 @@ localfile-ai/
 │   │   └── src/                  React UI — 검색, 미리보기, 승인
 │   └── server/                   FastAPI
 │       ├── app/
-│       │   ├── api/              라우터
+│       │   ├── __init__.py       create_app() 팩토리
+│       │   ├── main.py           uvicorn app.main:app
+│       │   ├── api/routes/       라우터 — items · mock · preprocess
 │       │   ├── contracts/        Pydantic 스키마 — 팀 공용 단일 기준
 │       │   ├── extraction/       PyMuPDF 텍스트 추출
 │       │   ├── watcher/          Watchdog 증분 인덱싱
@@ -98,6 +100,7 @@ localfile-ai/
 │       │   ├── rag/              ChromaDB 임베딩 · 유사도 검색
 │       │   ├── llm/              Ollama 클라이언트 · 프롬프트 · 재시도
 │       │   └── db/               SQLite
+│       ├── scripts/              서버 없이 전처리만 돌려보는 CLI
 │       └── experiments/          모델 비교 실험 및 데이터셋 생성기
 ├── packages/
 │   └── contracts/                Pydantic → JSON Schema → TypeScript 타입

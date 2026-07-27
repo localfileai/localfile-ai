@@ -73,6 +73,30 @@ python scripts/generate_contracts.py     # → packages/contracts/index.ts
 **손으로 인터페이스를 다시 쓰지 마세요.** 백엔드와 프론트엔드가 조용히
 갈라지는 가장 흔한 경로입니다. 컴파일은 통과하는데 런타임에 `undefined`가 나옵니다.
 
+## ⚠️ 계약이 둘로 갈라져 있습니다
+
+1주차에 BE1과 BE2가 각자 계약을 만들었고, 둘이 같은 것을 다르게 부르고 있습니다.
+**2주차 최우선 과제입니다.**
+
+| | `contracts/schemas.py` (BE1) | `contracts/api.py` (BE2) |
+|---|---|---|
+| 용도 | LLM 출력 검증 | FE와 맞춘 Mock 응답 |
+| 추천 결과 | `FileOrganizeOutput` | `MockAnalyzeResponse` |
+| 폴더 | `recommended_folder: str` | `recommended_folder: str` |
+| 파일명 | `recommended_filename: str` | `recommended_name: str` ← 이름 다름 |
+| 신뢰도 | `confidence: float` 0.0~1.0 | `confidence: float` 0.0~1.0, 일부 `int` 0~100 ← 단위 다름 |
+| 근거 | `reason: str` ≤200자 | `summary: str` ← 의미 다름 |
+| 카테고리 | `category: Category` (8종 Enum) | `tags: list[str]` ← 자유 문자열 |
+
+`confidence`가 특히 위험합니다. `MockAnalyzeResponse`는 `0.91`인데
+`RenameRecommendation`·`MoveRecommendation`은 `96`입니다. FE가 어느 쪽 기준으로
+게이지를 그리느냐에 따라 조용히 100배 틀립니다.
+
+Mock을 실제 LLM으로 교체하는 순간 FE 화면이 깨집니다. 지금은 Mock이 하드코딩된
+값을 돌려주고 있어서 드러나지 않을 뿐입니다.
+
+→ 2주차 시작 전에 **계약 변경 제안 이슈**로 하나로 합칠 것.
+
 ## 미해결 논의
 
 2주차 구현 전에 정해야 합니다.

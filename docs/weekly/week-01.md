@@ -16,11 +16,19 @@
 
 ### BE2 · 파일 시스템
 
-<!-- TODO: 텍스트 추출 스크립트, Mock API 서버 진행 상황 -->
+- PDF·TXT·MD 텍스트 추출 (`extraction/service.py`). PyMuPDF 기반
+  - 합자 정규화(ﬁ → fi), 줄 끝 하이픈으로 끊긴 영단어 복원, 공백 정리
+  - 단어 중간이 아닌 마지막 공백 기준 절단
+  - 폴더 재귀 순회. 한 파일이 실패해도 나머지는 계속 처리하고 파일별 error로 보고
+- `POST /preprocess/extract-first-page` API
+- FE용 Mock API — `/mock/search` `/mock/rename` `/mock/move` `/mock/apply`
+- CORS 설정 (Vite 개발 서버 5173 허용)
+- PR 10건 병합
 
 ### FE1 · Electron 아키텍처
 
-<!-- TODO: 앱 창 띄우기, IPC 폴더 선택, Drag&Drop -->
+<!-- TODO: 앱 창 띄우기, IPC 폴더 선택, Drag&Drop
+     local-file-ai-frontend 저장소가 비어 있어 확인 불가 -->
 
 ### FE2 · UI/UX
 
@@ -28,7 +36,17 @@
 
 ## 안 된 것
 
-<!-- TODO: 넘기는 항목과 이유 -->
+- **저장소가 넷으로 흩어졌다.** `local-file-ai-backend` `local-file-ai-frontend`
+  `Dataset` `Project-Overview`가 따로 생겼고, BE1은 아예 로컬에서만 작업했다.
+  1주차 통합 결과물("폴더 고르면 더미 데이터가 화면에 출력되는 프로토타입")을
+  한 곳에서 확인할 수 없었다. → 2주차 시작 시점에 모노레포로 통합
+  ([ADR-0001](../decisions/0001-monorepo.md))
+- **계약이 둘로 갈라졌다.** BE1은 `FileOrganizeOutput`, BE2는 `MockAnalyzeResponse`.
+  같은 것을 다르게 부르고 있고 `confidence`는 단위까지 다르다(0.0~1.0 vs 0~100).
+  Mock을 실제 LLM으로 바꾸는 순간 FE가 깨진다.
+  → [data-contract.md](../data-contract.md) 참고, 2주차 최우선
+- `generate_student_dataset.py`가 `Dataset` 저장소와 BE1 로컬 양쪽에 있다.
+  어느 쪽이 최신인지 확인 필요
 
 ## 알게 된 것
 
