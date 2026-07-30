@@ -1,0 +1,542 @@
+import { useState, useMemo, useEffect } from 'react';
+import {
+  fetchSearchResults,
+  fetchRealSearchResults,
+  fetchSearchStatus,
+  type SearchEngine,
+  type SearchResult,
+  type SearchStatus,
+} from '../api/searchApi';
+import { listFolderDocuments, type PreviewItem } from '../api/preprocessApi';
+import FileResultCard from './FileResultCard';
+
+interface MainViewProps {
+  /** FE1이 IPC/Drag&Drop으로 인식한 폴더 경로 */
+  selectedPath?: string;
+}
+
+export default function MainView({ selectedPath }: MainViewProps) {
+  // 선택한 폴더에서 실제로 추출된 문서.
+  // 검색 결과(Mock)와 달리 이건 진짜 파일에서 뽑은 텍스트입니다.
+  const [realDocs, setRealDocs] = useState<PreviewItem[]>([]);
+  const [realDocsError, setRealDocsError] = useState('');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [openedDoc, setOpenedDoc] = useState<string>('');
+
+  useEffect(() => {
+    if (!selectedPath) {
+      setRealDocs([]);
+      setRealDocsError('');
+      return;
+    }
+
+    let cancelled = false;
+    setIsExtracting(true);
+    setOpenedDoc('');
+
+    listFolderDocuments(selectedPath).then(({ items, error }) => {
+      if (cancelled) return;
+      setRealDocs(items);
+      setRealDocsError(error);
+      setIsExtracting(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPath]);
+
+  // 1. 검색 상태(State)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // 검색 엔진. 'real'은 bge-m3 임베딩 + ChromaDB, 'mock'은 1주차 하드코딩.
+  const [engine, setEngine] = useState<SearchEngine>('real');
+  const [searchStatus, setSearchStatus] = useState<SearchStatus | null>(null);
+  const [searchError, setSearchError] = useState('');
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // 색인이 준비됐는지 먼저 확인해, 안 됐으면 이유를 화면에 띄운다.
+  useEffect(() => {
+    let cancelled = false;
+    fetchSearchStatus().then((status) => {
+      if (cancelled) return;
+      setSearchStatus(status);
+      // 색인이 없으면 Mock으로 시작해 화면이 비어 보이지 않게 한다.
+      if (status && !status.ready) setEngine('mock');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 2. 필터 상태(State)
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(['PDF', 'TXT', 'MD', 'Markdown']);
+  const [selectedTargets, setSelectedTargets] = useState<string[]>(['title', 'content', 'path']);
+  const [dateRange, setDateRange] = useState<string>('전체 기간');
+  const [sortOrder, setSortOrder] = useState<string>('관련도순');
+
+  // 3. 검색 실행 함수
+  const executeSearch = async (query: string) => {
+    if (!query.trim()) return;
+
+    setIsLoading(true);
+    setSearchError('');
+    try {
+      if (engine === 'real') {
+        // 실제 임베딩 검색. 질의를 bge-m3로 벡터화해 ChromaDB에서 유사 문서를 찾는다.
+        const outcome = await fetchRealSearchResults(query, 5);
+        setSearchResults(outcome.results);
+        setSearchError(outcome.error);
+        setElapsedMs(outcome.elapsedMs);
+      } else {
+        const data = await fetchSearchResults(query);
+        setSearchResults(data || []);
+        setElapsedMs(0);
+      }
+      setHasSearched(true);
+    } catch (error) {
+      console.error('검색 중 오류 발생:', error);
+      setSearchResults([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 핸들러 함수들
+  const handleSearchClick = () => executeSearch(searchTerm);
+  const handleChipClick = (keyword: string) => {
+    setSearchTerm(keyword);
+    executeSearch(keyword);
+  };
+
+  // [필터 토글] 파일 형식
+  const handleTypeToggle = (type: string) => {
+    setSelectedTypes((prev) => {
+      // Markdown/MD 처리
+      if (type === 'Markdown' || type === 'MD') {
+        const hasMarkdown = prev.includes('Markdown') || prev.includes('MD');
+        if (hasMarkdown) {
+          return prev.filter((t) => t !== 'Markdown' && t !== 'MD');
+        } else {
+          return [...prev, 'Markdown', 'MD'];
+        }
+      }
+      // 일반 확장자 처리 (PDF, TXT)
+      return prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type];
+    });
+  };
+
+  // [필터 토글] 검색 대상
+  const handleTargetToggle = (target: string) => {
+    setSelectedTargets((prev) =>
+      // 원본은 `[...prev, t]`였습니다. `t`는 위 filter 콜백의 인자라 이 위치에서는
+      // 존재하지 않습니다. 검색 대상 칩을 누르면 터지는 버그였고 타입체크가 잡았습니다.
+      prev.includes(target) ? prev.filter((t) => t !== target) : [...prev, target]
+    );
+  };
+
+  // 필터링 및 정렬된 결과 실시간 계산
+  const filteredResults = useMemo(() => {
+    if (!searchResults || searchResults.length === 0) return [];
+
+    let list = searchResults.filter((item) => {
+      const itemType = item.type === 'MD' ? 'Markdown' : item.type;
+      const isTypeMatched = selectedTypes.includes(item.type) || selectedTypes.includes(itemType);
+
+      let isDateMatched = true;
+      if (dateRange !== '전체 기간' && item.date) {
+        const itemDate = new Date(item.date).getTime();
+        const now = new Date().getTime();
+        const diffDays = (now - itemDate) / (1000 * 3600 * 24);
+
+        if (dateRange === '최근 1주일') isDateMatched = diffDays <= 7;
+        if (dateRange === '최근 1개월') isDateMatched = diffDays <= 30;
+      }
+
+      return isTypeMatched && isDateMatched;
+    });
+
+    if (sortOrder === '최신순') {
+      list = [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+
+    return list;
+  }, [searchResults, selectedTypes, dateRange, sortOrder]);
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-white p-8">
+      <div className="div-search-view">
+        <div className="max-w-5xl mx-auto space-y-10">
+          
+          {/* 상단 검색 헤더 영역 */}
+          <div className="text-center space-y-3 pt-4">
+            <div className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase bg-indigo-50 px-3 py-1 rounded-full inline-block">
+              <div>Semantic file search</div>
+            </div>
+            <div className="text-2xl font-extrabold text-gray-900 tracking-tight">
+              <div>무슨 파일인지 설명 해보세요.</div>
+            </div>
+            <div className="text-xs text-gray-400 max-w-md mx-auto">
+              <div>
+                문서 내용, 파일명, 경로, 수정일을 함께 분석해 파일을 찾습니다.
+              </div>
+            </div>
+
+            {/* 검색 엔진 선택 — 1주차 Mock과 실제 임베딩 검색을 구분한다 */}
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <div className="inline-flex rounded-xl border border-gray-200 bg-white p-0.5">
+                <button
+                  onClick={() => setEngine('real')}
+                  disabled={!searchStatus?.ready}
+                  title={searchStatus?.ready ? '' : searchStatus?.detail || '색인 확인 중'}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                    engine === 'real'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : searchStatus?.ready
+                      ? 'text-gray-500 hover:bg-gray-50 cursor-pointer'
+                      : 'text-gray-300 cursor-not-allowed'
+                  }`}
+                >
+                  실제 검색 · bge-m3
+                </button>
+                <button
+                  onClick={() => setEngine('mock')}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                    engine === 'mock' ? 'bg-amber-50 text-amber-700' : 'text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  Mock · 1주차
+                </button>
+              </div>
+            </div>
+
+            {/* 색인 상태 */}
+            <div className="text-[11px] text-gray-400">
+              {searchStatus === null ? (
+                '색인 상태 확인 중...'
+              ) : searchStatus.ready ? (
+                <span className="text-emerald-600">
+                  색인 {searchStatus.indexed_documents.toLocaleString()}건 · {searchStatus.embed_model}
+                </span>
+              ) : (
+                <span className="text-amber-600">{searchStatus.detail}</span>
+              )}
+            </div>
+
+            {/* 검색어 입력 폼 */}
+            <div className="max-w-2xl mx-auto pt-2">
+              <div className="flex items-center shadow-sm rounded-2xl bg-white border border-gray-200/90 p-1.5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition">
+                <img className="w-4 h-4 ml-3 opacity-40" src="/component-16.svg" alt="검색" />
+                <div className="w-full px-3 py-2">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
+                    placeholder="예: 2025년에 진행한 프로젝트 자료를 찾아줘"
+                    className="w-full text-xs bg-transparent focus:outline-none text-gray-800 placeholder-gray-300 font-medium caret-indigo-600"
+                  />
+                </div>
+                <button
+                  onClick={handleSearchClick}
+                  disabled={isLoading}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
+                >
+                  <div>{isLoading ? '검색 중...' : '검색'}</div>
+                </button>
+              </div>
+            </div>
+
+            {/* 추천 키워드 칩 */}
+            <div className="flex items-center justify-center gap-2 pt-1 text-xs">
+              {['2025년 프로젝트 자료', '네트워크 스케줄링 발표', '최근 수정한 PDF'].map((chip) => (
+                <button
+                  key={chip}
+                  onClick={() => handleChipClick(chip)}
+                  className="px-3 py-1.5 bg-white border border-gray-200/80 rounded-full text-[11px] text-gray-500 hover:border-indigo-300 hover:text-indigo-600 transition shadow-2xs font-medium cursor-pointer"
+                >
+                  <div>{chip}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 선택한 폴더의 실제 문서 — 1주차에서 Mock이 아닌 유일한 기능 */}
+          {selectedPath && (
+            <div className="bg-white rounded-2xl border border-emerald-200/70 shadow-2xs overflow-hidden">
+              <div className="bg-emerald-50/60 px-6 h-13 border-b border-emerald-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-gray-900 text-xs">선택한 폴더의 실제 문서</div>
+                  <div className="text-[11px] text-emerald-700">
+                    {isExtracting
+                      ? '추출 중...'
+                      : realDocsError
+                      ? '실패'
+                      : `${realDocs.length}건 · PyMuPDF 실제 추출`}
+                  </div>
+                </div>
+                <code
+                  className="max-w-[26rem] truncate text-[10px] text-gray-400"
+                  title={selectedPath}
+                >
+                  {selectedPath}
+                </code>
+              </div>
+
+              <div className="p-6">
+                {isExtracting ? (
+                  <div className="py-6 text-center text-xs text-gray-400 animate-pulse">
+                    문서 텍스트를 추출하고 있습니다...
+                  </div>
+                ) : realDocsError ? (
+                  <div className="py-4 text-[11px] leading-relaxed text-red-600">{realDocsError}</div>
+                ) : realDocs.length === 0 ? (
+                  <div className="py-4 text-[11px] leading-relaxed text-gray-500">
+                    이 폴더 바로 아래에 PDF · TXT · MD 파일이 없습니다.
+                    <br />
+                    하위 폴더는 1주차 범위에서 훑지 않습니다.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {realDocs.map((doc) => (
+                      <div key={doc.path} className="py-3">
+                        <button
+                          onClick={() => setOpenedDoc(openedDoc === doc.path ? '' : doc.path)}
+                          className="flex w-full items-start gap-3 text-left cursor-pointer"
+                        >
+                          <div className="mt-0.5 w-9 h-9 shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 text-[10px] font-bold text-emerald-600 flex items-center justify-center">
+                            {doc.extension.replace('.', '').toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-bold text-gray-800">{doc.name}</div>
+                            <div className="mt-0.5 truncate text-[11px] text-gray-500">
+                              {doc.error ? (
+                                <span className="text-red-500">추출 실패: {doc.error}</span>
+                              ) : (
+                                doc.preview_text.slice(0, 90)
+                              )}
+                            </div>
+                          </div>
+                          <div className="shrink-0 pt-1 text-[10px] font-bold text-emerald-600">
+                            {openedDoc === doc.path ? '접기' : '원문'}
+                          </div>
+                        </button>
+
+                        {openedDoc === doc.path && !doc.error && (
+                          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-gray-200/60 bg-gray-50 p-4 font-mono text-[11px] leading-relaxed text-gray-700">
+                            {doc.preview_text}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 💡 1. items-stretch로 변경하여 좌우 두 박스의 전체 높이를 100% 동일하게 맞춤 */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
+            
+            {/* 좌측 패널: 검색 결과 (상단 연회색 / 하단 흰색 분리) */}
+            <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-200/80 min-h-120 flex flex-col shadow-2xs overflow-hidden">
+              
+              {/* 💡 2. h-13 고정 및 동일 높이 정렬 적용 (검색 결과 상단바) */}
+              <div className="bg-gray-50/80 px-6 h-13 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-gray-900 text-xs">
+                    <div>검색 결과</div>
+                  </div>
+                  <div className="text-[11px] text-gray-400">
+                    <div>
+                      {isLoading
+                        ? engine === 'real'
+                          ? '질의를 벡터화해 유사 문서를 찾는 중...'
+                          : 'AI가 문서를 분석하는 중...'
+                        : hasSearched
+                        ? `${filteredResults.length}개의 관련 파일` +
+                          (engine === 'real' && elapsedMs ? ` · ${elapsedMs}ms` : '')
+                        : ''}
+                    </div>
+                  </div>
+                  {/* 어느 엔진이 답했는지 결과 옆에 남긴다 */}
+                  {hasSearched && !isLoading && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                        engine === 'real'
+                          ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                          : 'bg-amber-50 text-amber-600 border-amber-100'
+                      }`}
+                    >
+                      {engine === 'real' ? '실제 검색' : 'Mock'}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <div className="select-sort-select">
+                    <select
+                      value={sortOrder}
+                      onChange={(e) => setSortOrder(e.target.value)}
+                      className="text-[11px] text-gray-600 border border-gray-200/80 rounded-lg px-2.5 py-1 focus:outline-none bg-white font-medium cursor-pointer shadow-2xs"
+                    >
+                      <option value="관련도순">관련도순</option>
+                      <option value="최신순">최신순</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* [검색 결과 하단 컨텐츠] */}
+              <div className="p-6 flex-1 bg-white flex flex-col">
+                {/* 실제 검색이 준비되지 않았을 때 이유를 그대로 보여 준다 */}
+                {searchError && (
+                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] leading-relaxed text-amber-800">
+                    {searchError}
+                  </div>
+                )}
+                {isLoading ? (
+                  <div className="flex-1 flex items-center justify-center py-12 text-xs text-gray-400 animate-pulse">
+                    로컬 문서를 검색하고 있습니다...
+                  </div>
+                ) : !hasSearched ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
+                    <div className="w-12 h-12 bg-indigo-50/80 rounded-2xl flex items-center justify-center mb-3 mx-auto">
+                      <img className="w-5 h-5 opacity-70" src="/component-17.svg" alt="결과 없음" />
+                    </div>
+                    <div className="font-bold text-gray-800 text-sm mb-1">
+                      <div>아직 검색한 내용이 없어요</div>
+                    </div>
+                    <div className="text-[11px] text-gray-400">
+                      위 검색창에 기억나는 내용이나 날짜를 입력해 보세요.
+                    </div>
+                  </div>
+                ) : filteredResults.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
+                    <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mb-3 mx-auto">
+                      <img className="w-5 h-5 opacity-40" src="/component-17.svg" alt="결과 없음" />
+                    </div>
+                    <div className="font-bold text-gray-800 text-sm mb-1">
+                      <div>일치하는 검색 결과가 없어요</div>
+                    </div>
+                    <div className="text-[11px] text-gray-400">
+                      필터 조건에 일치하는 문서를 찾지 못했습니다. 우측 필터를 변경해 보세요.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="div-results divide-y divide-gray-100">
+                    {filteredResults.map((item) => (
+                      <FileResultCard key={item.id} item={item} selectedPath={selectedPath} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* 우측 패널: 필터 (상단 연회색 / 하단 흰색 분리) */}
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col">
+              
+              {/* 💡 2. h-13 고정 및 동일 높이 정렬 적용 (필터 상단바) */}
+              <div className="bg-gray-50/80 px-5 h-13 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="font-bold text-gray-900 text-xs">
+                  <div>필터</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-400 font-medium">검색 범위</span>
+                  <button
+                    onClick={() => {
+                      setSelectedTypes(['PDF', 'TXT', 'MD', 'Markdown']);
+                      setSelectedTargets(['title', 'content', 'path']);
+                      setDateRange('전체 기간');
+                    }}
+                    className="text-[10px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                  >
+                    초기화
+                  </button>
+                </div>
+              </div>
+
+              {/* [필터 하단 옵션] */}
+              <div className="p-5 space-y-4 bg-white flex-1 flex flex-col justify-between">
+                <div className="space-y-4">
+                  {/* ① 파일 형식 */}
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold text-gray-400">
+                      <div>파일 형식</div>
+                    </div>
+                    {['PDF', 'TXT', 'Markdown'].map((type) => (
+                      <label key={type} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 font-medium">
+                        <input
+                          type="checkbox"
+                          checked={
+                            type === 'Markdown'
+                              ? selectedTypes.includes('Markdown') || selectedTypes.includes('MD')
+                              : selectedTypes.includes(type)
+                          }
+                          onChange={() => handleTypeToggle(type)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <div>{type}</div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* ② 검색 대상 */}
+                  <div className="space-y-2 pt-3 border-t border-gray-100">
+                    <div className="text-[11px] font-bold text-gray-400">
+                      <div>검색 대상</div>
+                    </div>
+                    {[
+                      { id: 'title', label: '파일명' },
+                      { id: 'content', label: '문서 내용' },
+                      { id: 'path', label: '경로·수정일' },
+                    ].map((target) => (
+                      <label key={target.id} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 font-medium">
+                        <input
+                          type="checkbox"
+                          checked={selectedTargets.includes(target.id)}
+                          onChange={() => handleTargetToggle(target.id)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <div>{target.label}</div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* ③ 기간 */}
+                  <div className="space-y-2 pt-3 border-t border-gray-100">
+                    <div className="text-[11px] font-bold text-gray-400">
+                      <div>기간</div>
+                    </div>
+                    <select
+                      value={dateRange}
+                      onChange={(e) => setDateRange(e.target.value)}
+                      className="w-full text-[11px] text-gray-600 border border-gray-200/80 rounded-xl p-2 bg-white focus:outline-none font-medium cursor-pointer shadow-2xs"
+                    >
+                      <option value="전체 기간">전체 기간</option>
+                      <option value="최근 1주일">최근 1주일</option>
+                      <option value="최근 1개월">최근 1개월</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 하단 안내 */}
+                <div className="p-3 bg-gray-50/80 rounded-xl text-[10px] text-gray-400 leading-relaxed border border-gray-100 mt-4">
+                  <div>
+                    검색 결과에는 질문과 일치한 문장, 실제 파일 경로, 관련도가 함께 표시됩니다.
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

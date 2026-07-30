@@ -1,0 +1,37 @@
+# --- 프론트엔드 ---
+node_modules
+dist
+dist-electron
+release
+.vite
+
+# --- 백엔드 ---
+backend/.venv
+__pycache__/
+*.py[cod]
+
+# 실행 산출물. 명령으로 다시 만들 수 있으므로 커밋하지 않는다.
+#   dataset/   -> npm run dataset  (약 2분)
+#   chroma_db/ -> npm run index    (GPU 2분 / CPU 50분)
+backend/chroma_db/
+backend/dataset/
+backend/dataset_smoke/
+backend/*.csv
+backend/*.json
+backend/local_file_ai.sqlite3
+!backend/**/package.json
+
+# mock/pdf 의 테스트용 PDF는 추출 검증에 필요하므로 커밋한다 (약 16MB).
+
+# --- 환경 ---
+.env
+.env.local
+backend/.env
+
+# --- 에디터 · OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+desktop.ini

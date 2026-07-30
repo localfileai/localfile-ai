@@ -1,0 +1,211 @@
+"""자연어 유사도 검색 (BE1 기능①).
+
+`scripts/embed_dataset.py`가 만든 ChromaDB 컬렉션을 읽어 질의와 가까운 문서를 찾는다.
+응답은 BE1의 팀 공용 계약 `app/contracts/ai.py`의 `SearchResponse`로 검증한다.
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+import chromadb
+
+from ..contracts.ai import ALLOWED_EXTENSIONS, FileRef, SearchHit, SearchResponse
+from .embedding import COLLECTION_NAME, OllamaEmbeddingFunction, check_ollama
+
+# BE1 스크립트의 기본 저장 위치(`--db ./chroma_db`)와 같아야 한다.
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+CHROMA_PATH = Path(os.getenv("LOCAL_FILE_AI_CHROMA", BACKEND_ROOT / "chroma_db"))
+# 색인된 상대 경로(`files\...`)의 기준 폴더.
+DATASET_ROOT = Path(os.getenv("LOCAL_FILE_AI_DATASET", BACKEND_ROOT / "dataset"))
+
+# matched_text 상한. 계약이 500자까지 허용한다.
+MAX_MATCHED_TEXT = 500
+
+
+class SearchUnavailable(RuntimeError):
+    """색인이나 Ollama가 준비되지 않은 상태. 사용자에게 이유를 그대로 보여 준다."""
+
+
+def _chroma_path_for_client() -> str:
+    """ChromaDB에 넘길 경로 문자열.
+
+    ⚠️ **경로에 비ASCII 문자(한글 등)가 있으면 절대 경로를 쓸 수 없습니다.**
+    ChromaDB 1.5.x의 Rust HNSW 리더가 그 경로를 열지 못하고 이렇게 실패합니다.
+
+        Error constructing hnsw segment reader: Error loading hnsw index
+
+    같은 색인을 **상대 경로**로 열면 정상 동작합니다. 이 프로젝트 폴더 이름에
+    한글이 들어갈 수 있으므로(`...\\1주차-결과물\\...`) 가능하면 상대 경로를 씁니다.
+
+    참고: 이 우회는 프로세스의 현재 작업 디렉터리가 `backend/`라는 가정에 의존합니다.
+    `uvicorn main:app` 을 `backend/`에서 실행하므로 성립합니다.
+    """
+    absolute = str(CHROMA_PATH)
+    if not any(ord(char) > 127 for char in absolute):
+        return absolute
+
+    try:
+        relative = CHROMA_PATH.relative_to(Path.cwd())
+        return str(relative)
+    except ValueError:
+        # cwd 기준 상대 경로로 만들 수 없으면 절대 경로로 시도한다(실패할 수 있음).
+        return absolute
+
+
+# ChromaDB는 같은 저장 경로에 대해 **클라이언트를 하나만** 두어야 한다.
+# 요청마다 PersistentClient를 새로 만들면 HNSW 세그먼트를 중복으로 열게 되고
+# "Error loading hnsw index" 로 실패한다. 그래서 프로세스당 한 번만 만들어 캐시한다.
+_collection_cache = None
+_collection_lock = threading.Lock()
+
+
+def _collection():
+    global _collection_cache
+
+    if _collection_cache is not None:
+        return _collection_cache
+
+    with _collection_lock:
+        # 락을 기다리는 동안 다른 스레드가 먼저 만들었을 수 있다.
+        if _collection_cache is not None:
+            return _collection_cache
+
+        if not CHROMA_PATH.exists():
+            raise SearchUnavailable(
+                f"벡터 색인이 없습니다 ({CHROMA_PATH.name}/). "
+                "`python scripts/embed_dataset.py` 로 먼저 색인하세요."
+            )
+
+        ready, message = check_ollama()
+        if not ready:
+            raise SearchUnavailable(message)
+
+        try:
+            client = chromadb.PersistentClient(path=_chroma_path_for_client())
+            # 실패는 캐시하지 않는다. 색인이 나중에 준비되면 다시 시도할 수 있어야 한다.
+            _collection_cache = client.get_collection(
+                COLLECTION_NAME, embedding_function=OllamaEmbeddingFunction()
+            )
+        except Exception as exc:
+            raise SearchUnavailable(
+                f"컬렉션 {COLLECTION_NAME!r} 을 열 수 없습니다: {exc}"
+            ) from exc
+
+    return _collection_cache
+
+
+def _resolve_path(relative_path: str) -> Path:
+    """색인 메타데이터의 상대 경로를 실제 파일 경로로 바꾼다."""
+    # 생성기가 Windows 구분자로 저장하므로 양쪽 다 받아 준다.
+    normalized = relative_path.replace("\\", "/")
+    return DATASET_ROOT / normalized
+
+
+def _to_file_ref(metadata: dict) -> FileRef | None:
+    """색인 메타데이터를 BE1 계약의 FileRef로 바꾼다.
+
+    계약이 MVP 범위 밖 확장자를 거부하므로, 범위 밖이면 None을 돌려 건너뛴다.
+    """
+    extension = str(metadata.get("extension", "")).lower().lstrip(".")
+    if extension not in ALLOWED_EXTENSIONS:
+        return None
+
+    relative_path = str(metadata.get("current_path", ""))
+    absolute = _resolve_path(relative_path)
+
+    size_bytes = 0
+    modified_at: datetime | None = None
+    if absolute.is_file():
+        stat = absolute.stat()
+        size_bytes = stat.st_size
+        modified_at = datetime.fromtimestamp(stat.st_mtime)
+
+    return FileRef(
+        # FE가 그대로 미리보기 API에 넘길 수 있도록 절대 경로를 준다.
+        path=str(absolute),
+        name=str(metadata.get("current_name", absolute.name)),
+        extension=extension,
+        size_bytes=size_bytes,
+        modified_at=modified_at,
+    )
+
+
+def _to_score(distance: float) -> float:
+    """코사인 거리를 0~1 관련도로 바꾼다. 계약이 이 범위를 강제한다."""
+    return max(0.0, min(1.0, 1.0 - float(distance)))
+
+
+def search(query: str, top_k: int = 5) -> SearchResponse:
+    """자연어 질의로 색인된 문서를 찾는다."""
+    started = time.perf_counter()
+    collection = _collection()
+
+    if collection.count() == 0:
+        raise SearchUnavailable(
+            "색인이 비어 있습니다. `python scripts/embed_dataset.py` 로 색인하세요."
+        )
+
+    # 계약 밖 확장자가 섞여 있을 수 있으니 조금 더 받아서 걸러낸다.
+    result = collection.query(query_texts=[query], n_results=min(top_k * 2, 20))
+
+    metadatas = result.get("metadatas", [[]])[0]
+    documents = result.get("documents", [[]])[0]
+    distances = result.get("distances", [[]])[0]
+
+    hits: list[SearchHit] = []
+    for metadata, document, distance in zip(metadatas, documents, distances):
+        file_ref = _to_file_ref(dict(metadata or {}))
+        if file_ref is None:
+            continue
+
+        matched_text = (document or "").strip()[:MAX_MATCHED_TEXT]
+        if not matched_text:
+            # 계약이 빈 문자열을 거부한다. 본문이 없으면 파일명이라도 넣는다.
+            matched_text = file_ref.name
+
+        hits.append(SearchHit(file=file_ref, score=_to_score(distance), matched_text=matched_text))
+        if len(hits) >= top_k:
+            break
+
+    # 계약이 관련도 내림차순을 강제한다. Chroma는 거리 오름차순으로 주므로 이미 맞지만
+    # 필터링 뒤 순서를 확실히 보장한다.
+    hits.sort(key=lambda hit: hit.score, reverse=True)
+
+    return SearchResponse(
+        query=query,
+        total_hits=len(hits),
+        hits=hits,
+        elapsed_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+def index_status() -> dict:
+    """색인 상태를 알려 준다. FE가 왜 검색이 안 되는지 표시할 때 쓴다.
+
+    검색과 **같은 캐시된 컬렉션**을 쓴다. 여기서 클라이언트를 따로 만들면
+    같은 경로를 두 번 여는 셈이 되어 HNSW 로드가 깨진다.
+    """
+    count = 0
+    detail = ""
+
+    try:
+        count = _collection().count()
+    except SearchUnavailable as exc:
+        detail = str(exc)
+    except Exception as exc:  # 예상 밖의 오류도 화면에 이유를 보여 준다.
+        detail = f"색인 상태를 확인할 수 없습니다: {exc}"
+
+    if count == 0 and not detail:
+        detail = "색인이 비어 있습니다. `python scripts/embed_dataset.py` 로 색인하세요."
+
+    return {
+        "ready": count > 0,
+        "indexed_documents": count,
+        "embed_model": OllamaEmbeddingFunction().name(),
+        "detail": detail,
+    }
