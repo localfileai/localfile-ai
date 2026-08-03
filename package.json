@@ -15,7 +15,8 @@
     "backend:dev": "node scripts/backend.mjs dev",
     "backend:install": "node scripts/backend.mjs install",
     "dataset": "node scripts/backend.mjs dataset",
-    "index": "node scripts/backend.mjs index"
+    "index": "node scripts/backend.mjs index",
+    "backend:test": "node scripts/backend.mjs test"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

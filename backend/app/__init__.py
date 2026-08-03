@@ -8,7 +8,7 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from .api.routes import health, mock, preprocess, search
+    from .api.routes import health, mock, organize, preprocess, search
 
     app = FastAPI(title="Local File AI Backend")
 
@@ -35,4 +35,8 @@ def create_app():
     # 실제 임베딩 기반 자연어 검색입니다 (BE1 기능①).
     # ChromaDB 색인이 없으면 503과 함께 이유를 돌려주므로, 없어도 서버는 뜹니다.
     app.include_router(search.router)
+
+    # 실제 분류·파일명 추천입니다 (BE1 기능②③, 3주차).
+    # Ollama 생성 모델이 없으면 503과 함께 이유를 돌려주므로, 없어도 서버는 뜹니다.
+    app.include_router(organize.router)
     return app

@@ -177,6 +177,27 @@ class FileSuggestion(Strict):
         return value
 
 
+class OrganizeRequest(Strict):
+    """②③ 추천 요청. FE가 사용자가 고른 파일/폴더 경로를 보낸다."""
+
+    path: str = Field(..., min_length=1, description="분석할 파일 또는 폴더의 절대 경로")
+    mode: str | None = Field(
+        default=None,
+        description='추천 모드. "full"(7.8b 5필드) 또는 "slim"(k-NN 분류 + 소형 모델 파일명). '
+                    "없으면 서버 기본값을 쓴다. ADR-0002 §5-1 참고")
+    max_files: int = Field(default=20, ge=1, le=100,
+                           description="한 번에 처리할 최대 파일 수. CPU에서 파일당 수십 초라 상한을 둔다")
+    use_rag: bool = Field(default=True,
+                          description="유사 문서 예시를 프롬프트에 주입할지 여부")
+
+    @field_validator("mode")
+    @classmethod
+    def _known_mode(cls, value: str | None) -> str | None:
+        if value is not None and value not in ("full", "slim"):
+            raise ValueError(f'mode는 "full" 또는 "slim"이어야 합니다: {value!r}')
+        return value
+
+
 class SuggestionItem(Strict):
     """파일 1건에 대한 현재 상태 + 추천 결과."""
 
@@ -348,6 +369,14 @@ if __name__ == "__main__":
     check_ok("승인된 파일 변경 요청", lambda: ApplyRequest(
         approved=True,
         items=[ApplyItem(source_path="a.pdf", target_folder="lecture", target_filename="b.pdf")]))
+    check_ok("추천 요청 기본값(mode 생략)",
+             lambda: OrganizeRequest(path="C:/Users/a/Documents"))
+    check_ok("추천 요청 slim 모드",
+             lambda: OrganizeRequest(path="C:/Users/a/Documents", mode="slim"))
+    check_error("추천 요청 모르는 mode",
+                lambda: OrganizeRequest(path="C:/Users/a/Documents", mode="turbo"))
+    check_error("추천 요청 max_files 초과",
+                lambda: OrganizeRequest(path="C:/Users/a/Documents", max_files=999))
 
     print()
     print("=" * 74)

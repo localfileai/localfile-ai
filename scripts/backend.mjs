@@ -8,6 +8,7 @@
 //   node scripts/backend.mjs dev       -> uvicorn 개발 서버 (127.0.0.1:8000)
 //   node scripts/backend.mjs dataset   -> 정답 데이터셋 1,000쌍 생성 (BE1)
 //   node scripts/backend.mjs index     -> ChromaDB 색인 (Ollama 필요)
+//   node scripts/backend.mjs test      -> 백엔드 단위 테스트 (Ollama 불필요)
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -98,7 +99,10 @@ if (task === 'install') {
   console.log('GPU가 있으면 약 2분, CPU만 있으면 약 50분 걸립니다.')
   console.log('중간에 끊으면 색인이 불완전해지니 끝까지 두세요.\n')
   mustSucceed(run(venvPython(), ['scripts/embed_dataset.py']))
+} else if (task === 'test') {
+  // 추천 파이프라인·검증·재시도 로직 테스트. LLM을 가짜로 주입해 Ollama 없이 돈다.
+  mustSucceed(run(venvPython(), ['-m', 'pytest', 'tests/', '-q']))
 } else {
-  console.error('사용법: node scripts/backend.mjs <install|dev|dataset|index>')
+  console.error('사용법: node scripts/backend.mjs <install|dev|dataset|index|test>')
   process.exit(1)
 }

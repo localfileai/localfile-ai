@@ -148,11 +148,14 @@ localfile-ai/
 ├─ docs/decisions/      ADR — 왜 그렇게 정했는지
 └─ backend/                                                        BE1 + BE2
    ├─ app/
-   │  ├─ api/routes/    health · mock · preprocess · search
+   │  ├─ api/routes/    health · mock · preprocess · search · organize
    │  ├─ contracts/     ai.py(BE1 · 팀 공용 계약) · api.py(BE2 · API 형태)
+   │  ├─ core/          config.py — Ollama·모델 설정 단일 출처       BE1
    │  ├─ extraction/    문서 텍스트 추출                            BE2
-   │  └─ rag/           bge-m3 임베딩 · ChromaDB 검색               BE1
+   │  ├─ llm/           추천 프롬프트 · 검증 + 1회 재시도            BE1
+   │  └─ rag/           bge-m3 임베딩 · ChromaDB 검색 · k-NN 분류    BE1
    ├─ scripts/          데이터셋 생성 · 임베딩 · 모델 비교           BE1
+   ├─ tests/            추천 파이프라인 테스트 (Ollama 불필요)       BE1
    └─ mock/pdf/         추출 테스트용 실제 PDF 5건                  BE2
 ```
 
@@ -163,6 +166,7 @@ localfile-ai/
 | `GET /health` | 실제 | BE2 |
 | `POST /preprocess/extract-first-page` | **실제** | BE2 |
 | `GET /search` · `GET /search/status` | **실제** — bge-m3 임베딩 검색 | BE1 |
+| `POST /organize` · `GET /organize/status` | **실제** — RAG + LLM 분류·파일명 추천 (3주차) | BE1 |
 | `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |
 | `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음**) | BE2 |
 
@@ -174,7 +178,7 @@ API 문서: http://127.0.0.1:8000/docs
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe app\contracts\ai.py     # 자체 테스트 26건
+.venv\Scripts\python.exe app\contracts\ai.py     # 자체 테스트 30건
 ```
 
 > ⚠️ 아직 `app/contracts/api.py`(BE2, API 응답 형태)와 필드명이 다릅니다.
@@ -193,6 +197,7 @@ cd backend
 | `npm run backend:dev` | FastAPI 서버 |
 | `npm run dataset` | 정답 데이터셋 1,000쌍 재생성 (약 2분) |
 | `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
+| `npm run backend:test` | 백엔드 단위 테스트 25건 (Ollama 불필요) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
 
 ## 알려진 문제

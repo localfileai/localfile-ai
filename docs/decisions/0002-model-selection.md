@@ -121,6 +121,12 @@ qwen2.5 사례:
 계획서 3주차 "Pydantic 에러 검증 및 재시도 로직"에 이 처리를 포함하면 됩니다.
 2주차에 Mock을 실제 Ollama로 교체하는 시점에는 이미 들어가 있어야 합니다.
 
+> ✅ **3주차에 구현 완료.** `app/llm/suggest.py` — 확장자 자동 보정
+> (`autofix_extension`) + 위반 제약을 명시한 1회 재시도. 실제 추천 경로
+> (`POST /organize`)가 이 파이프라인을 지나며, `backend/tests/`가 Ollama 없이
+> 검증한다. 실기기 재시도 효과 측정은 `test_models.py --retry`로 한다.
+> 기록: `docs/weekly/week-03.md`
+
 ---
 
 ## 2. 임베딩 모델 — `bge-m3`

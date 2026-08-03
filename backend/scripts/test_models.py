@@ -34,6 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.contracts.ai import MAX_FIRST_PAGE_CHARS, FileSuggestion
+from app.llm.prompts import build_retry_prompt, format_violations
 
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
@@ -228,6 +229,8 @@ def main() -> int:
     parser.add_argument("--embed-model", default="bge-m3")
     parser.add_argument("--autofix-extension", action="store_true",
                         help="확장자가 빠진 파일명에 원본 확장자를 붙여 준 뒤 검증한다.")
+    parser.add_argument("--retry", action="store_true",
+                        help="검증 실패 시 위반 제약을 명시해 1회 재시도한다 (3주차 재시도 로직 측정).")
     args = parser.parse_args()
 
     if not args.csv.exists():
@@ -252,9 +255,24 @@ def main() -> int:
         print("=" * 82)
 
         correct = valid = fixed = 0
+        retry_attempts = retry_saves = 0
         name_scores: list[float] = []
         f1_scores: list[float] = []
         times: list[float] = []
+
+        def validate(raw_text: str) -> tuple:
+            """(parsed, 에러 문자열, 확장자 보정 여부, ValidationError)"""
+            did_fix = False
+            if args.autofix_extension:
+                raw_text, did_fix = autofix_extension(raw_text, row["extension"])
+            try:
+                return FileSuggestion.model_validate_json(raw_text), "", did_fix, None
+            except ValidationError as exc:
+                first = exc.errors()[0]
+                loc = ".".join(str(p) for p in first["loc"])
+                return None, f"validation: {loc} {first['type']}", did_fix, exc
+            except Exception as exc:
+                return None, f"parse_error: {type(exc).__name__}", did_fix, None
 
         for i, row in enumerate(rows, start=1):
             examples = None
@@ -264,22 +282,37 @@ def main() -> int:
                 examples = [m for m in found["metadatas"][0]
                             if m["current_name"] != row["current_name"]][:3]
 
-            raw, elapsed, error = call_model(
-                model, SYSTEM_PROMPT, build_prompt(row, examples), args.timeout)
-            times.append(elapsed)
+            prompt = build_prompt(row, examples)
+            raw, elapsed, error = call_model(model, SYSTEM_PROMPT, prompt, args.timeout)
 
             parsed = None
+            retried = False
             if raw is not None:
-                if args.autofix_extension:
-                    raw, did_fix = autofix_extension(raw, row["extension"])
-                    fixed += did_fix
-                try:
-                    parsed = FileSuggestion.model_validate_json(raw)
-                except ValidationError as exc:
-                    first = exc.errors()[0]
-                    error = f"validation: {'.'.join(str(p) for p in first['loc'])} {first['type']}"
-                except Exception as exc:
-                    error = f"parse_error: {type(exc).__name__}"
+                parsed, verror, did_fix, vexc = validate(raw)
+                fixed += did_fix
+                if parsed is None:
+                    error = verror
+                    # 3주차 재시도 로직: 위반한 제약을 명시해 정확히 1회 재시도한다.
+                    # app/llm/suggest.py의 런타임 로직과 같은 프롬프트를 쓴다.
+                    if args.retry and vexc is not None:
+                        retried = True
+                        retry_attempts += 1
+                        raw2, elapsed2, error2 = call_model(
+                            model, SYSTEM_PROMPT,
+                            build_retry_prompt(prompt, raw, format_violations(vexc)),
+                            args.timeout)
+                        elapsed += elapsed2
+                        if raw2 is not None:
+                            parsed, verror2, did_fix2, _ = validate(raw2)
+                            fixed += did_fix2
+                            if parsed is not None:
+                                retry_saves += 1
+                                error = ""
+                            else:
+                                error = f"{verror2} (재시도 후에도 실패)"
+                        else:
+                            error = f"재시도 호출 실패: {error2}"
+            times.append(elapsed)
 
             if parsed is None:
                 mark, predicted_cat, name_score, f1, checks = "X", "", 0.0, 0.0, {}
@@ -309,6 +342,7 @@ def main() -> int:
                 "filename_score": round(name_score, 3), "filename_token_f1": round(f1, 3),
                 "filename_checks": json.dumps(checks, ensure_ascii=False),
                 "json_valid": int(parsed is not None),
+                "retried": int(retried),
                 "confidence": parsed.confidence if parsed else "",
                 "recommended_folder": parsed.recommended_folder if parsed else "",
                 "reason": parsed.reason if parsed else "",
@@ -327,7 +361,9 @@ def main() -> int:
         print(f"\n  -> {model}: 분류 {correct}/{n} ({correct / n:.1%}) · "
               f"파일명 {statistics.mean(name_scores) if name_scores else 0:.1%} · "
               f"JSON {valid}/{n} ({valid / n:.1%}) · 평균 {statistics.mean(times):.2f}s"
-              + (f" · 확장자 보정 {fixed}건" if args.autofix_extension else "") + "\n")
+              + (f" · 확장자 보정 {fixed}건" if args.autofix_extension else "")
+              + (f" · 재시도 {retry_attempts}건 중 {retry_saves}건 구제" if args.retry else "")
+              + "\n")
 
     with args.output.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(records[0].keys()))

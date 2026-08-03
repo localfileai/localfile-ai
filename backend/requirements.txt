@@ -19,3 +19,8 @@ requests
 # --- 실험 스크립트 전용 ---
 # 데이터셋 생성기가 PDF를 만들 때 사용
 reportlab
+
+# --- 테스트 (Ollama 없이 돈다) ---
+pytest
+# FastAPI TestClient가 사용
+httpx
