@@ -124,38 +124,85 @@ npm run backend:test        # 25건, Ollama 불필요
 시연 5/5·테스트 25건 통과 (위 산출물 표 참고). `/organize/status` 라이브 응답도
 생성 모델이 없는 환경에서 `ready:false`와 설치 안내를 정확히 돌려준다 (그레이스풀 처리 실증).
 
-## ⚠️ 로컬 PC(Ollama 있는 곳)에서 돌릴 것 — 수치 채우기
+## 실기기 측정 결과 (2026-08-03 · GPU · bge-m3 + exaone3.5:7.8b)
 
-클라우드 세션은 모델을 받을 수 없어 수치 측정만 남았다. 전부 `backend/`에서:
+새 PC에서 실측 완료. 색인 1,000건 236초(4.2건/s), LLM 파일당 약 4.2~4.6초 — GPU 동작 확인.
+
+### ② 최적화 벤치마크 — 전부 실증됨
+
+| 항목 | 종전 | 3주차 적용 후 | 배율 |
+|---|---|---|---|
+| [A] 질의 임베딩 (커넥션 재사용) | 2,261ms | **220ms** | **10.3배** |
+| [A] keep_alive가 없애는 모델 재로딩 | 4,452ms | 0 (10분 유지) | — |
+| [B] RAG 예시+분류 조회 (단일 질의) | 4,540ms | **2,252ms** | 2.0배 |
+| [C] k-NN 분류 (같은 주제 배제, 전수 1,000건) | — | **k=3: 91.8%** (기준선 17.5%) | — |
+
+- **[A]가 이번 최적화의 최대 성과다.** ADR-0002 §5의 진단("지연의 96%가 요청당 고정
+  오버헤드")이 정확했고, Session 재사용만으로 검색 체감 지연이 2.3초 → 0.2초가 됐다.
+- [C] 91.8%는 예전 측정(96.0%)보다 4%p 낮지만 여전히 LLM 분류에 근접하며 비용 0.
+  대체 모델(e5) 62%와의 격차로 **k-NN은 임베딩 모델 의존적**이라는 제약도 재확인.
+
+### RAG 효과 (2주차 이월 핵심 실험) — 동일 표본 40건 · seed 42 · autofix 적용
+
+| 조건 | ② 분류 | ③ 파일명 | 토큰F1 | JSON | 평균 응답 |
+|---|---|---|---|---|---|
+| RAG 없음 (베이스라인) | 82.5% | 80.0% | 61.9% | 100% | 4.55s |
+| **RAG 적용 (유사 예시 3건)** | **100.0%** | **97.0%** | **97.7%** | 100% | 4.44s |
+
+**RAG가 분류 +17.5%p, 파일명 토큰F1 +35.8%p를 올리고 속도 비용은 0이다.**
+ADR-0002가 잡은 목표 구간("관례 제공 시 20%→70%")을 상회한다.
+
+> ⚠️ **정직한 단서**: 이 데이터셋은 (주제 20 × 유형 6) 조합당 약 8건의 쌍둥이 문서가
+> 있어, RAG 예시에 사실상 정답 파일명이 노출될 수 있다 (k-NN 100% 인공물과 같은 구조).
+> 따라서 100%는 **상향치**로 해석해야 하며, 실전(쌍둥이 없는 사용자 폴더)에서는 이보다
+> 낮을 것이다. 그래도 "비슷한 문서의 관례를 보여 주면 형식을 따라온다"는 구조적 결론과
+> 검색 품질에 투자할 가치가 있다는 판단(ADR-0002 §6)은 유효하다.
+
+### ③ 재시도 실기기 구제율 — autofix 없이 재시도만 (40건)
+
+- **재시도 15건 중 11건 구제 (73%)** · JSON 유효율 90% (재시도 없던 1주차 1차 측정: 62.5%)
+- 남은 실패 4건은 전부 `recommended_filename` 위반이 재시도 후에도 반복된 사례
+- **결론**: 재시도 단독으로는 90%가 한계. 런타임(`app/llm/suggest.py`)처럼
+  **확장자 자동 보정을 먼저 적용하고 남는 위반만 재시도**하는 조합이 정답이며,
+  이 조합의 이번 실측 유효율은 100%다 (베이스라인 런: 보정 12건 + JSON 100%).
+
+### 3모델 재측정 (참고 — 새 환경 · autofix 적용)
+
+| 모델 | ② 분류 | ③ 파일명 | 토큰F1 | 평균 |
+|---|---|---|---|---|
+| exaone3.5:7.8b | 82.5% | **80.0%** | 61.9% | 4.55s |
+| qwen2.5:7b | 87.5% | 75.5% | 43.1% | 5.01s |
+| llama3.1:8b | **97.5%** | 73.0% | 64.2% | 4.22s |
+
+- 분류 순위가 ADR-0002(exaone 95%)와 다르게 나왔다. exaone의 하락분은 대부분
+  reference↔exam_prep 혼동이고, 환경(Ollama 버전·GPU)·온도 0.1 샘플링 변동의 영향으로 보인다.
+- **exaone 채택은 유지한다**: 파일명 품질 우위(80.0% vs 73.0%)는 그대로이고,
+  분류는 RAG 적용 시 100%(위 표), 또는 k-NN(91.8%, 비용 0)으로 대체 가능하므로
+  분류 열세가 채택 근거를 흔들지 않는다. 단, ADR-0002 §6 재검토 시 함께 논의할 것.
+
+## 남은 측정 (실기기 · 짧은 것만)
+
+RAG 효과·재시도 구제율·벤치마크 A/B/C·3모델 비교는 위에 기록 완료. 남은 것:
 
 ```powershell
-# [산출물 ①] 어려운 평가셋 검색 품질 — keyword vs paraphrase 격차가 핵심 지표
+# ⓐ 어려운 평가셋 검색 품질 (bge-m3) — 클라우드 e5 표와 나란히 놓을 핵심 수치 (약 3분)
 .venv\Scripts\python.exe scripts\eval_search.py
 
-# [산출물 ②] 최적화 전/후 벤치마크 — A(커넥션) B(단일질의) C(k-NN) + D(full vs slim)
-.venv\Scripts\python.exe scripts\bench_optimization.py --with-llm
+# ⓑ full vs slim 생성 비교 — exaone3.5:2.4b 설치 후 (약 2분)
+ollama pull exaone3.5:2.4b
+.venv\Scripts\python.exe scripts\bench_optimization.py --only D
 
-# RAG 효과 측정 (2주차 이월 — ADR-0002 §6 재검토 조건)
-.venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension
-.venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension --with-rag
+# ⓒ 2.4b 품질 재측정 (slim 기본값 채택 여부 결정, 약 5분)
+.venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension --models exaone3.5:2.4b
 
-# [산출물 ③] 재시도 실기기 구제율 (요약에 "재시도 n건 중 m건 구제" 출력)
-.venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --retry
-
-# exaone3.5:2.4b 품질 재측정 (slim 기본값 채택 여부 결정)
-.venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension --models exaone3.5:2.4b exaone3.5:7.8b
-
-# 실제 추천 API 동작 확인 (서버는 npm run backend:dev 로)
+# ⓓ 실제 추천 API 동작 확인 (서버는 npm run backend:dev 로)
 curl -X POST http://127.0.0.1:8000/organize -H "Content-Type: application/json" ^
-     -d "{\"path\": \"C:/Users/blues/Documents/테스트폴더\", \"max_files\": 3}"
-curl http://127.0.0.1:8000/organize/status
+     -d "{\"path\": \"C:/Users/IHK/Documents/테스트폴더\", \"max_files\": 3}"
 ```
 
 판단 기준
-- 평가셋: paraphrase가 keyword 대비 얼마나 떨어지는가 = 문자 일치가 아닌 의미 검색 능력.
-  1주차 쉬운 평가셋 100%와 함께 기록해야 정직한 검색 품질이 된다 (ADR-0002 §2 단서 해소)
-- RAG: ADR-0002가 잡은 목표 구간 "관례 제공 시 20%→70%" 사이 어디에 떨어지는지
-- 2.4b: 파일명 점수·학기 포함률·한국어 유지율이 7.8b 대비 얼마나 빠지는지 (ADR-0002 §5-1)
+- ⓐ: paraphrase가 keyword 대비 얼마나 떨어지는가 (e5는 100%→75%였다)
+- ⓒ: 파일명 점수·학기 포함률·한국어 유지율이 7.8b 대비 얼마나 빠지는지 (ADR-0002 §5-1)
 
 ## 미해결 (이월)
 
