@@ -226,7 +226,7 @@ def main() -> int:
     parser.add_argument("--with-rag", action="store_true",
                         help="ChromaDB 유사 문서 3건을 프롬프트에 포함 (2주차 비교용)")
     parser.add_argument("--db", type=Path, default=Path("./chroma_db"))
-    parser.add_argument("--embed-model", default="bge-m3")
+    parser.add_argument("--embed-model", default="qwen3-embedding:0.6b")
     parser.add_argument("--autofix-extension", action="store_true",
                         help="확장자가 빠진 파일명에 원본 확장자를 붙여 준 뒤 검증한다.")
     parser.add_argument("--retry", action="store_true",

@@ -21,8 +21,8 @@ from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from ..core import config
 
-# BE1 1주차 선정 모델. ADR-0002 참고.
-# 영어 전용 기본값(all-MiniLM-L6-v2)은 한국어에서 거리 변별이 되지 않는다.
+# 1주차 bge-m3 → 3주차 qwen3-embedding:0.6b로 개정 (ADR-0002 §2 개정 참고).
+# 어려운 평가셋 실측: paraphrase Top-1 90%(bge-m3 70%) · k-NN 89.8% · 크기 절반.
 DEFAULT_EMBED_MODEL = config.OLLAMA_EMBED_MODEL
 OLLAMA_BASE_URL = config.OLLAMA_BASE_URL
 

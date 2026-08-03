@@ -13,14 +13,17 @@ import os
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-# 임베딩 모델 (기능① 검색). ADR-0002 §2.
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "bge-m3")
+# 임베딩 모델 (기능① 검색). 3주차 재검토로 bge-m3에서 교체 — ADR-0002 §2 개정.
+# 어려운 평가셋에서 paraphrase Top-1 90%(bge-m3 70%), k-NN 89.8%, 크기 절반(639MB).
+# ⚠️ 모델을 바꾸면 기존 색인과 호환되지 않는다 — `npm run index`로 재색인할 것.
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
 
 # 추천용 로컬 LLM (기능②③). ADR-0002 §1.
 OLLAMA_GENERATE_MODEL = os.getenv("OLLAMA_GENERATE_MODEL", "exaone3.5:7.8b")
 
 # 저사양(GPU 없음) 대책용 소형 모델. ADR-0002 §5-1.
-# ⚠️ 품질 재측정 전이므로 기본 경로에서는 쓰지 않는다 (mode="slim" 선택 시에만).
+# 3주차 품질 측정으로 확정: 파일명 점수 84%(7.8b full 80%와 동급), 평균 3.4s(GPU).
+# slim 경로에서 이 모델은 파일명만 생성한다 — 분류(k-NN)·reason(백엔드)은 별도.
 OLLAMA_GENERATE_MODEL_SLIM = os.getenv("OLLAMA_GENERATE_MODEL_SLIM", "exaone3.5:2.4b")
 
 # 요청이 끝나도 모델을 메모리에 유지하는 시간. ADR-0002 §5가 밝힌

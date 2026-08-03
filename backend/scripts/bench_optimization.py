@@ -170,7 +170,7 @@ def bench_llm(models: tuple[str, str], sample: int, timeout: int) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="모델 최적화 전/후 실측")
     parser.add_argument("--db", type=Path, default=Path("./chroma_db"))
-    parser.add_argument("--embed-model", default="bge-m3")
+    parser.add_argument("--embed-model", default="qwen3-embedding:0.6b")
     parser.add_argument("--repeat", type=int, default=7, help="[A][B] 반복 횟수")
     parser.add_argument("--only", choices=["A", "B", "C", "D"], help="한 항목만")
     parser.add_argument("--with-llm", action="store_true", help="[D] 포함 (CPU 수 분)")

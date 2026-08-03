@@ -54,7 +54,7 @@ npm run doctor
 Ollama가 있으면 **진짜 자연어 검색**이 켜집니다. 없으면 Mock 검색으로 화면은 그대로 돕니다.
 
 ```powershell
-ollama pull bge-m3              # 임베딩 1.08GB — 검색에 필요
+ollama pull qwen3-embedding:0.6b   # 임베딩 639MB — 검색에 필요 (3주차에 bge-m3에서 교체)
 ollama pull exaone3.5:2.4b      # LLM 1.53GB — 2주차 추천에 필요
 
 npm run index                   # 색인 생성 · GPU 약 2분 / CPU 약 50분
@@ -62,7 +62,7 @@ npm run index                   # 색인 생성 · GPU 약 2분 / CPU 약 50분
 
 `npm run index`는 **한 번만** 하면 됩니다. 중간에 끊으면 색인이 불완전해지니 끝까지 두세요.
 
-색인이 끝나면 앱의 검색창 위 토글이 `실제 검색 · bge-m3`로 활성화되고,
+색인이 끝나면 앱의 검색창 위 토글이 `실제 검색`로 활성화되고,
 그 아래에 `색인 1,000건`이 초록색으로 표시됩니다.
 
 검색해 볼 문장입니다.
@@ -83,7 +83,7 @@ OSPF BGP 비교한 문서
 
 | 위치 | 동작 | 상태 |
 |---|---|---|
-| 검색창 (`실제 검색`) | 자연어로 1,000건 색인 검색 | **실제** · bge-m3 |
+| 검색창 (`실제 검색`) | 자연어로 1,000건 색인 검색 | **실제** · qwen3-embedding |
 | 검색 결과 → 파일명 클릭 | 실제 문서 원문 미리보기 | **실제** · PyMuPDF |
 | 우측 상단 `폴더 선택` | OS 폴더 창 → 그 폴더의 문서 실제 추출 | **실제** |
 | 검색창 (`Mock`) | 하드코딩 4건 | Mock · 1주차 |
@@ -119,7 +119,7 @@ backend\mock\pdf
 
 | 용도 | 모델 | 근거 |
 |---|---|---|
-| **임베딩** (자연어 검색) | `bge-m3` | 다국어 1024차원. 영어 전용 기본값은 한국어에서 거리 변별 불가 |
+| **임베딩** (자연어 검색) | `qwen3-embedding:0.6b` | 3주차 교체 — 느낌 검색 +20%p, 크기 절반 (ADR-0002 §2 개정) |
 | **로컬 LLM** (파일명·폴더 추천) | `exaone3.5:7.8b` | 파일명 88.5% · 한국어 100% 유지 · 학기 포함률 97.5% |
 | 저사양 PC용 | `exaone3.5:2.4b` | GPU 없이 13초/파일 (7.8b는 81초) |
 
@@ -153,7 +153,7 @@ localfile-ai/
    │  ├─ core/          config.py — Ollama·모델 설정 단일 출처       BE1
    │  ├─ extraction/    문서 텍스트 추출                            BE2
    │  ├─ llm/           추천 프롬프트 · 검증 + 1회 재시도            BE1
-   │  └─ rag/           bge-m3 임베딩 · ChromaDB 검색 · k-NN 분류    BE1
+   │  └─ rag/           qwen3 임베딩 · ChromaDB 검색 · k-NN 분류    BE1
    ├─ scripts/          데이터셋 생성 · 임베딩 · 모델 비교           BE1
    ├─ tests/            추천 파이프라인 테스트 (Ollama 불필요)       BE1
    └─ mock/pdf/         추출 테스트용 실제 PDF 5건                  BE2
@@ -165,7 +165,7 @@ localfile-ai/
 |---|---|---|
 | `GET /health` | 실제 | BE2 |
 | `POST /preprocess/extract-first-page` | **실제** | BE2 |
-| `GET /search` · `GET /search/status` | **실제** — bge-m3 임베딩 검색 | BE1 |
+| `GET /search` · `GET /search/status` | **실제** — qwen3-embedding 임베딩 검색 | BE1 |
 | `POST /organize` · `GET /organize/status` | **실제** — RAG + LLM 분류·파일명 추천 (3주차) | BE1 |
 | `POST /index` · `GET /index/status` | **실제** — 사용자 폴더 색인. 색인 후 `/search`가 실파일 대상 (3주차) | BE1 |
 | `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |

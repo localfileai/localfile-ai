@@ -111,7 +111,7 @@ def main() -> int:
     parser.add_argument("--eval-set", type=Path,
                         default=Path(__file__).parent / "data" / "search_eval_hard.jsonl")
     parser.add_argument("--db", type=Path, default=Path("./chroma_db"))
-    parser.add_argument("--embed-model", default="bge-m3")
+    parser.add_argument("--embed-model", default="qwen3-embedding:0.6b")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--output", type=Path, default=Path("search_eval_results.csv"))
     args = parser.parse_args()

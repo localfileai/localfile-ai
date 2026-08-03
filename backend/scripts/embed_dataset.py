@@ -18,7 +18,7 @@ import requests
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
-DEFAULT_MODEL = "bge-m3"
+DEFAULT_MODEL = "qwen3-embedding:0.6b"
 COLLECTION_NAME = "file_documents"
 
 
