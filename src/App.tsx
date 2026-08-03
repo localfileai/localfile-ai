@@ -5,6 +5,7 @@ import MainView from './components/MainView'
 import OrganizeView from './components/OrganizedView'
 import AllFilesView from './components/AllFilesView'
 import {
+  analyzeFolder,
   getRenameRecommendations,
   getStructureRecommendations,
   type CurrentFileItem,
@@ -39,8 +40,19 @@ function App() {
   // 깊이를 세지 않으면 오버레이가 깜빡이고 창을 벗어난 시점을 알 수 없습니다.
   const dragDepth = useRef(0)
 
+  // 3주차: 폴더를 선택하면 실제 AI 추천(POST /organize)을, 선택 전에는 1주차 Mock을 쓴다.
+  // CPU 환경에서는 분석이 파일당 수십 초 걸릴 수 있다 — 로딩 UI는 계획서 4주차 항목.
   const loadOrganizeData = useCallback(async () => {
     try {
+      if (selectedPath) {
+        const data = await analyzeFolder(selectedPath)
+        setRenameList(data.renameList)
+        setStructureList(data.structureList)
+        setCurrentFiles(data.currentFiles)
+        setTotalFiles(data.totalFilesCount)
+        return
+      }
+
       const [renameData, structureData] = await Promise.all([
         getRenameRecommendations(),
         getStructureRecommendations(),
@@ -51,9 +63,9 @@ function App() {
       setCurrentFiles(structureData.currentFiles || [])
       setTotalFiles(structureData.totalFilesCount || 0)
     } catch (error) {
-      console.error('초기 데이터 로딩 에러:', error)
+      console.error('추천 데이터 로딩 에러:', error)
     }
-  }, [])
+  }, [selectedPath])
 
   useEffect(() => {
     loadOrganizeData()

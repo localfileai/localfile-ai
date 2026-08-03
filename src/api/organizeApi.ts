@@ -4,7 +4,8 @@ export interface RenameRecommendation {
   recommendedName: string;
   confidence: string;
   category: string;
-  fileType: 'PDF' | 'TXT' | 'MD';
+  // 실제 지원 확장자는 기획안 7종(PDF·DOCX·DOC·PPTX·PPT·HWPX·HWP)이라 문자열로 둔다.
+  fileType: string;
 }
 
 export interface StructureRecommendation {
@@ -37,6 +38,99 @@ export interface ReanalyzeResponse {
 }
 
 const BASE_URL = 'http://127.0.0.1:8000';
+
+// ---------------------------------------------------------------------------
+// 실제 추천 API (POST /organize) — 계약: backend/app/contracts/ai.py
+// 사용자가 폴더를 선택하면 이 경로를 쓰고, 선택 전에는 아래 Mock 경로를 쓴다.
+// 계약 단일화 계획: docs/contracts-unification.md
+// ---------------------------------------------------------------------------
+
+interface OrganizeFileRef {
+  path: string;
+  name: string;
+  extension: string;
+}
+
+interface OrganizeSuggestion {
+  category: string;
+  recommended_folder: string;
+  recommended_filename: string;
+  confidence: number; // 0.0~1.0 — 화면 표시는 %로 변환
+  reason: string;
+}
+
+interface OrganizeResponseBody {
+  total_files: number;
+  success_count: number;
+  suggestions: { current: OrganizeFileRef; suggestion: OrganizeSuggestion }[];
+  failed: { path: string; reason: string }[];
+}
+
+export interface OrganizeData {
+  renameList: RenameRecommendation[];
+  structureList: StructureRecommendation[];
+  currentFiles: CurrentFileItem[];
+  totalFilesCount: number;
+}
+
+const parentFolder = (path: string): string => {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.slice(0, -1).join('/') || path;
+};
+
+/**
+ * 선택한 폴더를 실제 AI로 분석해 추천을 받는다.
+ * CPU 환경에서는 파일당 수십 초가 걸릴 수 있다(저사양이면 백엔드가 slim 모드로 자동 강등).
+ */
+export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
+  const response = await fetch(`${BASE_URL}/organize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (!response.ok) {
+    // 503(모델 없음)·400(잘못된 경로)의 이유를 그대로 화면까지 올린다.
+    const detail = (await response.json().catch(() => null))?.detail;
+    throw new Error(detail || `분석 실패 (HTTP ${response.status})`);
+  }
+
+  const data: OrganizeResponseBody = await response.json();
+
+  const renameList: RenameRecommendation[] = data.suggestions.map((item, index) => ({
+    id: String(index + 1),
+    currentName: item.current.name,
+    recommendedName: item.suggestion.recommended_filename,
+    confidence: toConfidenceString(item.suggestion.confidence),
+    category: item.suggestion.category,
+    fileType: item.current.extension.toUpperCase(),
+  }));
+
+  const structureList: StructureRecommendation[] = data.suggestions.map((item, index) => ({
+    id: String(index + 1),
+    fileName: item.current.name,
+    currentFolder: parentFolder(item.current.path),
+    targetFolder: item.suggestion.recommended_folder,
+    confidence: toConfidenceString(item.suggestion.confidence),
+  }));
+
+  // 파일 목록에는 추천 실패분(스캔 PDF 등)도 포함해 보여 준다.
+  const currentFiles: CurrentFileItem[] = [
+    ...data.suggestions.map((item, index) => ({
+      id: String(index + 1),
+      name: item.current.name,
+      ext: item.current.extension.toUpperCase(),
+      path: parentFolder(item.current.path),
+    })),
+    ...data.failed.map((item, index) => ({
+      id: `failed-${index + 1}`,
+      name: item.path.split(/[\\/]/).filter(Boolean).at(-1) || item.path,
+      ext: (item.path.split('.').at(-1) || '').toUpperCase(),
+      path: parentFolder(item.path),
+    })),
+  ];
+
+  return { renameList, structureList, currentFiles, totalFilesCount: data.total_files };
+};
 
 /**
  * 백엔드가 보내는 원본 항목들. 필드가 전부 optional인 이유:

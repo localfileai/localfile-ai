@@ -1,7 +1,15 @@
 # 계약 단일화 제안 — `contracts/ai.py` ↔ `contracts/api.py`
 
 - **작성**: 강인혁 (BE1) · 3주차
-- **상태**: 제안 (BE2·FE 합의 필요 — 1주차부터 이월된 "2주차 최우선" 항목)
+- **상태**: **브랜치에 구현됨** (`claude/be1-week-3-tasks-peajyw`) — 병합 전 BE2·FE 리뷰 필요
+
+> 아래 이행 계획의 1·3번은 이 브랜치에 코드로 반영했다. BE2·FE2 담당 영역을
+> 건드린 부분이므로 병합 전에 두 사람의 확인을 받는다. 반영 내용:
+> - Mock 전용 모델을 `contracts/api.py` → `api/routes/mock.py` 안으로 격리
+>   (이름 충돌 2쌍 제거, `api.py`에는 전처리 계약 3종만 유지)
+> - FE `organizeApi.ts`에 `analyzeFolder(path)` 추가 — `POST /organize` 실제 추천.
+>   `App.tsx`는 폴더 선택 시 실제 API, 선택 전에는 1주차 Mock을 쓴다
+> - 2번(승인 API를 `ai.ApplyRequest` 기준으로)은 BE2의 apply 구현과 함께 진행할 것
 
 ## 문제
 

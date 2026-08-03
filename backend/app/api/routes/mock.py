@@ -3,25 +3,95 @@
 
 1주차에는 실제 AI/RAG 결과가 없어도 FE가 화면 연동을 진행할 수 있어야 하므로,
 문서 질문/답변과 추천 폴더/파일명 형태의 더미 데이터를 반환합니다.
+
+3주차 계약 단일화(docs/contracts-unification.md): Mock 전용 모델은 계약 패키지가
+아니라 **이 파일 안에** 둡니다. `contracts/ai.py`의 실제 계약(SearchResponse,
+ApplyRequest)과 이름이 겹쳐 import 실수를 유발하던 문제를 없앴습니다.
+실제 경로가 전부 연결되면(4주차) 이 라우터와 함께 통째로 제거합니다.
 """
 
 from pathlib import Path
+from typing import List
 
 from fastapi import APIRouter
-
-from ...contracts.api import (
-    MockAnalyzeRequest,
-    MockAnalyzeResponse,
-    SearchResponse,
-    RenameResponse,
-    MoveResponse,
-    ApplyRequest,
-    ApplyResponse,
-    ReanalyzeResponse,
-)
+from pydantic import BaseModel
 
 # 모든 mock 엔드포인트를 `/mock` 하위로 모읍니다.
 router = APIRouter(prefix="/mock", tags=["mock"])
+
+
+# ---------------------------------------------------------
+# Mock 전용 응답 모델 — 이 라우터 밖에서 import하지 마세요.
+# 실제 계약은 contracts/ai.py가 단일 기준입니다.
+# ---------------------------------------------------------
+
+class MockAnalyzeRequest(BaseModel):
+    path: str
+
+
+class MockAnalyzeResponse(BaseModel):
+    original_path: str
+    recommended_name: str
+    recommended_folder: str
+    summary: str
+    confidence: float
+    tags: List[str]
+
+
+class SearchItem(BaseModel):
+    name: str
+    ext: str
+    path: str
+    modified: str
+    score: int
+    snippet: str
+
+
+class SearchResponse(BaseModel):
+    count: int
+    items: List[SearchItem]
+
+
+class RenameRecommendation(BaseModel):
+    id: int
+    old: str
+    next: str
+    path: str
+    ext: str
+    confidence: int
+
+
+class RenameResponse(BaseModel):
+    count: int
+    items: List[RenameRecommendation]
+
+
+class MoveRecommendation(BaseModel):
+    id: str
+    name: str
+    from_: str
+    to: str
+    confidence: int
+
+
+class MoveResponse(BaseModel):
+    current_files: List[dict]
+    recommendations: List[MoveRecommendation]
+
+
+class ApplyRequest(BaseModel):
+    ids: List[str]
+
+
+class ApplyResponse(BaseModel):
+    applied: int
+    status: str
+
+
+class ReanalyzeResponse(BaseModel):
+    message: str
+    rename_count: int
+    move_count: int
 
 
 def build_mock_analyze_response(file_path: str) -> MockAnalyzeResponse:

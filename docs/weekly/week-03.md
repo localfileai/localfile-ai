@@ -21,10 +21,11 @@
 | 3 | 모델 최적화 | Session·keep_alive / 단일질의 / k-NN / auto | 2.3s→0.2s 등 (본 문서 벤치마크 표) |
 | 3 | Pydantic 검증 + 재시도 | `app/llm/suggest.py` | 시연 5/5 · 재시도 15건 중 11건 구제 |
 
-**10/10 반영.** 유일하게 문서상 미해결로 남아 있던 1~2주차 이월 항목은 **계약 이원화**
-(`contracts/ai.py` vs `api.py` — 같은 이름·다른 모양 클래스 2쌍)인데, BE2·FE 코드 소유권이
-걸려 있어 BE1이 단독으로 바꾸지 않고 **필드 대응표 + 파트별 이행 계획**으로 정리했다:
-[`docs/contracts-unification.md`](../contracts-unification.md). 팀 합의만 남았다.
+**10/10 반영.** 유일하게 문서상 미해결로 남아 있던 1~2주차 이월 항목인 **계약 이원화**
+(`contracts/ai.py` vs `api.py` — 같은 이름·다른 모양 클래스 2쌍)도 이 브랜치에서
+코드로 해소했다: Mock 모델을 `mock.py` 안으로 격리하고, FE가 폴더 선택 시
+`POST /organize`(실제 추천)를 쓰도록 전환. 상세와 리뷰 포인트:
+[`docs/contracts-unification.md`](../contracts-unification.md). **병합 전 BE2·FE2 리뷰 필요.**
 
 ## 계획서 3주차 BE1 항목별 산출물
 
