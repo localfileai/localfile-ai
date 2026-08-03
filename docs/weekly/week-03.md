@@ -191,6 +191,21 @@ npm run backend:test        # 25건, Ollama 불필요
   바꿔 말한 질의에 DB 어휘가 하나도 없는 경우다.
 - **ADR-0002 §6의 재검토 조건("검색 평가셋을 어렵게 만든 뒤")이 충족됐다.**
   임베딩 모델 선택(bge-m3 vs e5 계열)을 §6에 따라 재논의할 근거가 생겼다.
+
+### 임베딩 모델 후보 재측정 (§6 재검토 진행 중 · 같은 평가셋·같은 GPU 기기)
+
+| 모델 | 크기 | paraphrase Top-1 | 전체 Top-1 | 색인 속도 |
+|---|---|---|---|---|
+| bge-m3 (현재 기본, ADR-0002) | 1.2GB | 70.0% | 85.0% | 4.2건/s |
+| **embeddinggemma** | **621MB** | **80.0%** | **90.0%** | 4.9건/s |
+| qwen3-embedding:0.6b | 639MB | (측정 예정) | | |
+
+embeddinggemma가 **절반 크기로 느낌 검색을 10%p 더 잘한다.** GPU에서는 속도 차이가
+작지만 저사양 CPU에서는 파라미터 절반이 색인 속도로 직결된다.
+**교체 확정 전 필수 확인**: embeddinggemma 임베딩의 k-NN 분류 정확도
+(`bench_optimization.py --only C --db ./chroma_db_test --embed-model embeddinggemma`) —
+k-NN은 임베딩 모델 의존적이므로(본 문서 [C] 참고) slim 모드 성능이 같이 바뀐다.
+확정되면 기본값 교체는 `OLLAMA_EMBED_MODEL` 기본값 한 줄 + 재색인이다.
 - 평가 스크립트의 질의당 2.3초는 커넥션 미재사용 경로(스크립트 자체 클라이언트) 기준이다.
   런타임 `/search`는 [A]의 Session 재사용으로 0.2초대 — 두 수치가 교차 검증된다.
 
