@@ -50,10 +50,70 @@ FOLDER_ALIASES = {
 }
 
 
+def judge_mode(root: Path, limit: int, feedback) -> int:
+    """대화형 검증 — 폴더 준비 없이 진짜 폴더를 그대로 가리킨다.
+
+    파일마다 분류 결과를 보여주고 사용자가 Enter(맞음)/n(틀림)만 누른다.
+    파일은 읽기만 하며 이동·수정하지 않는다.
+    """
+    import os
+
+    items = extract_from_path(str(root), max_chars=2000)
+    usable = [item for item in items
+              if not item["error"] and (item["normalized_text"] or item["raw_text"]).strip()]
+    # 최근 파일부터 — 사용자가 기억하는 파일이라 판정이 빠르다.
+    usable.sort(key=lambda item: os.path.getmtime(item["path"])
+                if os.path.isfile(item["path"]) else 0, reverse=True)
+    usable = usable[:limit]
+    if not usable:
+        print("[에러] 처리할 수 있는 문서가 없습니다.", file=sys.stderr)
+        return 1
+
+    print(f"대상 {len(usable)}개 (최근 파일부터). 파일마다 분류가 맞는지 판정해 주세요.")
+    print("  Enter=맞음 · n=틀림 · s=이 파일 모름/건너뜀 · q=여기까지만 하고 집계\n")
+
+    results = []
+    for number, item in enumerate(usable, start=1):
+        text = (item["normalized_text"] or item["raw_text"]).strip()
+        decision, _ = classify.classify_text(text, feedback)
+        snippet = " ".join(text.split())[:70]
+        print(f"[{number}/{len(usable)}] {item['name']}")
+        print(f"   내용: {snippet}...")
+        print(f"   분류: {decision.category.value}  (신뢰도 {decision.confidence:.2f} · {decision.method})")
+        answer = input("   맞나요? [Enter/n/s/q] ").strip().lower()
+        print()
+        if answer == "q":
+            break
+        if answer == "s":
+            continue
+        results.append((answer != "n", decision))
+
+    if not results:
+        print("[에러] 판정된 파일이 없습니다.", file=sys.stderr)
+        return 1
+
+    n = len(results)
+    correct = sum(1 for ok, _ in results if ok)
+    print("=" * 70)
+    print(f"실파일 분류 정확도 (사용자 판정): {correct}/{n} = {correct / n:.1%}"
+          f"   (합성 데이터 기준 82.8%)")
+    print("=" * 70)
+    wrong = Counter(decision.category.value for ok, decision in results if not ok)
+    if wrong:
+        print("틀렸다고 판정된 분류:", dict(wrong))
+    etc_count = sum(1 for _, decision in results if decision.category is Category.ETC)
+    print(f"etc(분류 보류) 처리: {etc_count}건")
+    print("\n이 결과를 docs/weekly/week-03.md 실전 검증 항목에 기록한다.")
+    return 0
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="실파일 분류 검증 (폴더가 곧 라벨)")
+    parser = argparse.ArgumentParser(description="실파일 분류 검증")
     parser.add_argument("--root", type=Path, required=True,
-                        help="카테고리 하위 폴더들이 들어 있는 검증 폴더")
+                        help="검증할 폴더 (--judge면 아무 실폴더, 아니면 카테고리 하위 폴더 구조)")
+    parser.add_argument("--judge", action="store_true",
+                        help="대화형 모드 — 폴더 준비 없이 파일마다 Enter/n으로 판정")
+    parser.add_argument("--limit", type=int, default=30, help="--judge 모드 최대 파일 수")
     parser.add_argument("--use-feedback", action="store_true",
                         help="쌓인 사용자 피드백 예시도 참조해 분류 (기본: 순수 zero-shot)")
     args = parser.parse_args()
@@ -62,6 +122,14 @@ def main() -> int:
     if not root.is_dir():
         print(f"[에러] 폴더가 아닙니다: {root}", file=sys.stderr)
         return 1
+
+    feedback_col = None
+    if args.use_feedback:
+        from app.rag.search import feedback_collection
+        feedback_col = feedback_collection()
+
+    if args.judge:
+        return judge_mode(root, args.limit, feedback_col)
 
     labeled_dirs = []
     for child in sorted(root.iterdir()):
@@ -72,11 +140,6 @@ def main() -> int:
               file=sys.stderr)
         print(f"       인식하는 이름: {', '.join(sorted(set(FOLDER_ALIASES)))}", file=sys.stderr)
         return 1
-
-    feedback = None
-    if args.use_feedback:
-        from app.rag.search import feedback_collection
-        feedback = feedback_collection()
 
     results: list[tuple[Category, Category, str, float, str]] = []
     skipped = 0
@@ -89,7 +152,7 @@ def main() -> int:
                 skipped += 1
                 print(f"  [건너뜀] {item['name']}  ({item['error'] or '텍스트 없음'})")
                 continue
-            decision, _ = classify.classify_text(text, feedback)
+            decision, _ = classify.classify_text(text, feedback_col)
             mark = "O" if decision.category is truth else "X"
             print(f"  [{mark}] {truth.value:<10} -> {decision.category.value:<10} "
                   f"({decision.confidence:.2f} · {decision.method})  {item['name'][:30]}")
