@@ -178,7 +178,7 @@ API 문서: http://127.0.0.1:8000/docs
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe app\contracts\ai.py     # 자체 테스트 30건
+.venv\Scripts\python.exe app\contracts\ai.py     # 자체 테스트 32건
 ```
 
 > ⚠️ 아직 `app/contracts/api.py`(BE2, API 응답 형태)와 필드명이 다릅니다.
@@ -197,7 +197,7 @@ cd backend
 | `npm run backend:dev` | FastAPI 서버 |
 | `npm run dataset` | 정답 데이터셋 1,000쌍 재생성 (약 2분) |
 | `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
-| `npm run backend:test` | 백엔드 단위 테스트 25건 (Ollama 불필요) |
+| `npm run backend:test` | 백엔드 단위 테스트 38건 (Ollama 불필요) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
 
 ## 알려진 문제

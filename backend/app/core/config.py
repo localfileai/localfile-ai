@@ -31,9 +31,15 @@ OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
 GENERATE_TIMEOUT_SEC = int(os.getenv("LOCAL_FILE_AI_GENERATE_TIMEOUT", "180"))
 EMBED_TIMEOUT_SEC = int(os.getenv("LOCAL_FILE_AI_EMBED_TIMEOUT", "600"))
 
-# 추천 기본 모드. full = 7.8b가 5필드 전부 생성 / slim = k-NN 분류 + 2.4b 파일명만.
-# ADR-0002 §5-1 "사양별 동작 계층" 참고. GPU 자동 감지는 아직 없어 수동 선택이다.
-RECOMMEND_MODE_DEFAULT = os.getenv("LOCAL_FILE_AI_RECOMMEND_MODE", "full")
+# 추천 기본 모드. ADR-0002 §5-1 "사양별 동작 계층" 참고.
+#   full = 7.8b가 5필드 전부 생성 (GPU 실측 4.3초/파일, CPU 81초)
+#   slim = k-NN 분류 + 2.4b 파일명만 (CPU 13초/파일 — 저사양 대책)
+#   auto = 첫 요청에서 생성 속도를 재보고 느리면 slim으로 자동 강등
+RECOMMEND_MODE_DEFAULT = os.getenv("LOCAL_FILE_AI_RECOMMEND_MODE", "auto")
+
+# auto 모드 판정 기준: 16토큰 생성(워밍업 후)이 이 시간을 넘으면 저사양으로 본다.
+# GPU 실측(4.3s/128토큰)이면 16토큰에 1초 미만, CPU(81s/143토큰)면 9초 이상이다.
+AUTO_SLIM_THRESHOLD_SEC = float(os.getenv("LOCAL_FILE_AI_AUTO_SLIM_THRESHOLD", "5.0"))
 
 # LLM 응답 생성 온도. 실험(test_models.py)과 런타임이 같아야 수치를 비교할 수 있다.
 GENERATE_TEMPERATURE = float(os.getenv("LOCAL_FILE_AI_TEMPERATURE", "0.1"))

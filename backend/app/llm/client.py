@@ -40,6 +40,33 @@ def check_generate_model(model: str = config.OLLAMA_GENERATE_MODEL) -> tuple[boo
     return True, ""
 
 
+def probe_generation_seconds(model: str = config.OLLAMA_GENERATE_MODEL,
+                             tokens: int = 16, timeout: int = 300) -> float:
+    """워밍업 후 `tokens`개 생성에 걸리는 시간을 잰다 (auto 모드의 저사양 판정용).
+
+    첫 호출은 모델 로딩이 섞이므로 버리고 두 번째 호출을 측정한다.
+    """
+    import time
+
+    payload = {
+        "model": model,
+        "prompt": "다음 단어를 이어서 쓰세요: 가나다",
+        "stream": False,
+        "options": {"num_predict": tokens, "temperature": 0.0},
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
+    }
+    try:
+        _session.post(f"{config.OLLAMA_BASE_URL}/api/generate",
+                      json=payload, timeout=timeout).raise_for_status()  # 워밍업
+        started = time.perf_counter()
+        response = _session.post(f"{config.OLLAMA_BASE_URL}/api/generate",
+                                 json=payload, timeout=timeout)
+        response.raise_for_status()
+        return time.perf_counter() - started
+    except requests.exceptions.RequestException as exc:
+        raise LLMRequestError(f"probe_error: {type(exc).__name__}") from exc
+
+
 def generate(
     system: str,
     prompt: str,

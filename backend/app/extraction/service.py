@@ -12,12 +12,19 @@
   docx · pptx    zip + XML 파싱 (외부 라이브러리 없이)
   hwpx           zip + XML 파싱
   hwp            olefile로 BodyText 스트림 디코딩
+  doc            olefile + [MS-DOC] 조각 테이블(piece table) 파싱, 실패 시 휴리스틱
+  ppt            olefile + 레코드 순회로 TextCharsAtom/TextBytesAtom 수집
+
+doc·ppt는 3주차까지 "표준 파서 없음"으로 미지원이었으나, hwp에 이미 쓰는 olefile로
+직접 파싱하도록 구현해 기획안 3장의 대상 7종을 모두 지원한다 (BE1 3주차 정합 작업).
+암호화되거나 규격을 벗어난 파일은 억지로 읽지 않고 파일 단위 실패로 처리된다.
 
 지원하지 않는 것과 이유
-  doc · ppt      구형 OLE 이진 포맷. 표준 파서가 없어 외부 변환 도구(LibreOffice 등)가
-                 필요합니다. 기획안이 "스캔 PDF·이미지는 초기 MVP 범위에서 제외"한 것과
-                 같은 이유로 4주 일정에서는 뺍니다.
   txt · md       대상 문서가 아닙니다.
+
+저사양 PC 고려: 구형 포맷 스트림은 LEGACY_STREAM_CAP 까지만 읽는다.
+첫 페이지 분량 텍스트는 그 안에 반드시 있고, 수백 MB짜리 깨진 파일이
+메모리를 다 잡아먹는 사고를 막는다.
 """
 
 from pathlib import Path
@@ -28,8 +35,11 @@ import zipfile
 from typing import Dict, Iterable, List
 
 
-# 첫 페이지/텍스트 추출을 지원하는 확장자 목록입니다.
-SUPPORTED_TEXT_EXTENSIONS = {".pdf", ".docx", ".pptx", ".hwpx", ".hwp"}
+# 첫 페이지/텍스트 추출을 지원하는 확장자 목록입니다. 기획안 3장의 7종 전부.
+SUPPORTED_TEXT_EXTENSIONS = {".pdf", ".docx", ".doc", ".pptx", ".ppt", ".hwpx", ".hwp"}
+
+# 구형 OLE 포맷 스트림을 읽는 상한. 첫 페이지 텍스트는 이 안에 있다.
+LEGACY_STREAM_CAP = 4 * 1024 * 1024
 
 # zip + XML 구조라서 같은 방식으로 읽는 포맷들.
 # 각 값은 본문이 들어 있는 zip 내부 경로의 접두사입니다.
@@ -130,6 +140,12 @@ def extract_first_page_text(file_path: str) -> str:
     if suffix == ".hwp":
         return _extract_hwp_text(path)
 
+    if suffix == ".doc":
+        return _extract_doc_text(path)
+
+    if suffix == ".ppt":
+        return _extract_ppt_text(path)
+
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
@@ -205,6 +221,170 @@ def _extract_hwp_text(path: Path) -> str:
             if text.strip():
                 parts.append(text.strip())
         return " ".join(parts).strip()
+    finally:
+        ole.close()
+
+
+# ---------------------------------------------------------------------
+# 구형 MS Office 이진 포맷 (doc · ppt) — olefile로 직접 파싱
+# ---------------------------------------------------------------------
+
+def _open_ole(path: Path):
+    try:
+        import olefile
+    except ImportError as exc:
+        raise RuntimeError(
+            "doc/ppt를 읽으려면 olefile이 필요합니다: python -m pip install olefile"
+        ) from exc
+    try:
+        return olefile.OleFileIO(str(path))
+    except OSError as exc:
+        raise ValueError(f"손상되었거나 형식이 다른 파일입니다: {path.name}") from exc
+
+
+def _read_stream(ole, name: str) -> bytes:
+    """OLE 스트림을 상한까지만 읽는다. 없으면 빈 바이트."""
+    if not ole.exists(name):
+        return b""
+    return ole.openstream(name).read(LEGACY_STREAM_CAP)
+
+
+def _clean_word_text(text: str) -> str:
+    """Word 계열 텍스트의 제어·서식 문자를 정리한다."""
+    text = text.replace("\r", "\n").replace("\x0b", "\n")
+    # 필드 코드(0x13~0x15), 개체 자리표시(0x01, 0x08) 등 제어 문자 제거
+    return re.sub(r"[\x00-\x08\x0c\x0e-\x1f]+", " ", text)
+
+
+def _printable_runs_fallback(data: bytes, min_run: int = 8) -> str:
+    """규격 파싱이 실패했을 때의 마지막 수단 — UTF-16LE로 읽어 글자 구간만 남긴다."""
+    decoded = data.decode("utf-16le", errors="ignore")
+    pattern = r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9 .,()\-_:%/·]{" + str(min_run - 1) + r",}"
+    runs = re.findall(pattern, decoded)
+    return " ".join(run.strip() for run in runs)
+
+
+def _doc_text_from_piece_table(word: bytes, table: bytes, budget: int = 8000) -> str:
+    """[MS-DOC] 조각 테이블(CLX→PlcPcd)을 따라 본문 텍스트를 앞에서부터 모은다.
+
+    Word 97 이후의 FIB 고정 오프셋을 쓴다: fcClx=0x01A2, lcbClx=0x01A6.
+    조각(piece)마다 fCompressed 비트가 8비트(cp1252)/16비트(UTF-16LE)를 구분한다.
+    """
+    import struct
+
+    if len(word) < 0x01AA or struct.unpack_from("<H", word, 0)[0] != 0xA5EC:
+        raise ValueError("FIB 시그니처가 아님")
+
+    fc_clx, lcb_clx = struct.unpack_from("<II", word, 0x01A2)
+    if lcb_clx == 0 or fc_clx + lcb_clx > len(table):
+        raise ValueError("CLX 범위 이상")
+    clx = table[fc_clx:fc_clx + lcb_clx]
+
+    # CLX = (Prc)* Pcdt. Prc(clxt=1)는 건너뛰고 Pcdt(clxt=2)의 PlcPcd를 찾는다.
+    offset = 0
+    while offset < len(clx):
+        clxt = clx[offset]
+        if clxt == 1:
+            (cb,) = struct.unpack_from("<H", clx, offset + 1)
+            offset += 3 + cb
+        elif clxt == 2:
+            (lcb,) = struct.unpack_from("<I", clx, offset + 1)
+            plc = clx[offset + 5:offset + 5 + lcb]
+            break
+        else:
+            raise ValueError(f"모르는 CLX 항목: {clxt}")
+    else:
+        raise ValueError("Pcdt 없음")
+
+    # PlcPcd: CP (n+1)개(4바이트) 뒤에 PCD n개(8바이트)
+    n = (len(plc) - 4) // 12
+    if n <= 0:
+        raise ValueError("빈 조각 테이블")
+    cps = struct.unpack_from(f"<{n + 1}I", plc, 0)
+    parts: list[str] = []
+    total = 0
+    for i in range(n):
+        fc_field = struct.unpack_from("<I", plc, (n + 1) * 4 + i * 8 + 2)[0]
+        chars = cps[i + 1] - cps[i]
+        compressed = bool(fc_field & 0x40000000)
+        fc = (fc_field & 0x3FFFFFFF) // 2 if compressed else fc_field & 0x3FFFFFFF
+        size = chars if compressed else chars * 2
+        chunk = word[fc:fc + size]
+        text = chunk.decode("cp1252" if compressed else "utf-16le", errors="ignore")
+        parts.append(text)
+        total += len(text)
+        if total >= budget:
+            break
+    return _clean_word_text("".join(parts)).strip()
+
+
+def _extract_doc_text(path: Path) -> str:
+    """Word 97-2003(.doc)에서 본문 앞부분을 뽑는다."""
+    ole = _open_ole(path)
+    try:
+        word = _read_stream(ole, "WordDocument")
+        if not word:
+            raise ValueError(f"WordDocument 스트림이 없습니다: {path.name}")
+        # FIB 플래그 비트 9(fWhichTblStm)가 1Table/0Table을 고른다.
+        table_name = "1Table" if len(word) > 0x0B and (word[0x0B] & 0x02) else "0Table"
+        table = _read_stream(ole, table_name) or _read_stream(
+            ole, "0Table" if table_name == "1Table" else "1Table")
+        try:
+            return _doc_text_from_piece_table(word, table)
+        except Exception:
+            # 규격을 벗어난 파일은 휴리스틱으로 한 번 더 시도한다.
+            return _printable_runs_fallback(word)
+    finally:
+        ole.close()
+
+
+# PowerPoint 97 레코드 타입. [MS-PPT]
+_PPT_TEXT_CHARS_ATOM = 0x0FA0   # UTF-16LE 본문
+_PPT_TEXT_BYTES_ATOM = 0x0FA8   # 8비트 본문 (라틴 위주)
+
+
+def _ppt_text_from_records(data: bytes, budget: int = 8000) -> str:
+    """[MS-PPT] 레코드를 순회하며 텍스트 아톰을 문서 순서대로 모은다."""
+    import struct
+
+    parts: list[str] = []
+    total = 0
+    stack = [(0, len(data))]
+    while stack and total < budget:
+        offset, end = stack.pop()
+        while offset + 8 <= end and total < budget:
+            ver_inst, rec_type, rec_len = struct.unpack_from("<HHI", data, offset)
+            payload_start = offset + 8
+            payload_end = min(payload_start + rec_len, end)
+            if payload_end <= payload_start and rec_len:
+                break
+            if (ver_inst & 0x000F) == 0x000F:
+                # 컨테이너 — 지금 위치 다음을 스택에 두고 안으로 들어간다.
+                stack.append((payload_end, end))
+                end = payload_end
+                offset = payload_start
+                continue
+            if rec_type == _PPT_TEXT_CHARS_ATOM:
+                text = data[payload_start:payload_end].decode("utf-16le", errors="ignore")
+                parts.append(text)
+                total += len(text)
+            elif rec_type == _PPT_TEXT_BYTES_ATOM:
+                text = data[payload_start:payload_end].decode("cp1252", errors="ignore")
+                parts.append(text)
+                total += len(text)
+            offset = payload_end
+    return _clean_word_text("\n".join(parts)).strip()
+
+
+def _extract_ppt_text(path: Path) -> str:
+    """PowerPoint 97-2003(.ppt)에서 슬라이드 텍스트 앞부분을 뽑는다."""
+    ole = _open_ole(path)
+    try:
+        data = _read_stream(ole, "PowerPoint Document")
+        if not data:
+            raise ValueError(f"PowerPoint Document 스트림이 없습니다: {path.name}")
+        text = _ppt_text_from_records(data)
+        return text if text else _printable_runs_fallback(data)
     finally:
         ole.close()
 

@@ -34,11 +34,24 @@ def extracted_item(path="C:/Users/a/Downloads/최종.pdf", name="최종.pdf",
     }
 
 
+@pytest.fixture(autouse=True)
+def reset_auto_cache():
+    """auto 모드 판정 캐시가 테스트 간에 새지 않게 한다."""
+    organize_route._auto_resolved.update({"mode": None, "probe_sec": None})
+    yield
+    organize_route._auto_resolved.update({"mode": None, "probe_sec": None})
+
+
 @pytest.fixture()
 def happy_path(monkeypatch):
-    """LLM 준비 완료 + 파일 1건 추출 + RAG 컨텍스트가 있는 기본 상황."""
+    """LLM 준비 완료 + 파일 1건 추출 + RAG 컨텍스트가 있는 기본 상황.
+
+    속도 프로브는 빠른 기기(0.5s)로 고정 → 기본값 auto가 full로 판정된다.
+    """
     monkeypatch.setattr(organize_route.llm_client, "check_generate_model",
                         lambda model: (True, ""))
+    monkeypatch.setattr(organize_route.llm_client, "probe_generation_seconds",
+                        lambda model: 0.5)
     monkeypatch.setattr(organize_route, "extract_from_path",
                         lambda path, max_chars: [extracted_item()])
     monkeypatch.setattr(organize_route, "retrieve_context",
@@ -127,6 +140,54 @@ def test_slim_모드에서_색인이_없으면_파일은_실패_처리(client, h
     body = OrganizeResponse.model_validate(response.json())
     assert body.success_count == 0
     assert "knn_unavailable" in body.failed[0].reason
+
+
+def test_auto_모드는_느린_기기에서_slim으로_강등(client, happy_path, monkeypatch):
+    monkeypatch.setattr(organize_route.llm_client, "probe_generation_seconds",
+                        lambda model: 12.0)  # CPU 수준으로 느림
+    monkeypatch.setattr(
+        organize_route.llm_client, "generate",
+        lambda system, prompt, model=None, **kw:
+            json.dumps({"recommended_filename": "데이터베이스_정규화_과제_2025-1.pdf"},
+                       ensure_ascii=False))
+    response = client.post("/organize", json={"path": "C:/a", "mode": "auto"})
+    body = OrganizeResponse.model_validate(response.json())
+    assert "k-NN" in body.suggestions[0].suggestion.reason  # slim 경로로 실행됨
+
+
+def test_auto_모드_빠른_기기는_full_유지(client, happy_path):
+    response = client.post("/organize", json={"path": "C:/a", "mode": "auto"})
+    body = OrganizeResponse.model_validate(response.json())
+    assert "k-NN" not in body.suggestions[0].suggestion.reason  # full 경로
+
+
+def test_auto_판정은_한_번만_재고_캐시된다(client, happy_path, monkeypatch):
+    calls = []
+
+    def probe(model):
+        calls.append(model)
+        return 0.5
+
+    monkeypatch.setattr(organize_route.llm_client, "probe_generation_seconds", probe)
+    client.post("/organize", json={"path": "C:/a", "mode": "auto"})
+    client.post("/organize", json={"path": "C:/a", "mode": "auto"})
+    assert len(calls) == 1
+
+
+def test_프로브_실패면_안전하게_slim(client, happy_path, monkeypatch):
+    from app.llm.client import LLMRequestError
+
+    def broken_probe(model):
+        raise LLMRequestError("timeout")
+
+    monkeypatch.setattr(organize_route.llm_client, "probe_generation_seconds", broken_probe)
+    monkeypatch.setattr(
+        organize_route.llm_client, "generate",
+        lambda system, prompt, model=None, **kw:
+            json.dumps({"recommended_filename": "a_b_2025-1.pdf"}))
+    response = client.post("/organize", json={"path": "C:/a", "mode": "auto"})
+    body = OrganizeResponse.model_validate(response.json())
+    assert "k-NN" in body.suggestions[0].suggestion.reason
 
 
 def test_use_rag_false면_예시_없이_프롬프트(client, happy_path, monkeypatch):

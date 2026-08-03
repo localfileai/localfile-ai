@@ -29,14 +29,15 @@ MAX_SIMILAR_EXAMPLES = 3
 # MVP 대상 확장자.
 #
 # 기획안 3장: "사용자가 선택한 폴더의 PDF, DOCX, DOC, HWP, HWPX, PPT, PPTX 파일 탐색"
+# — 그 7종 전부다.
 #
 # 초기에는 PDF/TXT/MD로 잡았으나, 대학생이 실제로 다루는 문서는 강의자료·과제·발표자료라
-# txt·md는 대상이 아니라고 판단해 위 목록으로 바로잡았다. (BE1 결정)
+# txt·md는 대상이 아니라고 판단해 기획안 목록으로 바로잡았다. (BE1 결정)
 #
-# doc·ppt는 기획안 목록에 있지만 구형 OLE 이진 포맷이라 표준 파서가 없다.
-# 읽으려면 LibreOffice 같은 외부 변환 도구가 필요해 4주 일정에서는 미지원으로 둔다.
-# 기획안이 "스캔 PDF, 이미지는 초기 MVP 범위에서 제외"한 것과 같은 이유다.
-ALLOWED_EXTENSIONS = ("pdf", "docx", "pptx", "hwpx", "hwp")
+# doc·ppt는 3주차까지 "구형 OLE 포맷, 표준 파서 없음"으로 미지원이었으나,
+# hwp에 이미 쓰는 olefile로 직접 파싱을 구현해 기획안과 정합시켰다
+# (extraction/service.py의 _extract_doc_text / _extract_ppt_text).
+ALLOWED_EXTENSIONS = ("pdf", "docx", "doc", "pptx", "ppt", "hwpx", "hwp")
 
 
 class Category(str, Enum):
@@ -183,8 +184,9 @@ class OrganizeRequest(Strict):
     path: str = Field(..., min_length=1, description="분석할 파일 또는 폴더의 절대 경로")
     mode: str | None = Field(
         default=None,
-        description='추천 모드. "full"(7.8b 5필드) 또는 "slim"(k-NN 분류 + 소형 모델 파일명). '
-                    "없으면 서버 기본값을 쓴다. ADR-0002 §5-1 참고")
+        description='추천 모드. "full"(7.8b 5필드) · "slim"(k-NN 분류 + 소형 모델 파일명) · '
+                    '"auto"(생성 속도를 재보고 느리면 slim). 없으면 서버 기본값(auto). '
+                    "ADR-0002 §5-1 참고")
     max_files: int = Field(default=20, ge=1, le=100,
                            description="한 번에 처리할 최대 파일 수. CPU에서 파일당 수십 초라 상한을 둔다")
     use_rag: bool = Field(default=True,
@@ -193,8 +195,8 @@ class OrganizeRequest(Strict):
     @field_validator("mode")
     @classmethod
     def _known_mode(cls, value: str | None) -> str | None:
-        if value is not None and value not in ("full", "slim"):
-            raise ValueError(f'mode는 "full" 또는 "slim"이어야 합니다: {value!r}')
+        if value is not None and value not in ("full", "slim", "auto"):
+            raise ValueError(f'mode는 "full"·"slim"·"auto" 중 하나여야 합니다: {value!r}')
         return value
 
 
@@ -358,11 +360,15 @@ if __name__ == "__main__":
              lambda: FileRef(**{**SAMPLE_FILE, "extension": "docx"}))
     check_ok("기획안 대상 확장자(hwp)",
              lambda: FileRef(**{**SAMPLE_FILE, "extension": "hwp"}))
-    # doc·ppt는 구형 OLE 이진 포맷이라 파서가 없어 범위 밖이다.
-    check_error("범위 밖 확장자(doc)",
-                lambda: FileRef(**{**SAMPLE_FILE, "extension": "doc"}))
+    # doc·ppt는 3주차에 olefile 직접 파싱으로 지원 범위에 들어왔다.
+    check_ok("기획안 대상 확장자(doc)",
+             lambda: FileRef(**{**SAMPLE_FILE, "extension": "doc"}))
+    check_ok("기획안 대상 확장자(ppt)",
+             lambda: FileRef(**{**SAMPLE_FILE, "extension": "ppt"}))
     check_error("범위 밖 확장자(png)",
                 lambda: FileRef(**{**SAMPLE_FILE, "extension": "png"}))
+    check_error("범위 밖 확장자(txt)",
+                lambda: FileRef(**{**SAMPLE_FILE, "extension": "txt"}))
     check_error("승인 없는 파일 변경 요청", lambda: ApplyRequest(
         approved=False,
         items=[ApplyItem(source_path="a.pdf", target_folder="lecture", target_filename="b.pdf")]))

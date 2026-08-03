@@ -40,6 +40,34 @@ def _short(text: str, limit: int = 180) -> str:
     return " ".join(str(text).split())[:limit]
 
 
+# auto 모드의 속도 판정 결과 캐시. 프로세스당 한 번만 잰다.
+#   None = 아직 안 잼 / "full"·"slim" = 판정 완료
+_auto_resolved: dict = {"mode": None, "probe_sec": None}
+
+
+def _resolve_mode(requested: str | None) -> str:
+    """요청 모드(없으면 서버 기본값)를 실제 실행 모드로 확정한다.
+
+    "auto"는 저사양 대응이다 (ADR-0002 §5-1): 16토큰 생성을 한 번 재보고
+    임계값(AUTO_SLIM_THRESHOLD_SEC)보다 느리면 slim으로 강등한다.
+    GPU 실측은 1초 미만, CPU 실측은 9초 이상이라 경계가 뚜렷하다.
+    """
+    mode = requested or config.RECOMMEND_MODE_DEFAULT
+    if mode != "auto":
+        return mode
+
+    if _auto_resolved["mode"] is None:
+        try:
+            elapsed = llm_client.probe_generation_seconds(config.OLLAMA_GENERATE_MODEL)
+        except llm_client.LLMRequestError:
+            # 재보기조차 실패할 정도면 저사양·불안정 쪽으로 둔다.
+            elapsed = float("inf")
+        _auto_resolved["probe_sec"] = None if elapsed == float("inf") else round(elapsed, 2)
+        _auto_resolved["mode"] = (
+            "slim" if elapsed > config.AUTO_SLIM_THRESHOLD_SEC else "full")
+    return _auto_resolved["mode"]
+
+
 def _to_file_ref(item: dict) -> FileRef:
     path = Path(item["path"])
     size_bytes = 0
@@ -67,6 +95,9 @@ async def organize_status():
     return {
         "ready": ready,
         "mode_default": mode,
+        # auto의 판정 결과. 아직 첫 추천 요청 전이면 null이다.
+        "mode_resolved": _auto_resolved["mode"],
+        "probe_sec": _auto_resolved["probe_sec"],
         "generate_model": config.OLLAMA_GENERATE_MODEL,
         "generate_model_slim": config.OLLAMA_GENERATE_MODEL_SLIM,
         "detail": detail,
@@ -80,7 +111,7 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
     """경로의 문서를 분석해 분류·파일명 추천을 만든다. 파일은 변경하지 않는다."""
     started = time.perf_counter()
 
-    mode = request.mode or config.RECOMMEND_MODE_DEFAULT
+    mode = _resolve_mode(request.mode)
     model = (config.OLLAMA_GENERATE_MODEL_SLIM if mode == "slim"
              else config.OLLAMA_GENERATE_MODEL)
 
