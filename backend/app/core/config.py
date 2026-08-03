@@ -43,3 +43,8 @@ AUTO_SLIM_THRESHOLD_SEC = float(os.getenv("LOCAL_FILE_AI_AUTO_SLIM_THRESHOLD", "
 
 # LLM 응답 생성 온도. 실험(test_models.py)과 런타임이 같아야 수치를 비교할 수 있다.
 GENERATE_TEMPERATURE = float(os.getenv("LOCAL_FILE_AI_TEMPERATURE", "0.1"))
+
+# 사용자 폴더 색인 시 임베딩에 넣을 텍스트 상한(글자).
+# 임베딩 시간은 글자 수에 비례하므로 이 값이 저사양 색인 속도를 직접 좌우한다.
+# 800자면 문서 주제 판별에 충분하고, 검색 결과 발췌(matched_text 최대 500자)도 안 깨진다.
+INDEX_EMBED_MAX_CHARS = int(os.getenv("LOCAL_FILE_AI_EMBED_MAX_CHARS", "800"))

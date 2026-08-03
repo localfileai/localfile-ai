@@ -78,6 +78,42 @@ class TestIndexer:
         state = wait_done()
         assert state["done"] == 0 and state["skipped"] == 1
 
+    def test_최근_수정_파일부터_색인(self, fake_collection, monkeypatch, tmp_path):
+        import os
+
+        old = tmp_path / "옛날자료.pdf"
+        new = tmp_path / "어제받은거.pdf"
+        old.write_bytes(b"x")
+        new.write_bytes(b"x")
+        os.utime(old, (1_000_000, 1_000_000))          # 아주 오래된 파일
+        monkeypatch.setattr(indexer, "extract_from_path", lambda path, max_chars: [
+            extracted(str(old), "옛날자료.pdf"),        # 추출은 경로순 = 옛날 것이 먼저
+            extracted(str(new), "어제받은거.pdf"),
+        ])
+        indexer.start(str(tmp_path))
+        wait_done()
+        # 색인 순서는 최근 파일이 먼저여야 한다 (dict는 삽입 순서를 보존한다).
+        assert list(fake_collection.rows)[0] == str(new)
+
+        # max_files에 걸려도 최신 파일이 우선 포함된다.
+        fake_collection.rows.clear()
+        indexer.start(str(tmp_path), max_files=1)
+        state = wait_done()
+        assert list(fake_collection.rows) == [str(new)]
+        assert state["total"] == 1
+
+    def test_임베딩_텍스트는_상한까지만(self, fake_collection, monkeypatch, tmp_path):
+        from app.core import config
+
+        file_a = tmp_path / "긴문서.pdf"
+        file_a.write_bytes(b"x")
+        monkeypatch.setattr(indexer, "extract_from_path", lambda path, max_chars: [
+            extracted(str(file_a), "긴문서.pdf", text="가" * 1500)])
+        indexer.start(str(tmp_path))
+        wait_done()
+        stored_text = fake_collection.rows[str(file_a)][0]
+        assert len(stored_text) == config.INDEX_EMBED_MAX_CHARS
+
     def test_실패_파일은_기록하고_계속(self, fake_collection, monkeypatch, tmp_path):
         good = tmp_path / "a.pdf"
         good.write_bytes(b"x")

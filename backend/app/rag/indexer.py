@@ -10,6 +10,12 @@ BE2의 추출 서비스로 첫 페이지 텍스트를 뽑아 임베딩하고, �
     Ollama가 요청을 직렬 처리하므로 색인 중 검색은 느려진다 — 이것도 status에 표시.
   - **증분**: 문서 id = 파일 절대 경로. mtime이 같으면 임베딩을 건너뛴다.
     (파일 삭제 감지·실시간 감시는 계획서상 BE2의 Watchdog 몫이라 여기 없다)
+  - **최근 파일 우선**: 수정일 역순으로 색인한다. 사용자가 찾는 파일은 대부분
+    최근 것이라, 전체 색인이 끝나기 전에도 "체감상 다 되는" 상태가 빨리 온다.
+    검색은 색인이 도는 중에도 이미 들어간 문서를 대상으로 동작한다.
+  - **임베딩 텍스트 상한**: 임베딩 시간은 글자 수에 비례한다. 첫 페이지(최대
+    2,000자)를 다시 INDEX_EMBED_MAX_CHARS(기본 800자)로 줄여 저사양 색인을
+    2~3배 당긴다. 주제 판별과 결과 발췌(500자)에는 영향이 없다.
   - **저사양 보호**: 한 번에 max_files 상한. 실패 파일은 이유와 함께 기록하고 계속.
 """
 
@@ -20,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..contracts.ai import MAX_FIRST_PAGE_CHARS
+from ..core import config
 from ..extraction.service import extract_from_path
 from .search import user_collection
 
@@ -56,7 +63,15 @@ def status() -> dict:
 def _run(path: str, max_files: int) -> None:
     collection = user_collection(create=True)
     try:
-        items = extract_from_path(path, max_chars=MAX_FIRST_PAGE_CHARS)[:max_files]
+        items = extract_from_path(path, max_chars=MAX_FIRST_PAGE_CHARS)
+
+        # 최근 수정 파일부터. max_files에 걸려 잘려도 최신 파일이 우선 포함된다.
+        def modified_at(item: dict) -> float:
+            file_path = Path(item["path"])
+            return file_path.stat().st_mtime if file_path.is_file() else 0.0
+
+        items.sort(key=modified_at, reverse=True)
+        items = items[:max_files]
         with _lock:
             _state["total"] = len(items)
 
@@ -76,6 +91,8 @@ def _run(path: str, max_files: int) -> None:
                         _state["failed"].append(
                             {"path": item["path"], "reason": "empty_text"})
                     continue
+                # 임베딩 시간은 글자 수에 비례한다 — 상한을 걸어 저사양 색인을 당긴다.
+                text = text[:config.INDEX_EMBED_MAX_CHARS]
 
                 file_path = Path(item["path"])
                 # float mtime은 ChromaDB 저장을 거치며 마지막 비트가 흔들려
