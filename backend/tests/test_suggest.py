@@ -117,6 +117,38 @@ class TestSuggestFull:
         assert result.suggestion is None
         assert "llm_request_error" in result.error
 
+    def test_분류기_결과가_LLM_category를_덮어쓴다(self):
+        # LLM은 lecture라고 했지만 분류기(82.8%)는 assignment — 분류기를 따른다.
+        llm_says_lecture = json.dumps({
+            **json.loads(VALID_FULL),
+            "category": "lecture",
+            "recommended_folder": "lecture/데이터베이스/2025-1",
+        }, ensure_ascii=False)
+        generate = make_generate([llm_says_lecture])
+        result = suggest_full(generate, **COMMON,
+                              category=Category.ASSIGNMENT, confidence=0.62,
+                              method="label_zeroshot")
+        assert result.suggestion.category is Category.ASSIGNMENT
+        # 분류 폴더만 바뀌고 LLM이 만든 세부 경로(과목·학기)는 살아남는다.
+        assert result.suggestion.recommended_folder == "assignment/데이터베이스/2025-1"
+        assert "라벨 정의문" in result.suggestion.reason
+        # 힌트가 프롬프트에 들어갔는지도 확인한다.
+        assert "assignment" in generate.calls[0]["prompt"]
+
+    def test_분류기가_etc면_폴더는_평평하게(self):
+        generate = make_generate([VALID_FULL])
+        result = suggest_full(generate, **COMMON,
+                              category=Category.ETC, confidence=0.3,
+                              method="etc_fallback")
+        assert result.suggestion.category is Category.ETC
+        assert result.suggestion.recommended_folder == "etc"
+
+    def test_분류기가_없으면_LLM_출력_그대로(self):
+        generate = make_generate([VALID_FULL])
+        result = suggest_full(generate, **COMMON)  # category=None (폴백)
+        assert result.suggestion.category is Category.ASSIGNMENT
+        assert result.suggestion.recommended_folder == "assignment/데이터베이스/2025-1"
+
     def test_RAG_예시가_프롬프트에_들어간다(self):
         from app.contracts.ai import RetrievedExample
         examples = [RetrievedExample(

@@ -148,32 +148,37 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
             continue
 
         # 임베딩 1회 원칙: 문서 좌표를 한 번 계산해 분류와 RAG 조회가 공유한다.
+        # 분류는 전 모드에서 분류기(classify.py)가 담당한다 — 3파전 실측 결과
+        # LLM 직접 분류(50%)보다 라벨 정의문 zero-shot(82.8%)이 정확하다.
         vector = None
+        try:
+            vector = classify.embed_text(text)
+        except Exception as exc:
+            rag_unavailable_reason = f"임베딩 실패: {exc}"
+
+        decision = None
+        if vector is not None:
+            decision = classify.classify_vector(vector, feedback_collection())
+
         context = RagContext()
-        if request.use_rag or mode == "slim":
+        if vector is not None and request.use_rag:
             try:
-                vector = classify.embed_text(text)
+                context = retrieve_context(
+                    embedding=vector, exclude_name=file_ref.name)
+            except SearchUnavailable as exc:
+                rag_unavailable_reason = str(exc)
             except Exception as exc:
-                rag_unavailable_reason = f"임베딩 실패: {exc}"
-            if vector is not None and request.use_rag:
-                try:
-                    context = retrieve_context(
-                        embedding=vector, exclude_name=file_ref.name)
-                except SearchUnavailable as exc:
-                    rag_unavailable_reason = str(exc)
-                except Exception as exc:
-                    rag_unavailable_reason = f"RAG 조회 실패: {exc}"
+                rag_unavailable_reason = f"RAG 조회 실패: {exc}"
 
         examples = context.examples if request.use_rag else []
 
         if mode == "slim":
-            # 분류: 사용자 예시 → 라벨 정의문 → etc(보류). 임베딩 실패 시만 파일 실패 처리.
-            if vector is None:
+            # slim은 분류기 결과가 필수다 (LLM은 파일명만 만들므로).
+            if decision is None:
                 failed.append(FailedFile(
                     path=item["path"],
                     reason=_short(f"classify_unavailable: {rag_unavailable_reason or '임베딩 불가'}")))
                 continue
-            decision = classify.classify_vector(vector, feedback_collection())
             result = suggest_slim(
                 generate_fn,
                 current_name=file_ref.name,
@@ -187,6 +192,8 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
                 model_label=model,
             )
         else:
+            # full: LLM은 파일명·세부 폴더·근거를 만들고, category는 분류기가
+            # 덮어쓴다. 분류기를 못 쓰는 상황(임베딩 실패)이면 LLM 출력 그대로 폴백.
             result = suggest_full(
                 generate_fn,
                 current_name=file_ref.name,
@@ -194,6 +201,9 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
                 extension=file_ref.extension,
                 first_page_text=text,
                 examples=examples,
+                category=decision.category if decision else None,
+                confidence=decision.confidence if decision else 0.0,
+                method=decision.method if decision else "label_zeroshot",
             )
 
         if result.suggestion is None:

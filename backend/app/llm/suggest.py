@@ -82,6 +82,35 @@ def _attempt_full(raw: str, extension: str) -> tuple[FileSuggestion | None, Vali
         return None, exc, fixed
 
 
+def _apply_classification(suggestion: FileSuggestion, category: Category,
+                          confidence: float, method: str) -> FileSuggestion:
+    """LLM 출력의 category·folder를 분류기 결과로 덮어쓴다.
+
+    3주차 3파전 실측(누출 제거 데이터): LLM 직접 분류 50% vs 라벨 정의문
+    zero-shot 82.8%. 분류는 전 모드에서 분류기(classify.py)가 담당하고,
+    LLM은 파일명·세부 경로·근거만 만든다.
+    """
+    if suggestion.category is category:
+        return suggestion
+
+    # 폴더의 첫 구간(분류 폴더)만 교체하고 LLM이 만든 세부 경로(과목·학기)는 살린다.
+    # 단 etc는 세부 경로가 의미 없으므로(과목 개념이 없는 문서) 평평하게 둔다.
+    rest = "/".join(suggestion.recommended_folder.split("/")[1:])
+    folder = category.value if category is Category.ETC or not rest \
+        else f"{category.value}/{rest}"
+
+    note = f" (분류: {_METHOD_LABELS.get(method, method)} {confidence:.0%})"
+    reason = suggestion.reason[:200 - len(note)] + note
+
+    return FileSuggestion.model_validate({
+        "category": category.value,
+        "recommended_folder": folder,
+        "recommended_filename": suggestion.recommended_filename,
+        "confidence": round(max(0.0, min(1.0, confidence)), 2),
+        "reason": reason,
+    })
+
+
 def suggest_full(
     generate_fn: GenerateFn,
     *,
@@ -90,8 +119,16 @@ def suggest_full(
     extension: str,
     first_page_text: str,
     examples: list[RetrievedExample] | None = None,
+    category: Category | None = None,
+    confidence: float = 0.0,
+    method: str = "label_zeroshot",
 ) -> SuggestResult:
-    """full 모드: LLM이 5필드 전부 생성한다 (ADR-0002 §1 기준 경로)."""
+    """full 모드: LLM이 파일명·세부 폴더·근거를 생성한다 (ADR-0002 §1 기준 경로).
+
+    `category`가 주어지면(분류기 결과) LLM의 category·분류 폴더를 그것으로
+    덮어쓴다 — LLM 분류(50%)보다 분류기(82.8%)가 정확하다는 실측에 따른 일원화.
+    None이면(임베딩 불가 등) LLM 출력을 그대로 쓴다 (폴백).
+    """
     user_prompt = build_user_prompt(
         current_name=current_name,
         current_path=current_path,
@@ -99,6 +136,15 @@ def suggest_full(
         first_page_text=first_page_text,
         examples=examples,
     )
+    if category is not None:
+        # 분류를 힌트로 줘서 폴더 세부 경로가 분류와 어긋나지 않게 한다.
+        user_prompt += (f"\n\n참고: 이 문서의 분류는 '{category.value}'로 확정되어 있다. "
+                        f"recommended_folder는 {category.value}/ 아래로 잡으십시오.")
+
+    def finalize(suggestion: FileSuggestion) -> FileSuggestion:
+        if category is None:
+            return suggestion
+        return _apply_classification(suggestion, category, confidence, method)
 
     try:
         raw = generate_fn(SYSTEM_PROMPT_FULL, user_prompt)
@@ -107,7 +153,7 @@ def suggest_full(
 
     suggestion, error, fixed = _attempt_full(raw, extension)
     if suggestion is not None:
-        return SuggestResult(suggestion, extension_fixed=fixed)
+        return SuggestResult(finalize(suggestion), extension_fixed=fixed)
 
     # 1회 재시도: 위반한 제약을 그대로 보여 준다.
     violations = format_violations(error)
@@ -120,7 +166,8 @@ def suggest_full(
 
     suggestion, error_retry, fixed_retry = _attempt_full(raw_retry, extension)
     if suggestion is not None:
-        return SuggestResult(suggestion, retried=True, extension_fixed=fixed or fixed_retry)
+        return SuggestResult(finalize(suggestion), retried=True,
+                             extension_fixed=fixed or fixed_retry)
 
     return SuggestResult(
         None, retried=True,
