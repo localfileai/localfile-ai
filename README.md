@@ -167,6 +167,7 @@ localfile-ai/
 | `POST /preprocess/extract-first-page` | **실제** | BE2 |
 | `GET /search` · `GET /search/status` | **실제** — bge-m3 임베딩 검색 | BE1 |
 | `POST /organize` · `GET /organize/status` | **실제** — RAG + LLM 분류·파일명 추천 (3주차) | BE1 |
+| `POST /index` · `GET /index/status` | **실제** — 사용자 폴더 색인. 색인 후 `/search`가 실파일 대상 (3주차) | BE1 |
 | `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |
 | `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음**) | BE2 |
 
@@ -197,7 +198,7 @@ cd backend
 | `npm run backend:dev` | FastAPI 서버 |
 | `npm run dataset` | 정답 데이터셋 1,000쌍 재생성 (약 2분) |
 | `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
-| `npm run backend:test` | 백엔드 단위 테스트 38건 (Ollama 불필요) |
+| `npm run backend:test` | 백엔드 단위 테스트 45건 (Ollama 불필요) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
 
 ## 알려진 문제

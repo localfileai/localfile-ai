@@ -200,6 +200,14 @@ class OrganizeRequest(Strict):
         return value
 
 
+class IndexRequest(Strict):
+    """① 사용자 폴더 색인 요청. 색인이 되어야 자연어 검색이 실파일을 대상으로 동작한다."""
+
+    path: str = Field(..., min_length=1, description="색인할 파일 또는 폴더의 절대 경로")
+    max_files: int = Field(default=500, ge=1, le=5000,
+                           description="한 번에 색인할 최대 파일 수. CPU에서 파일당 약 4.6초")
+
+
 class SuggestionItem(Strict):
     """파일 1건에 대한 현재 상태 + 추천 결과."""
 

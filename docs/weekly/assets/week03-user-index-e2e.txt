@@ -1,0 +1,31 @@
+# 실파일 색인→검색 E2E — POST /index로 사용자 폴더를 색인하면 /search가 실파일 대상으로 전환
+# (임베딩 심 e5. 대상: 지저분한 이름의 실제 docx/hwpx 24개 — 하위 폴더 포함)
+
+$ POST /index
+{"running":true,"path":"/tmp/claude-0/-home-user-localfile-ai/1b92dedb-9134-5657-9f6a-3dbc86b655f0/scratchpad/내문서","total":0,"done":0,"skipped":0,"failed":[],"started_at":"2026-08-03T09:43:21","finished_at":null,"error":""}
+$ GET /index/status
+{"running":false,"path":"/tmp/claude-0/-home-user-localfile-ai/1b92dedb-9134-5657-9f6a-3dbc86b655f0/scratchpad/내문서","total":24,"done":24,"skipped":0,"failed":[],"started_at":"2026-08-03T09:43:21","finished_at":"2026-08-03T09:44:12","error":""}
+
+$ GET /search/status  (source가 user로 전환됨)
+{"ready":true,"indexed_documents":24,"source":"user","user_documents":24,"dataset_documents":1000,"embed_model":"ollama-e5-query","detail":""}
+
+$ GET /search?q=메모리 부족할 때 디스크 쓰는 기법 정리&top_k=3
+  elapsed_ms=96
+  [0.854] 복사본.hwpx               .../바탕화면/복사본.hwpx
+          본문: 가상 메모리와 페이지 교체 강의자료 문서 유형: 강의자료 과목: 운영체제 학기: 2025-2 
+  [0.851] 새 문서(2).hwpx           .../바탕화면/새 문서(2).hwpx
+          본문: 가상 메모리와 페이지 교체 강의자료 문서 유형: 강의자료 과목: 운영체제 학기: 2025-2 
+  [0.842] 정리(3).docx             .../다운로드/정리(3).docx
+          본문: 가상 메모리와 페이지 교체 프로젝트 계획서 문서 유형: 프로젝트 계획서 과목: 운영체제 학기:
+
+$ GET /search?q=시험 공부하려고 정리한 노트&top_k=3
+  elapsed_ms=74
+  [0.849] 무제(5).docx             .../다운로드/무제(5).docx
+          본문: 관계형 데이터베이스 정규화 시험 정리 문서 유형: 시험 정리 과목: 데이터베이스 학기: 202
+  [0.845] asdf 2.docx            .../다운로드/asdf 2.docx
+          본문: 동적 계획법과 그리디 비교 시험 정리 문서 유형: 시험 정리 과목: 알고리즘 학기: 2026-
+  [0.845] 발표자료.hwpx              .../바탕화면/발표자료.hwpx
+          본문: 동적 계획법과 그리디 비교 시험 정리 문서 유형: 시험 정리 과목: 알고리즘 학기: 2026-
+
+$ POST /index  (같은 폴더 재색인 — 증분 확인)
+  total=24 done=0 skipped=24 failed=0  <- 전부 skipped여야 정상

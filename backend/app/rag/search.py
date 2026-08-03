@@ -57,14 +57,32 @@ def _chroma_path_for_client() -> str:
         return absolute
 
 
+# 사용자 폴더 색인이 저장되는 컬렉션. 합성 데이터셋(COLLECTION_NAME)과 분리한다 —
+# 검색 결과에 합성 문서가 섞이면 안 되고, RAG 추천 예시는 반대로 합성 관례가 필요하다.
+USER_COLLECTION_NAME = os.getenv("LOCAL_FILE_AI_USER_COLLECTION", "user_documents")
+
 # ChromaDB는 같은 저장 경로에 대해 **클라이언트를 하나만** 두어야 한다.
 # 요청마다 PersistentClient를 새로 만들면 HNSW 세그먼트를 중복으로 열게 되고
 # "Error loading hnsw index" 로 실패한다. 그래서 프로세스당 한 번만 만들어 캐시한다.
+_client_cache = None
 _collection_cache = None
-_collection_lock = threading.Lock()
+_user_collection_cache = None
+# _collection()이 락 안에서 _chroma_client()를 다시 부르므로 재진입 락이어야 한다.
+_collection_lock = threading.RLock()
+
+
+def _chroma_client():
+    """공유 PersistentClient. 색인기(indexer)와 검색이 같은 것을 써야 한다."""
+    global _client_cache
+    if _client_cache is None:
+        with _collection_lock:
+            if _client_cache is None:
+                _client_cache = chromadb.PersistentClient(path=_chroma_path_for_client())
+    return _client_cache
 
 
 def _collection():
+    """합성 데이터셋 컬렉션 (RAG 추천 예시·시연용)."""
     global _collection_cache
 
     if _collection_cache is not None:
@@ -75,32 +93,60 @@ def _collection():
         if _collection_cache is not None:
             return _collection_cache
 
-        if not CHROMA_PATH.exists():
-            raise SearchUnavailable(
-                f"벡터 색인이 없습니다 ({CHROMA_PATH.name}/). "
-                "`python scripts/embed_dataset.py` 로 먼저 색인하세요."
-            )
-
         ready, message = check_ollama()
         if not ready:
             raise SearchUnavailable(message)
 
         try:
-            client = chromadb.PersistentClient(path=_chroma_path_for_client())
             # 실패는 캐시하지 않는다. 색인이 나중에 준비되면 다시 시도할 수 있어야 한다.
-            _collection_cache = client.get_collection(
+            _collection_cache = _chroma_client().get_collection(
                 COLLECTION_NAME, embedding_function=OllamaEmbeddingFunction()
             )
         except Exception as exc:
             raise SearchUnavailable(
-                f"컬렉션 {COLLECTION_NAME!r} 을 열 수 없습니다: {exc}"
+                f"벡터 색인이 없습니다 ({COLLECTION_NAME!r}). "
+                "`python scripts/embed_dataset.py` 로 먼저 색인하세요."
             ) from exc
 
     return _collection_cache
 
 
-def _resolve_path(relative_path: str) -> Path:
-    """색인 메타데이터의 상대 경로를 실제 파일 경로로 바꾼다."""
+def user_collection(create: bool = False):
+    """사용자 폴더 색인 컬렉션. 없으면 None (create=True면 만들어서 반환).
+
+    색인기(rag/indexer.py)는 create=True로, 검색은 create=False로 부른다.
+    """
+    global _user_collection_cache
+
+    if _user_collection_cache is not None:
+        return _user_collection_cache
+
+    with _collection_lock:
+        if _user_collection_cache is not None:
+            return _user_collection_cache
+        try:
+            if create:
+                _user_collection_cache = _chroma_client().get_or_create_collection(
+                    USER_COLLECTION_NAME,
+                    embedding_function=OllamaEmbeddingFunction(),
+                    metadata={"hnsw:space": "cosine"},
+                )
+            else:
+                _user_collection_cache = _chroma_client().get_collection(
+                    USER_COLLECTION_NAME, embedding_function=OllamaEmbeddingFunction())
+        except Exception:
+            return None
+
+    return _user_collection_cache
+
+
+def _resolve_path(relative_path: str, *, user_file: bool = False) -> Path:
+    """색인 메타데이터의 경로를 실제 파일 경로로 바꾼다.
+
+    합성 데이터셋은 `files\\...` 상대 경로, 사용자 색인은 절대 경로를 저장한다.
+    """
+    if user_file:
+        return Path(relative_path)
     # 생성기가 Windows 구분자로 저장하므로 양쪽 다 받아 준다.
     normalized = relative_path.replace("\\", "/")
     return DATASET_ROOT / normalized
@@ -116,7 +162,7 @@ def _to_file_ref(metadata: dict) -> FileRef | None:
         return None
 
     relative_path = str(metadata.get("current_path", ""))
-    absolute = _resolve_path(relative_path)
+    absolute = _resolve_path(relative_path, user_file=metadata.get("source") == "user")
 
     size_bytes = 0
     modified_at: datetime | None = None
@@ -140,14 +186,36 @@ def _to_score(distance: float) -> float:
     return max(0.0, min(1.0, 1.0 - float(distance)))
 
 
+def _active_collection():
+    """검색 대상 컬렉션을 고른다. 사용자 색인이 있으면 그것을, 없으면 합성 색인을.
+
+    (사용자가 자기 폴더를 색인한 순간부터 검색은 진짜 파일을 대상으로 동작한다.
+    합성 색인은 RAG 추천 예시와 시연용으로만 남는다.)
+    """
+    user = user_collection()
+    if user is not None:
+        try:
+            if user.count() > 0:
+                return user, "user"
+        except Exception:
+            pass
+    return _collection(), "dataset"
+
+
 def search(query: str, top_k: int = 5) -> SearchResponse:
     """자연어 질의로 색인된 문서를 찾는다."""
     started = time.perf_counter()
-    collection = _collection()
+
+    ready, message = check_ollama()
+    if not ready:
+        raise SearchUnavailable(message)
+
+    collection, _source = _active_collection()
 
     if collection.count() == 0:
         raise SearchUnavailable(
-            "색인이 비어 있습니다. `python scripts/embed_dataset.py` 로 색인하세요."
+            "색인이 비어 있습니다. `POST /index`로 폴더를 색인하거나 "
+            "`python scripts/embed_dataset.py` 를 실행하세요."
         )
 
     # 계약 밖 확장자가 섞여 있을 수 있으니 조금 더 받아서 걸러낸다.
@@ -190,22 +258,37 @@ def index_status() -> dict:
     검색과 **같은 캐시된 컬렉션**을 쓴다. 여기서 클라이언트를 따로 만들면
     같은 경로를 두 번 여는 셈이 되어 HNSW 로드가 깨진다.
     """
-    count = 0
+    dataset_count = 0
+    user_count = 0
     detail = ""
 
+    user = user_collection()
+    if user is not None:
+        try:
+            user_count = user.count()
+        except Exception:
+            pass
+
     try:
-        count = _collection().count()
+        dataset_count = _collection().count()
     except SearchUnavailable as exc:
-        detail = str(exc)
+        if user_count == 0:
+            detail = str(exc)
     except Exception as exc:  # 예상 밖의 오류도 화면에 이유를 보여 준다.
         detail = f"색인 상태를 확인할 수 없습니다: {exc}"
 
-    if count == 0 and not detail:
-        detail = "색인이 비어 있습니다. `python scripts/embed_dataset.py` 로 색인하세요."
+    total = user_count + dataset_count
+    if total == 0 and not detail:
+        detail = ("색인이 비어 있습니다. `POST /index`로 폴더를 색인하거나 "
+                  "`python scripts/embed_dataset.py` 를 실행하세요.")
 
     return {
-        "ready": count > 0,
-        "indexed_documents": count,
+        "ready": total > 0,
+        "indexed_documents": user_count if user_count else dataset_count,
+        # 검색이 실제로 보는 소스. 사용자 색인이 생기면 user로 바뀐다.
+        "source": "user" if user_count else "dataset",
+        "user_documents": user_count,
+        "dataset_documents": dataset_count,
         "embed_model": OllamaEmbeddingFunction().name(),
         "detail": detail,
     }

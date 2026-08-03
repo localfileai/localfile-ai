@@ -8,16 +8,15 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from .api.routes import health, mock, organize, preprocess, search
+    from .api.routes import health, indexing, mock, organize, preprocess, search
 
     app = FastAPI(title="Local File AI Backend")
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ],
+        # Vite는 5173이 점유되면 5174, 5175…로 넘어간다. 개발 중 포트가 바뀔 때마다
+        # CORS로 막히지 않도록 loopback의 모든 포트를 허용한다 (외부 출처는 여전히 차단).
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -39,4 +38,8 @@ def create_app():
     # 실제 분류·파일명 추천입니다 (BE1 기능②③, 3주차).
     # Ollama 생성 모델이 없으면 503과 함께 이유를 돌려주므로, 없어도 서버는 뜹니다.
     app.include_router(organize.router)
+
+    # 사용자 폴더 색인입니다 (BE1 기능①, 3주차). 색인이 생기면 /search가
+    # 합성 데이터 대신 사용자 실파일을 대상으로 동작합니다.
+    app.include_router(indexing.router)
     return app
