@@ -41,14 +41,25 @@ ALLOWED_EXTENSIONS = ("pdf", "docx", "doc", "pptx", "ppt", "hwpx", "hwp")
 
 
 class Category(str, Enum):
-    """파일 분류 폴더. generate_dataset.py의 DOCUMENT_TYPES와 1:1 대응한다."""
+    """파일 분류 폴더.
 
+    3주차 확장: 대학생의 실제 폴더에는 학업 문서만 있지 않다. 학업 6종에
+    비학업 3종을 더하고, 어디에도 맞지 않는 문서를 위한 ETC를 둔다 —
+    분류기가 모르는 문서를 억지로 학업 폴더에 넣는 것을 막는 안전값이다.
+    """
+
+    # --- 학업 (1주차부터) ---
     LECTURE = "lecture"        # 강의자료
     ASSIGNMENT = "assignment"  # 과제
     REPORT = "report"          # 실험 보고서
     REFERENCE = "reference"    # 논문 요약 · 참고자료
     PROJECT = "project"        # 프로젝트 계획서
     EXAM_PREP = "exam_prep"    # 시험 정리
+    # --- 비학업 (3주차 확장) ---
+    CAREER = "career"          # 자기소개서 · 이력서 · 지원서
+    ADMIN = "admin"            # 장학·등록·증명 등 학사 행정
+    PERSONAL = "personal"      # 여행 계획 · 생활 문서
+    ETC = "etc"                # 어디에도 해당 없음 (분류 보류 포함)
 
 
 class Strict(BaseModel):
@@ -198,6 +209,22 @@ class OrganizeRequest(Strict):
         if value is not None and value not in ("full", "slim", "auto"):
             raise ValueError(f'mode는 "full"·"slim"·"auto" 중 하나여야 합니다: {value!r}')
         return value
+
+
+class FeedbackRequest(Strict):
+    """②③ 사용자 피드백 — 승인·수정한 분류 결과를 라벨 예시로 저장한다.
+
+    저장된 예시는 이후 분류에서 라벨 정의문보다 우선 참조된다 (맞춤화).
+    모델을 학습시키는 것이 아니라 참조 자료를 쌓는 것이다.
+    """
+
+    path: str = Field(..., min_length=1, description="대상 파일의 절대 경로")
+    category: Category = Field(..., description="사용자가 확정한 분류")
+    filename: str | None = Field(default=None, max_length=150,
+                                 description="사용자가 확정한 파일명 (있으면 관례 예시로도 활용)")
+    first_page_text: str | None = Field(
+        default=None, max_length=MAX_FIRST_PAGE_CHARS,
+        description="첫 페이지 텍스트. 없으면 서버가 path에서 다시 추출한다")
 
 
 class IndexRequest(Strict):

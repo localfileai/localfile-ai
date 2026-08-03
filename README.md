@@ -168,6 +168,7 @@ localfile-ai/
 | `GET /search` · `GET /search/status` | **실제** — qwen3-embedding 임베딩 검색 | BE1 |
 | `POST /organize` · `GET /organize/status` | **실제** — RAG + LLM 분류·파일명 추천 (3주차) | BE1 |
 | `POST /index` · `GET /index/status` | **실제** — 사용자 폴더 색인. 색인 후 `/search`가 실파일 대상 (3주차) | BE1 |
+| `POST /feedback` · `GET /feedback/status` | **실제** — 승인 결과를 예시로 축적, 분류 맞춤화 (3주차) | BE1 |
 | `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |
 | `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음**) | BE2 |
 

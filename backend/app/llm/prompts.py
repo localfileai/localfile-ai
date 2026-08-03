@@ -20,7 +20,11 @@ CATEGORY_GUIDE = """- lecture     : 강의자료, 수업 노트
 - report      : 실험 보고서, 결과 분석
 - reference   : 논문 요약, 참고자료
 - project     : 프로젝트 계획서, 설계 문서
-- exam_prep   : 시험 정리, 요약 노트"""
+- exam_prep   : 시험 정리, 요약 노트
+- career      : 자기소개서, 이력서, 포트폴리오 등 취업·지원 문서
+- admin       : 장학금·등록금·증명서 등 학사 행정 안내
+- personal    : 여행 계획, 체크리스트 등 개인 생활 문서
+- etc         : 위 어디에도 해당하지 않는 문서 (억지로 다른 값을 고르지 말 것)"""
 
 FILENAME_RULES = """recommended_filename 규칙:
 - 과목명, 문서 주제, 문서 유형, 학기를 밑줄(_)로 이어 붙입니다.
@@ -36,14 +40,14 @@ SYSTEM_PROMPT_FULL = f"""당신은 어질러진 개인 문서를 정리해 주�
 JSON 외의 문자는 절대 출력하지 마십시오.
 
 {{
-  "category": "<아래 6개 중 정확히 하나>",
+  "category": "<아래 10개 중 정확히 하나>",
   "recommended_folder": "<상대 경로. 예: lecture/운영체제/2025-1>",
   "recommended_filename": "<확장자를 포함한 새 파일명>",
   "confidence": <0.0 이상 1.0 이하의 실수>,
   "reason": "<한국어 1~200자 근거>"
 }}
 
-category는 다음 6개 값 중 하나여야 하며, 그 외의 값은 허용되지 않습니다.
+category는 다음 10개 값 중 하나여야 하며, 그 외의 값은 허용되지 않습니다.
 {CATEGORY_GUIDE}
 
 {FILENAME_RULES}

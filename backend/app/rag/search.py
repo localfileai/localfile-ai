@@ -61,12 +61,17 @@ def _chroma_path_for_client() -> str:
 # 검색 결과에 합성 문서가 섞이면 안 되고, RAG 추천 예시는 반대로 합성 관례가 필요하다.
 USER_COLLECTION_NAME = os.getenv("LOCAL_FILE_AI_USER_COLLECTION", "user_documents")
 
+# 사용자가 승인·수정한 분류 결과(피드백)가 라벨 예시로 쌓이는 컬렉션.
+# 분류(classify.py)가 라벨 정의문보다 이것을 우선 참조한다 — 쓸수록 맞춤화.
+FEEDBACK_COLLECTION_NAME = os.getenv("LOCAL_FILE_AI_FEEDBACK_COLLECTION", "user_examples")
+
 # ChromaDB는 같은 저장 경로에 대해 **클라이언트를 하나만** 두어야 한다.
 # 요청마다 PersistentClient를 새로 만들면 HNSW 세그먼트를 중복으로 열게 되고
 # "Error loading hnsw index" 로 실패한다. 그래서 프로세스당 한 번만 만들어 캐시한다.
 _client_cache = None
 _collection_cache = None
 _user_collection_cache = None
+_feedback_collection_cache = None
 # _collection()이 락 안에서 _chroma_client()를 다시 부르므로 재진입 락이어야 한다.
 _collection_lock = threading.RLock()
 
@@ -184,6 +189,32 @@ def _to_file_ref(metadata: dict) -> FileRef | None:
 def _to_score(distance: float) -> float:
     """코사인 거리를 0~1 관련도로 바꾼다. 계약이 이 범위를 강제한다."""
     return max(0.0, min(1.0, 1.0 - float(distance)))
+
+
+def feedback_collection(create: bool = False):
+    """사용자 피드백 예시 컬렉션. 없으면 None (create=True면 만들어서 반환)."""
+    global _feedback_collection_cache
+
+    if _feedback_collection_cache is not None:
+        return _feedback_collection_cache
+
+    with _collection_lock:
+        if _feedback_collection_cache is not None:
+            return _feedback_collection_cache
+        try:
+            if create:
+                _feedback_collection_cache = _chroma_client().get_or_create_collection(
+                    FEEDBACK_COLLECTION_NAME,
+                    embedding_function=OllamaEmbeddingFunction(),
+                    metadata={"hnsw:space": "cosine"},
+                )
+            else:
+                _feedback_collection_cache = _chroma_client().get_collection(
+                    FEEDBACK_COLLECTION_NAME, embedding_function=OllamaEmbeddingFunction())
+        except Exception:
+            return None
+
+    return _feedback_collection_cache
 
 
 def _active_collection():

@@ -8,7 +8,7 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from .api.routes import health, indexing, mock, organize, preprocess, search
+    from .api.routes import feedback, health, indexing, mock, organize, preprocess, search
 
     app = FastAPI(title="Local File AI Backend")
 
@@ -42,4 +42,8 @@ def create_app():
     # 사용자 폴더 색인입니다 (BE1 기능①, 3주차). 색인이 생기면 /search가
     # 합성 데이터 대신 사용자 실파일을 대상으로 동작합니다.
     app.include_router(indexing.router)
+
+    # 사용자 피드백입니다 (BE1 기능②③ 맞춤화, 3주차). 승인한 분류가 예시로
+    # 쌓여 이후 분류에서 우선 참조됩니다.
+    app.include_router(feedback.router)
     return app

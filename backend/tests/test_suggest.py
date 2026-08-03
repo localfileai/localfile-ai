@@ -130,10 +130,10 @@ class TestSuggestFull:
 
 
 class TestSuggestSlim:
-    SLIM_ARGS = dict(knn_category=Category.LECTURE, knn_vote_ratio=2 / 3,
-                     model_label="exaone3.5:2.4b")
+    SLIM_ARGS = dict(category=Category.LECTURE, confidence=2 / 3,
+                     method="label_zeroshot", model_label="exaone3.5:2.4b")
 
-    def test_파일명만_받아_kNN_분류와_조립(self):
+    def test_파일명만_받아_자동_분류와_조립(self):
         raw = json.dumps({"recommended_filename": "운영체제_스케줄링_강의자료_2026-1"},
                          ensure_ascii=False)
         generate = make_generate([raw])
@@ -143,7 +143,18 @@ class TestSuggestSlim:
         assert result.suggestion.recommended_folder == "lecture"
         assert result.suggestion.recommended_filename.endswith(".pdf")  # 확장자 보정
         assert result.suggestion.confidence == pytest.approx(0.67)
+        assert "라벨 정의문" in result.suggestion.reason  # 분류 방식이 근거에 표시된다
         assert not result.retried
+
+    def test_etc_분류도_계약을_통과한다(self):
+        raw = json.dumps({"recommended_filename": "무선이어폰_사용설명서.pdf"}, ensure_ascii=False)
+        generate = make_generate([raw])
+        result = suggest_slim(generate, **COMMON,
+                              category=Category.ETC, confidence=0.21,
+                              method="etc_fallback", model_label="exaone3.5:2.4b")
+        assert result.suggestion is not None
+        assert result.suggestion.category is Category.ETC
+        assert "분류 보류" in result.suggestion.reason
 
     def test_금지_문자_파일명은_재시도(self):
         bad = json.dumps({"recommended_filename": "운영체제/스케줄링.pdf"}, ensure_ascii=False)

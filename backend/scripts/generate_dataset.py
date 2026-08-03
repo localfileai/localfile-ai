@@ -102,7 +102,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
                  ("시험 범위", "핵심 정리", "예상 문제", "오답 노트", "체크리스트")),
 )
 
-CATEGORIES = tuple(dict.fromkeys(d.category for d in DOCUMENT_TYPES))
+CATEGORIES = tuple(dict.fromkeys(
+    [d.category for d in DOCUMENT_TYPES] + ["career", "admin", "personal", "etc"]))
 
 
 # ---------------------------------------------------------
@@ -163,6 +164,91 @@ TOPICS: tuple[Topic, ...] = (
 SEMESTERS = ("2024-1", "2024-2", "2025-1", "2025-2", "2026-1")
 
 STUDENT_NAMES = ("김민준", "이서연", "박지호", "최수빈", "정다은", "한예준")
+
+
+# ---------------------------------------------------------
+# 비학업 문서 (3주차 확장) — 대학생 폴더의 현실 반영
+#
+# 실제 다운로드 폴더에는 학업 문서만 있지 않다. 자소서·행정·생활 문서와
+# 어디에도 안 맞는 잡문서(etc)를 섞어, 분류기가 "모르는 것"도 배우게 한다.
+# ---------------------------------------------------------
+
+@dataclass(frozen=True)
+class SpecialDoc:
+    label: str                  # 문서 유형 (doc_type 열에 기록)
+    category: str               # 정답 분류
+    course: str                 # 과목 대신 기관·회사·구분 (course 열 재사용)
+    title: str                  # 문서 제목 겸 주제
+    keywords: tuple[str, ...]   # 자연어 검색 평가용
+    opening: str                # 도입부 (유형의 간접 신호)
+    sections: tuple[str, ...]
+    name_parts: tuple[str, ...]  # 정답 파일명 구성 (연도가 뒤에 붙는다)
+
+
+SPECIAL_DOCS: tuple[SpecialDoc, ...] = (
+    # career — 취업·지원
+    SpecialDoc("자기소개서", "career", "삼성전자", "SW개발 직무 자기소개서",
+               ("자기소개서", "지원동기", "직무역량"),
+               "지원 직무: SW개발. 성장 과정과 지원 동기, 직무 관련 경험을 서술하시오.",
+               ("성장 과정", "지원 동기", "직무 경험", "입사 후 포부"),
+               ("삼성전자", "SW개발", "자기소개서")),
+    SpecialDoc("이력서", "career", "네이버", "백엔드 인턴 지원 이력서",
+               ("이력서", "인턴", "경력"),
+               "인적사항, 학력, 프로젝트 경험, 보유 기술을 아래 양식에 따라 기재한다.",
+               ("인적사항", "학력", "프로젝트 경험", "보유 기술", "수상 내역"),
+               ("네이버", "백엔드인턴", "이력서")),
+    SpecialDoc("포트폴리오", "career", "카카오", "프론트엔드 포트폴리오",
+               ("포트폴리오", "프로젝트", "기술 스택"),
+               "주요 프로젝트와 기여, 사용 기술을 정리한 포트폴리오입니다.",
+               ("소개", "대표 프로젝트", "기술 스택", "링크"),
+               ("카카오", "프론트엔드", "포트폴리오")),
+    # admin — 학사 행정
+    SpecialDoc("신청 안내", "admin", "학생지원처", "국가장학금 신청 안내",
+               ("국가장학금", "신청 기간", "소득분위"),
+               "국가장학금 1유형 신청 기간과 제출 서류를 안내드립니다. 기한 엄수 바랍니다.",
+               ("신청 대상", "신청 기간", "제출 서류", "유의 사항"),
+               ("국가장학금", "신청안내")),
+    SpecialDoc("납부 안내", "admin", "재무팀", "등록금 납부 안내",
+               ("등록금", "납부 기간", "고지서"),
+               "등록금 고지서 출력 방법과 납부 기간, 분할 납부 신청 절차를 안내합니다.",
+               ("납부 기간", "납부 방법", "분할 납부", "문의처"),
+               ("등록금", "납부안내")),
+    SpecialDoc("발급 안내", "admin", "학사팀", "증명서 발급 안내",
+               ("증명서", "발급", "재학증명"),
+               "재학·성적 증명서는 온라인 발급 시스템 또는 무인발급기에서 발급받을 수 있습니다.",
+               ("발급 종류", "발급 방법", "수수료", "유의 사항"),
+               ("증명서", "발급안내")),
+    # personal — 생활
+    SpecialDoc("여행 일정", "personal", "개인", "제주도 여행 계획",
+               ("여행", "일정", "숙소"),
+               "2박 3일 제주도 여행 일정. 항공편과 숙소 예약 내역, 가볼 곳 목록.",
+               ("항공·숙소", "1일차", "2일차", "3일차", "예산"),
+               ("제주도", "여행계획")),
+    SpecialDoc("체크리스트", "personal", "개인", "자취방 이사 체크리스트",
+               ("이사", "자취", "체크리스트"),
+               "이사 전후로 챙겨야 할 것들. 전입신고, 공과금 이전, 필요한 살림 목록.",
+               ("이사 전", "이사 당일", "이사 후", "구매 목록"),
+               ("자취방", "이사", "체크리스트")),
+    # etc — 어디에도 해당 없음
+    SpecialDoc("사용 설명서", "etc", "-", "무선 이어폰 사용 설명서",
+               ("페어링", "충전", "보증"),
+               "제품을 사용하기 전에 본 설명서를 주의 깊게 읽어 주십시오.",
+               ("구성품", "페어링 방법", "충전 안내", "품질 보증"),
+               ("무선이어폰", "사용설명서")),
+    SpecialDoc("공지문", "etc", "-", "아파트 관리사무소 공지",
+               ("단수 안내", "공사", "관리사무소"),
+               "수도 배관 공사로 인해 아래 일정 동안 단수됨을 안내드립니다.",
+               ("공사 일정", "단수 시간", "협조 사항"),
+               ("관리사무소", "단수공지")),
+    SpecialDoc("주문 내역", "etc", "-", "온라인 주문 내역 확인서",
+               ("주문번호", "배송", "결제"),
+               "고객님의 주문이 정상적으로 접수되었습니다. 주문 내역을 확인해 주세요.",
+               ("주문 상품", "결제 정보", "배송지", "교환·환불 안내"),
+               ("주문내역", "확인서")),
+)
+
+# 학업 문서 대 비학업 문서 비율. 타겟(대학생)의 폴더 현실을 반영해 8:2로 둔다.
+SPECIAL_RATIO = 0.2
 
 
 # ---------------------------------------------------------
@@ -242,27 +328,76 @@ BODY_SENTENCES = (
 )
 
 
+# ---------------------------------------------------------
+# 유형별 간접 신호 — 라벨 누출 방지 (3주차 현실화)
+#
+# 이전 버전은 본문에 "문서 유형: 강의자료"를 글자로 적었다. 실제 문서에는
+# 그런 줄이 없으므로 분류 측정치가 전부 상향 편향됐다 (라벨 누출).
+# 이제 문서 유형은 실제 문서처럼 **제목 관례·도입부 문체·섹션 구조**로만
+# 드러난다. 제목에 유형 단어가 자연스럽게 들어가는 변형(예: "과제 2:")은
+# 현실에 존재하므로 일부만 남기고, 보장된 직서술은 전부 제거한다.
+# ---------------------------------------------------------
+
+TYPE_TITLES = {
+    "강의자료": ("{week}주차: {topic}", "{topic}", "{course} {week}주차 강의노트"),
+    "과제": ("과제 {n}: {topic}", "{topic} 문제", "[{course}] {n}차 과제"),
+    "실험 보고서": ("{topic} 실험 결과", "{topic} 결과 분석", "{course} 실험 {n}"),
+    "논문 요약": ("{topic} 관련 논문 리뷰", "{topic}: 주요 연구 정리", "{topic} 문헌 조사"),
+    "프로젝트 계획서": ("{topic} 프로젝트 제안", "팀 프로젝트: {topic}", "{topic} 개발 계획"),
+    "시험 정리": ("{course} 기말 대비: {topic}", "{topic} 핵심 정리", "{course} 족보 정리"),
+}
+
+TYPE_OPENINGS = {
+    "강의자료": (
+        "이번 시간에는 {topic}을(를) 다룬다. 지난 시간에 배운 내용을 짧게 복습한 뒤 시작한다.",
+        "오늘 수업의 학습 목표는 다음과 같다. 슬라이드는 수업 후 게시판에 올라간다.",
+    ),
+    "과제": (
+        "아래 문제를 모두 풀어 기한 내에 제출하시오. 늦은 제출은 하루당 10%씩 감점한다.",
+        "제출 방법: 학번_이름 형식의 파일로 LMS에 업로드할 것. 표절 검사가 진행된다.",
+    ),
+    "실험 보고서": (
+        "본 실험에서는 {topic}의 성능을 측정하고 결과를 분석하였다.",
+        "실험 환경과 측정 절차를 기술하고, 수집한 데이터를 바탕으로 결론을 도출한다.",
+    ),
+    "논문 요약": (
+        "본 문서는 {topic} 분야의 주요 논문을 읽고 핵심 기여를 정리한 것이다.",
+        "원문 서지 정보와 함께 제안 방법, 실험 결과, 한계를 차례로 정리한다.",
+    ),
+    "프로젝트 계획서": (
+        "본 팀은 {topic}을(를) 주제로 프로젝트를 진행하고자 한다. 개발 일정과 역할 분담은 아래와 같다.",
+        "프로젝트의 목표, 기능 명세, 마일스톤을 정의한다. 최종 발표는 학기 말에 진행된다.",
+    ),
+    "시험 정리": (
+        "시험 범위 중 {topic} 부분을 정리했다. 출제 가능성이 높은 항목은 별도 표시했다.",
+        "교수님이 강조한 부분 위주로 요약했다. 기출과 겹치는 개념은 반복해서 볼 것.",
+    ),
+}
+
+
 def build_document_text(rng: random.Random, meta: dict) -> str:
     """문서 첫 페이지에 해당하는 본문을 만든다.
 
-    분류·파일명 추천의 근거가 되는 정보(문서 유형, 과목, 학기, 주제)를
-    머리말에 명시한다. 자연어 검색 평가를 위해 핵심어도 본문에 등장시킨다.
+    문서 유형은 직서술 없이 제목 관례·도입부 문체·섹션 구조로만 드러난다.
+    과목·학기·작성자는 실제 학업 문서 표지에 흔히 있는 정보라 유지한다.
+    자연어 검색 평가를 위해 주제 핵심어는 본문에 등장시킨다.
     """
     doc_type: DocumentType = meta["doc_type"]
     topic: Topic = meta["topic"]
 
+    title = rng.choice(TYPE_TITLES[doc_type.label]).format(
+        topic=topic.title, course=topic.course,
+        week=rng.randint(2, 14), n=rng.randint(1, 4))
+    opening = rng.choice(TYPE_OPENINGS[doc_type.label]).format(topic=topic.title)
+
     lines = [
-        f"{topic.title} {doc_type.label}",
+        title,
         "",
-        f"문서 유형: {doc_type.label}",
-        f"과목: {topic.course}",
-        f"학기: {meta['semester']}",
-        f"작성자: {meta['author']}",
-        f"작성일: {meta['created'].strftime('%Y-%m-%d')}",
+        f"{topic.course} · {meta['semester']}",
+        f"{meta['author']} · {meta['created'].strftime('%Y-%m-%d')}",
         "",
-        "개요",
-        f"이 문서는 {topic.course} 과목의 {topic.title}에 관한 {doc_type.label}이다. "
-        f"{', '.join(topic.keywords)} 등의 내용을 다룬다.",
+        opening,
+        f"주요 내용: {', '.join(topic.keywords)}",
         "",
     ]
 
@@ -472,14 +607,46 @@ class Record:
 
 
 def build_ideal_filename(meta: dict, extension: str) -> str:
-    """정답 파일명 규칙: 과목_주제_문서유형_학기.ext
+    """학업 문서 정답 파일명 규칙: 과목_주제_문서유형_학기.ext
 
-    문서 머리말에 전부 적혀 있는 정보만 사용하므로, 문서를 읽으면 유도할 수 있다.
+    본문에 자연스럽게 등장하는 정보(과목·주제·학기)와 문체로 유추 가능한
+    유형만 사용하므로, 문서를 읽으면 유도할 수 있다.
     """
     topic: Topic = meta["topic"]
     doc_type: DocumentType = meta["doc_type"]
     parts = [topic.course, topic.title, doc_type.label, meta["semester"]]
     return sanitize("_".join(parts)) + extension
+
+
+# 비학업 문서 본문용 중립 문장 (BODY_SENTENCES는 학업 문체라 쓰지 않는다)
+SPECIAL_FILLER = (
+    "자세한 내용은 아래 항목을 참고하십시오.",
+    "문의 사항은 담당자에게 연락 바랍니다.",
+    "일정과 내용은 사정에 따라 변경될 수 있습니다.",
+    "항목별 세부 내용은 다음과 같습니다.",
+    "누락된 부분이 있으면 반드시 확인 후 진행하십시오.",
+)
+
+
+def build_special_text(rng: random.Random, special: SpecialDoc, meta: dict) -> str:
+    """비학업 문서 첫 페이지. 유형은 제목·도입부·섹션 구조로만 드러난다."""
+    lines = [special.title, ""]
+    if special.course not in ("-", "개인"):
+        lines.append(special.course)
+    lines += [meta["created"].strftime("%Y-%m-%d"), "", special.opening, ""]
+
+    for number, section in enumerate(special.sections, start=1):
+        lines.append(f"{number}. {section}")
+        for _ in range(rng.randint(1, 2)):
+            keyword = rng.choice(special.keywords)
+            lines.append(f"{keyword} 관련: " + rng.choice(SPECIAL_FILLER))
+        lines.append("")
+    return "\n".join(lines)
+
+
+def build_special_ideal_filename(special: SpecialDoc, year: str, extension: str) -> str:
+    """비학업 문서 정답 파일명: 구성요소_연도.ext (예: 국가장학금_신청안내_2026.pdf)"""
+    return sanitize("_".join(special.name_parts + (year,))) + extension
 
 
 def build_messy_name(rng: random.Random, extension: str) -> str:
@@ -519,22 +686,42 @@ def generate(output_root: Path, count: int, seed: int, overwrite: bool) -> Path:
     records: list[Record] = []
 
     for index in range(1, count + 1):
-        topic = rng.choice(TOPICS)
-        doc_type = rng.choice(DOCUMENT_TYPES)
         extension = rng.choices(extensions, weights=weights, k=1)[0]
-        semester = rng.choice(SEMESTERS)
         created = random_datetime(rng)
+        is_special = rng.random() < SPECIAL_RATIO
 
-        meta = {
-            "topic": topic,
-            "doc_type": doc_type,
-            "semester": semester,
-            "author": rng.choice(STUDENT_NAMES),
-            "created": created,
-            "heading": f"{topic.title} {doc_type.label}",
-        }
-
-        text = build_document_text(rng, meta)
+        if is_special:
+            special = rng.choice(SPECIAL_DOCS)
+            meta = {"special": special, "created": created,
+                    "heading": special.title}
+            text = build_special_text(rng, special, meta)
+            year = str(created.year)
+            ideal_name = build_special_ideal_filename(special, year, extension)
+            fields = {
+                "doc_type": special.label, "course": special.course,
+                "subject": special.category, "topic_title": special.title,
+                "semester": year, "true_category": special.category,
+                "keywords": special.keywords,
+                "ideal_path": f"{special.category}/{ideal_name}",
+            }
+        else:
+            topic = rng.choice(TOPICS)
+            doc_type = rng.choice(DOCUMENT_TYPES)
+            semester = rng.choice(SEMESTERS)
+            meta = {
+                "topic": topic, "doc_type": doc_type, "semester": semester,
+                "author": rng.choice(STUDENT_NAMES), "created": created,
+                "heading": f"{topic.title}",
+            }
+            text = build_document_text(rng, meta)
+            ideal_name = build_ideal_filename(meta, extension)
+            fields = {
+                "doc_type": doc_type.label, "course": topic.course,
+                "subject": topic.subject, "topic_title": topic.title,
+                "semester": semester, "true_category": doc_type.category,
+                "keywords": topic.keywords,
+                "ideal_path": f"{doc_type.category}/{topic.course}/{semester}/{ideal_name}",
+            }
 
         # 실제 저장 위치: 정리가 안 된 폴더 + 불명확한 파일명
         messy_dir = files_root / rng.choice(MESSY_DIRS)
@@ -557,7 +744,6 @@ def generate(output_root: Path, count: int, seed: int, overwrite: bool) -> Path:
         first_page, status = extract_first_page(candidate)
         stat = candidate.stat()
 
-        ideal_name = build_ideal_filename(meta, extension)
         records.append(Record(
             index=index,
             current_path=str(candidate.relative_to(output_root)),
@@ -568,15 +754,15 @@ def generate(output_root: Path, count: int, seed: int, overwrite: bool) -> Path:
             sha256=sha256_of(candidate),
             first_page_text=first_page,
             extraction_status=status,
-            doc_type=doc_type.label,
-            course=topic.course,
-            subject=topic.subject,
-            topic_title=topic.title,
-            semester=semester,
-            true_category=doc_type.category,
+            doc_type=fields["doc_type"],
+            course=fields["course"],
+            subject=fields["subject"],
+            topic_title=fields["topic_title"],
+            semester=fields["semester"],
+            true_category=fields["true_category"],
             ideal_filename=ideal_name,
-            search_keywords="|".join(topic.keywords),
-            ideal_path=f"{doc_type.category}/{topic.course}/{semester}/{ideal_name}",
+            search_keywords="|".join(fields["keywords"]),
+            ideal_path=fields["ideal_path"],
         ))
 
         if index % 100 == 0 or index == count:
@@ -606,8 +792,13 @@ def generate(output_root: Path, count: int, seed: int, overwrite: bool) -> Path:
         "doc_type_counts": _count(records, "doc_type"),
         "course_counts": _count(records, "course"),
         "extraction_status_counts": _count(records, "extraction_status"),
-        "label_rule": "true_category = DOCUMENT_TYPES[문서 유형].category  (문서 머리말에서 유도 가능)",
-        "filename_rule": "ideal_filename = 과목_주제_문서유형_학기.확장자",
+        "label_rule": (
+            "true_category — 본문에 라벨 직서술 없음 (3주차 라벨 누출 제거). "
+            "학업 6종은 제목 관례·도입부 문체·섹션 구조로, 비학업 4종"
+            "(career/admin/personal/etc)은 문서 성격으로 유추해야 한다."
+        ),
+        "filename_rule": "학업: 과목_주제_문서유형_학기.ext / 비학업: 구성요소_연도.ext",
+        "special_ratio": SPECIAL_RATIO,
         "notice": "실제 학생·개인정보를 포함하지 않는 합성 데이터셋입니다.",
     }
     (output_root / "dataset_summary.json").write_text(
@@ -631,7 +822,7 @@ def _count(records: list[Record], field_name: str) -> dict[str, int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="LocalFile AI 정답 데이터셋 1,000쌍 생성 (PDF/TXT/Markdown)")
+        description="LocalFile AI 정답 데이터셋 1,000쌍 생성 (PDF/DOCX/PPTX/HWPX · 학업 8 : 비학업 2)")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--count", type=int, default=DEFAULT_COUNT)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)

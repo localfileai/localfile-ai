@@ -40,12 +40,8 @@ OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 DEFAULT_MODELS = ["exaone3.5:7.8b", "qwen2.5:7b", "llama3.1:8b"]
 
-CATEGORY_GUIDE = """- lecture     : 강의자료, 수업 노트
-- assignment  : 제출용 과제
-- report      : 실험 보고서, 결과 분석
-- reference   : 논문 요약, 참고자료
-- project     : 프로젝트 계획서, 설계 문서
-- exam_prep   : 시험 정리, 요약 노트"""
+# 런타임과 같은 가이드를 쓴다 — 실험과 서비스의 조건이 갈리면 수치를 비교할 수 없다.
+from app.llm.prompts import CATEGORY_GUIDE
 
 SYSTEM_PROMPT = f"""당신은 어질러진 개인 문서를 정리해 주는 파일 정리 전문가입니다.
 사용자의 파일은 "최종.pdf", "무제.txt"처럼 이름만 봐서는 내용을 알 수 없습니다.
@@ -55,14 +51,14 @@ SYSTEM_PROMPT = f"""당신은 어질러진 개인 문서를 정리해 주는 파
 JSON 외의 문자는 절대 출력하지 마십시오.
 
 {{
-  "category": "<아래 6개 중 정확히 하나>",
+  "category": "<아래 10개 중 정확히 하나>",
   "recommended_folder": "<상대 경로. 예: lecture/운영체제/2025-1>",
   "recommended_filename": "<확장자를 포함한 새 파일명>",
   "confidence": <0.0 이상 1.0 이하의 실수>,
   "reason": "<한국어 1~200자 근거>"
 }}
 
-category는 다음 6개 값 중 하나여야 하며, 그 외의 값은 허용되지 않습니다.
+category는 다음 10개 값 중 하나여야 하며, 그 외의 값은 허용되지 않습니다.
 {CATEGORY_GUIDE}
 
 recommended_filename 규칙:

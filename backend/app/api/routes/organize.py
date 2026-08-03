@@ -29,8 +29,9 @@ from ...core import config
 from ...extraction.service import extract_from_path
 from ...llm import client as llm_client
 from ...llm.suggest import suggest_full, suggest_slim
+from ...rag import classify
 from ...rag.retrieve import RagContext, SearchUnavailable, retrieve_context
-from ...rag.search import index_status
+from ...rag.search import feedback_collection, index_status
 
 router = APIRouter(prefix="/organize", tags=["organize"])
 
@@ -146,33 +147,42 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
             failed.append(FailedFile(path=item["path"], reason=_short(f"contract_error: {exc}")))
             continue
 
-        # RAG 조회 — 예시(few-shot)와 k-NN 분류를 임베딩 질의 한 번으로 얻는다.
+        # 임베딩 1회 원칙: 문서 좌표를 한 번 계산해 분류와 RAG 조회가 공유한다.
+        vector = None
         context = RagContext()
         if request.use_rag or mode == "slim":
             try:
-                context = retrieve_context(text, exclude_name=file_ref.name)
-            except SearchUnavailable as exc:
-                rag_unavailable_reason = str(exc)
+                vector = classify.embed_text(text)
             except Exception as exc:
-                rag_unavailable_reason = f"RAG 조회 실패: {exc}"
+                rag_unavailable_reason = f"임베딩 실패: {exc}"
+            if vector is not None and request.use_rag:
+                try:
+                    context = retrieve_context(
+                        embedding=vector, exclude_name=file_ref.name)
+                except SearchUnavailable as exc:
+                    rag_unavailable_reason = str(exc)
+                except Exception as exc:
+                    rag_unavailable_reason = f"RAG 조회 실패: {exc}"
 
         examples = context.examples if request.use_rag else []
 
         if mode == "slim":
-            # slim은 k-NN 분류가 전제다 (ADR-0002 §5-1). 색인이 없으면 이 파일은 실패 처리.
-            if context.knn_category is None:
+            # 분류: 사용자 예시 → 라벨 정의문 → etc(보류). 임베딩 실패 시만 파일 실패 처리.
+            if vector is None:
                 failed.append(FailedFile(
                     path=item["path"],
-                    reason=_short(f"knn_unavailable: {rag_unavailable_reason or '이웃 문서 없음'}")))
+                    reason=_short(f"classify_unavailable: {rag_unavailable_reason or '임베딩 불가'}")))
                 continue
+            decision = classify.classify_vector(vector, feedback_collection())
             result = suggest_slim(
                 generate_fn,
                 current_name=file_ref.name,
                 current_path=str(Path(file_ref.path).parent),
                 extension=file_ref.extension,
                 first_page_text=text,
-                knn_category=context.knn_category,
-                knn_vote_ratio=context.knn_vote_ratio,
+                category=decision.category,
+                confidence=decision.confidence,
+                method=decision.method,
                 examples=examples,
                 model_label=model,
             )

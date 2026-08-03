@@ -44,24 +44,31 @@ def reset_auto_cache():
 
 @pytest.fixture()
 def happy_path(monkeypatch):
-    """LLM 준비 완료 + 파일 1건 추출 + RAG 컨텍스트가 있는 기본 상황.
+    """LLM 준비 완료 + 파일 1건 추출 + 임베딩·분류·RAG가 있는 기본 상황.
 
     속도 프로브는 빠른 기기(0.5s)로 고정 → 기본값 auto가 full로 판정된다.
     """
+    from app.rag.classify import ClassifyResult
+
     monkeypatch.setattr(organize_route.llm_client, "check_generate_model",
                         lambda model: (True, ""))
     monkeypatch.setattr(organize_route.llm_client, "probe_generation_seconds",
                         lambda model: 0.5)
     monkeypatch.setattr(organize_route, "extract_from_path",
                         lambda path, max_chars: [extracted_item()])
+    monkeypatch.setattr(organize_route.classify, "embed_text",
+                        lambda text: [0.1] * 8)
+    monkeypatch.setattr(organize_route.classify, "classify_vector",
+                        lambda vector, feedback=None: ClassifyResult(
+                            Category.ASSIGNMENT, 0.82, "label_zeroshot"))
+    monkeypatch.setattr(organize_route, "feedback_collection",
+                        lambda create=False: None)
     monkeypatch.setattr(organize_route, "retrieve_context",
-                        lambda text, **kw: RagContext(
+                        lambda *a, **kw: RagContext(
                             examples=[RetrievedExample(
                                 file_name="데이터베이스_SQL_과제_2025-1.pdf",
                                 category=Category.ASSIGNMENT,
-                                first_page_text="...", score=0.8)],
-                            knn_category=Category.ASSIGNMENT,
-                            knn_vote_ratio=1.0))
+                                first_page_text="...", score=0.8)]))
     monkeypatch.setattr(organize_route.llm_client, "generate",
                         lambda system, prompt, model=None, **kw: VALID_FULL)
     return monkeypatch
@@ -118,7 +125,7 @@ def test_추출_실패_파일은_failed로_분리(client, happy_path, monkeypatc
     assert "텍스트 레이어 없음" in body.failed[0].reason
 
 
-def test_slim_모드는_kNN_분류를_쓴다(client, happy_path, monkeypatch):
+def test_slim_모드는_자동_분류를_쓴다(client, happy_path, monkeypatch):
     monkeypatch.setattr(
         organize_route.llm_client, "generate",
         lambda system, prompt, model=None, **kw:
@@ -128,18 +135,20 @@ def test_slim_모드는_kNN_분류를_쓴다(client, happy_path, monkeypatch):
     body = OrganizeResponse.model_validate(response.json())
     assert body.success_count == 1
     suggestion = body.suggestions[0].suggestion
-    assert suggestion.category is Category.ASSIGNMENT   # k-NN 결과
+    assert suggestion.category is Category.ASSIGNMENT   # 자동 분류 결과
     assert suggestion.recommended_filename.endswith(".pdf")  # 확장자 보정
-    assert "k-NN" in suggestion.reason
+    assert "분류" in suggestion.reason
 
 
-def test_slim_모드에서_색인이_없으면_파일은_실패_처리(client, happy_path, monkeypatch):
-    monkeypatch.setattr(organize_route, "retrieve_context",
-                        lambda text, **kw: RagContext())
+def test_slim_모드에서_임베딩이_안_되면_파일은_실패_처리(client, happy_path, monkeypatch):
+    def broken(text):
+        raise RuntimeError("Ollama 연결 실패")
+
+    monkeypatch.setattr(organize_route.classify, "embed_text", broken)
     response = client.post("/organize", json={"path": "C:/a", "mode": "slim"})
     body = OrganizeResponse.model_validate(response.json())
     assert body.success_count == 0
-    assert "knn_unavailable" in body.failed[0].reason
+    assert "classify_unavailable" in body.failed[0].reason
 
 
 def test_auto_모드는_느린_기기에서_slim으로_강등(client, happy_path, monkeypatch):
@@ -152,7 +161,7 @@ def test_auto_모드는_느린_기기에서_slim으로_강등(client, happy_path
                        ensure_ascii=False))
     response = client.post("/organize", json={"path": "C:/a", "mode": "auto"})
     body = OrganizeResponse.model_validate(response.json())
-    assert "k-NN" in body.suggestions[0].suggestion.reason  # slim 경로로 실행됨
+    assert "분류" in body.suggestions[0].suggestion.reason  # slim 경로로 실행됨
 
 
 def test_auto_모드_빠른_기기는_full_유지(client, happy_path):
@@ -187,7 +196,7 @@ def test_프로브_실패면_안전하게_slim(client, happy_path, monkeypatch):
             json.dumps({"recommended_filename": "a_b_2025-1.pdf"}))
     response = client.post("/organize", json={"path": "C:/a", "mode": "auto"})
     body = OrganizeResponse.model_validate(response.json())
-    assert "k-NN" in body.suggestions[0].suggestion.reason
+    assert "분류" in body.suggestions[0].suggestion.reason
 
 
 def test_use_rag_false면_예시_없이_프롬프트(client, happy_path, monkeypatch):

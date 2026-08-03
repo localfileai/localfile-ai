@@ -128,15 +128,25 @@ def suggest_full(
     )
 
 
+# 분류 방식 표시용 한국어 이름 (classify.ClassifyResult.method 대응)
+_METHOD_LABELS = {
+    "user_knn": "사용자 승인 예시 기반",
+    "label_zeroshot": "라벨 정의문 유사도",
+    "etc_fallback": "분류 보류(기타)",
+    "knn": "k-NN 다수결",  # 구버전 호환
+}
+
+
 def _assemble_slim(
     raw: str,
     *,
     extension: str,
-    knn_category: Category,
-    knn_vote_ratio: float,
+    category: Category,
+    confidence: float,
+    method: str,
     model_label: str,
 ) -> tuple[FileSuggestion | None, ValidationError | None, bool]:
-    """slim 응답(파일명만)에 k-NN 분류를 합쳐 full 계약으로 조립·검증한다."""
+    """slim 응답(파일명만)에 자동 분류 결과를 합쳐 full 계약으로 조립·검증한다."""
     raw, fixed = autofix_extension(raw, extension)
     try:
         payload = json.loads(raw)
@@ -145,14 +155,14 @@ def _assemble_slim(
         filename = ""
 
     assembled = {
-        "category": knn_category.value,
+        "category": category.value,
         # 폴더는 분류 폴더를 그대로 쓴다. 세부 경로(과목·학기)는 full 모드의 영역이다.
-        "recommended_folder": knn_category.value,
+        "recommended_folder": category.value,
         "recommended_filename": filename,
-        "confidence": round(max(0.0, min(1.0, knn_vote_ratio)), 2),
+        "confidence": round(max(0.0, min(1.0, confidence)), 2),
         "reason": (
-            f"k-NN(k=3) 다수결 {knn_vote_ratio:.0%}로 {knn_category.value} 분류, "
-            f"파일명은 {model_label} 생성 (저사양 slim 모드)"
+            f"{_METHOD_LABELS.get(method, method)} 분류 (신뢰도 {confidence:.0%}), "
+            f"파일명은 {model_label} 생성 (slim 모드)"
         ),
     }
     try:
@@ -168,15 +178,16 @@ def suggest_slim(
     current_path: str,
     extension: str,
     first_page_text: str,
-    knn_category: Category,
-    knn_vote_ratio: float,
+    category: Category,
+    confidence: float,
+    method: str = "label_zeroshot",
     examples: list[RetrievedExample] | None = None,
     model_label: str = "소형 LLM",
 ) -> SuggestResult:
-    """slim 모드: 분류는 k-NN, LLM은 파일명만 (ADR-0002 §5-1 저사양 대책).
+    """slim 모드: 분류는 자동 분류기(classify.py), LLM은 파일명만.
 
-    CPU 실측 81.1초/파일 → 13.0초/파일. 단, 2.4b 파일명 품질은 아직
-    7.8b와 같은 기준으로 재지 않았다 — 채택 여부는 로컬 실험 후 결정한다.
+    ADR-0002 §5-1 저사양 대책 — CPU 실측 81.1초/파일 → 13.0초/파일.
+    2.4b 파일명 품질 84%로 확정됨 (3주차 측정).
     """
     user_prompt = build_user_prompt(
         current_name=current_name,
@@ -192,8 +203,8 @@ def suggest_slim(
         return SuggestResult(None, error=_short(f"llm_request_error: {exc}"))
 
     suggestion, error, fixed = _assemble_slim(
-        raw, extension=extension, knn_category=knn_category,
-        knn_vote_ratio=knn_vote_ratio, model_label=model_label)
+        raw, extension=extension, category=category,
+        confidence=confidence, method=method, model_label=model_label)
     if suggestion is not None:
         return SuggestResult(suggestion, extension_fixed=fixed)
 
@@ -206,8 +217,8 @@ def suggest_slim(
                              error=_short(f"llm_request_error(재시도): {exc}"))
 
     suggestion, error_retry, fixed_retry = _assemble_slim(
-        raw_retry, extension=extension, knn_category=knn_category,
-        knn_vote_ratio=knn_vote_ratio, model_label=model_label)
+        raw_retry, extension=extension, category=category,
+        confidence=confidence, method=method, model_label=model_label)
     if suggestion is not None:
         return SuggestResult(suggestion, retried=True, extension_fixed=fixed or fixed_retry)
 

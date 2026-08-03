@@ -51,3 +51,12 @@ GENERATE_TEMPERATURE = float(os.getenv("LOCAL_FILE_AI_TEMPERATURE", "0.1"))
 # 임베딩 시간은 글자 수에 비례하므로 이 값이 저사양 색인 속도를 직접 좌우한다.
 # 800자면 문서 주제 판별에 충분하고, 검색 결과 발췌(matched_text 최대 500자)도 안 깨진다.
 INDEX_EMBED_MAX_CHARS = int(os.getenv("LOCAL_FILE_AI_EMBED_MAX_CHARS", "800"))
+
+# --- 분류 (app/rag/classify.py) ---
+# 라벨 정의문 zero-shot 채택 하한. 최고 유사도가 이보다 낮으면 etc(분류 보류) —
+# "우리가 아는 종류의 문서가 아니다"의 기준선. 모델별 유사도 분포가 달라
+# eval_classify.py로 보정한 뒤 조정한다.
+CLASSIFY_MIN_SIMILARITY = float(os.getenv("LOCAL_FILE_AI_CLASSIFY_MIN_SIM", "0.35"))
+# 사용자 피드백 예시 우선 채택 하한과 이웃 수. 예시는 정의문보다 구체적이라 기준을 높게 둔다.
+CLASSIFY_USER_MIN_SIMILARITY = float(os.getenv("LOCAL_FILE_AI_USER_MIN_SIM", "0.55"))
+CLASSIFY_USER_KNN_K = int(os.getenv("LOCAL_FILE_AI_USER_KNN_K", "3"))

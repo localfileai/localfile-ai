@@ -45,13 +45,16 @@ def _to_score(distance: float) -> float:
 
 
 def retrieve_context(
-    text: str,
+    text: str = "",
     *,
+    embedding: list[float] | None = None,
     top_k_examples: int = MAX_SIMILAR_EXAMPLES,
     exclude_name: str | None = None,
 ) -> RagContext:
-    """문서 텍스트로 유사 예시와 k-NN 분류를 한 번에 조회한다.
+    """문서로 유사 예시와 k-NN 분류를 한 번에 조회한다.
 
+    `embedding`이 있으면 그 좌표로 조회한다 (임베딩 1회 원칙 — 분류에서 계산한
+    좌표를 재사용). 없으면 text를 임베딩한다.
     `exclude_name`: 실험에서 자기 자신(같은 파일명)이 이웃으로 잡히는 것을 막을 때 쓴다.
     색인이 준비되지 않았으면 SearchUnavailable이 그대로 올라간다 — 호출자가
     "예시 없이 진행"할지 결정한다.
@@ -60,10 +63,12 @@ def retrieve_context(
 
     # 제외 대상과 계약 위반 예시를 걸러도 남도록 조금 더 받아 둔다.
     want = max(top_k_examples, KNN_K)
-    result = collection.query(
-        query_texts=[text[:MAX_QUERY_CHARS]],
-        n_results=min(want * 2, 10),
-    )
+    query_kwargs: dict = {"n_results": min(want * 2, 10)}
+    if embedding is not None:
+        query_kwargs["query_embeddings"] = [list(map(float, embedding))]
+    else:
+        query_kwargs["query_texts"] = [text[:MAX_QUERY_CHARS]]
+    result = collection.query(**query_kwargs)
 
     metadatas = result.get("metadatas", [[]])[0]
     documents = result.get("documents", [[]])[0]
