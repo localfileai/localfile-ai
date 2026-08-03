@@ -4,15 +4,17 @@
 - **기준 브랜치**: `week1-integration` 위에 작업
 - **작업 환경**: 클라우드 세션 (Ollama·색인 없음 → 코드/테스트/문서만. 실기기 측정은 아래 "로컬에서 돌릴 것" 참고)
 
-## 계획서 3주차 BE1 항목 대비
+## 계획서 3주차 BE1 항목별 산출물
 
-| 계획서 항목 | 상태 |
-|---|---|
-| 유사도 검색 API 구현 | 2주차 선행 구현 완료(`GET /search`) → 3주차에 **지연 최적화** 적용 |
-| 답변 생성 속도·품질을 위한 전반적인 모델 최적화 | **코드 완료** — 커넥션 재사용 + `keep_alive`, RAG·k-NN 단일 질의, slim 모드. 수치 측정은 로컬 실기기 필요 |
-| Pydantic 에러 검증 및 재시도 로직 | **완료** — 확장자 자동 보정 + 위반 제약 명시 1회 재시도. 테스트 25건 |
+| 계획서 항목 | 산출물 | 실행 |
+|---|---|---|
+| **① 유사도 검색 API** — 자연어 검색어로 ChromaDB에서 유사 문서 검색 | ⓐ `GET /search`·`/search/status` (2주차 선행 구현 + 3주차 지연 최적화) ⓑ **어려운 평가셋 40문항** `scripts/data/search_eval_hard.jsonl` — 핵심어를 안 쓴 paraphrase 20 + 구어체 keyword 20, 주제 20종 전수 커버 ⓒ **평가 스크립트** `scripts/eval_search.py` — Top-1 · Recall@5 · MRR · P@5 · 지연을 난이도별로 출력 | `python scripts/eval_search.py` (Ollama+색인 필요, 약 3분) |
+| **② 모델 최적화** — 생성 속도·결과물 품질 | ⓐ 최적화 코드 4종: Session 재사용+`keep_alive`(`rag/embedding.py`·`llm/client.py`), RAG·k-NN **단일 임베딩 질의**(`rag/retrieve.py`), **slim 모드**(k-NN 분류+소형 모델), 설정 단일화(`core/config.py`) ⓑ **전/후 벤치마크** `scripts/bench_optimization.py` — [A] 커넥션·keep_alive [B] 질의 1번vs2번 [C] k-NN 정확도(저장 벡터 재사용, Ollama 불필요) [D] full vs slim 시간·토큰 | `python scripts/bench_optimization.py` (+`--with-llm`) |
+| **③ Pydantic 검증 + 재시도** — 형식 깨진 응답 대비 | ⓐ 파이프라인 `app/llm/suggest.py` — 확장자 자동 보정 → 위반 제약 명시 1회 재시도 → 실패 시 `failed[]` ⓑ **동작 시연 결과** [`assets/week03-retry-demo.txt`](assets/week03-retry-demo.txt) — 실제 실패 유형 5종 전 과정, **5/5 기대대로 동작 확인 완료** ⓒ 단위 테스트 25건 **통과 확인 완료** ⓓ `test_models.py --retry` — 실기기 구제율 측정 옵션 | `python scripts/demo_retry.py` · `npm run backend:test` (둘 다 Ollama 불필요) |
 
 2주차 이월분인 **추천 경로 연결**(`/mock/*` 하드코딩 → 실제 RAG+LLM)도 이번에 구현했다: `POST /organize`.
+③의 시연과 테스트는 실행까지 완료했고, ①ⓑⓒ와 ②ⓑ의 **수치 채우기**만 Ollama가 있는 로컬 PC 몫이다
+(이 클라우드 환경은 ollama.com·HuggingFace가 네트워크 정책으로 차단되어 모델을 받을 수 없다).
 
 ## 새로 생긴 것
 
@@ -78,29 +80,38 @@ npm run backend:test        # 25건, Ollama 불필요
 - retrieve: 단일 질의로 예시+투표, 자기 자신 제외, 계약 밖 카테고리 무시
 - API: 503(모델 없음) · 400(경로 오류) · 422(모르는 mode) · full/slim 정상 경로 · failed 분리
 
-## ⚠️ 로컬 PC(Ollama 있는 곳)에서 돌릴 것
+## ⚠️ 로컬 PC(Ollama 있는 곳)에서 돌릴 것 — 수치 채우기
 
-클라우드 세션이라 실행 측정을 못 했다. 전부 `backend/`에서:
+클라우드 세션은 모델을 받을 수 없어 수치 측정만 남았다. 전부 `backend/`에서:
 
 ```powershell
-# ① RAG 효과 측정 (2주차 이월 — ADR-0002 §6 재검토 조건)
+# [산출물 ①] 어려운 평가셋 검색 품질 — keyword vs paraphrase 격차가 핵심 지표
+.venv\Scripts\python.exe scripts\eval_search.py
+
+# [산출물 ②] 최적화 전/후 벤치마크 — A(커넥션) B(단일질의) C(k-NN) + D(full vs slim)
+.venv\Scripts\python.exe scripts\bench_optimization.py --with-llm
+
+# RAG 효과 측정 (2주차 이월 — ADR-0002 §6 재검토 조건)
 .venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension
 .venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension --with-rag
 
-# ② 재시도 효과 측정 (이번에 추가된 --retry 옵션, 요약에 "재시도 n건 중 m건 구제" 출력)
+# [산출물 ③] 재시도 실기기 구제율 (요약에 "재시도 n건 중 m건 구제" 출력)
 .venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --retry
 
-# ③ exaone3.5:2.4b 품질 재측정 (slim 채택 여부 결정)
+# exaone3.5:2.4b 품질 재측정 (slim 기본값 채택 여부 결정)
 .venv\Scripts\python.exe scripts\test_models.py --sample 40 --seed 42 --autofix-extension --models exaone3.5:2.4b exaone3.5:7.8b
 
-# ④ 실제 추천 API 동작 확인 (서버는 npm run backend:dev 로)
+# 실제 추천 API 동작 확인 (서버는 npm run backend:dev 로)
 curl -X POST http://127.0.0.1:8000/organize -H "Content-Type: application/json" ^
      -d "{\"path\": \"C:/Users/blues/Documents/테스트폴더\", \"max_files\": 3}"
 curl http://127.0.0.1:8000/organize/status
 ```
 
-①의 판단 기준: ADR-0002가 잡은 목표 구간 "관례 제공 시 20%→70%" 사이 어디에 떨어지는지.
-③의 판단 기준: 파일명 점수·학기 포함률·한국어 유지율이 7.8b 대비 얼마나 빠지는지 (ADR-0002 §5-1).
+판단 기준
+- 평가셋: paraphrase가 keyword 대비 얼마나 떨어지는가 = 문자 일치가 아닌 의미 검색 능력.
+  1주차 쉬운 평가셋 100%와 함께 기록해야 정직한 검색 품질이 된다 (ADR-0002 §2 단서 해소)
+- RAG: ADR-0002가 잡은 목표 구간 "관례 제공 시 20%→70%" 사이 어디에 떨어지는지
+- 2.4b: 파일명 점수·학기 포함률·한국어 유지율이 7.8b 대비 얼마나 빠지는지 (ADR-0002 §5-1)
 
 ## 미해결 (이월)
 
