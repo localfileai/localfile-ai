@@ -22,3 +22,10 @@ build/
 dataset/
 chroma_db/
 model_test_results.csv
+
+# 임베딩 심 서버용 로컬 모델 캐시 (scripts/ollama_embed_shim.py)
+.fastembed_cache/
+# 임시 CI/검증용 가상환경
+.venv-ci/
+# 검색 평가 산출물
+search_eval_results.csv
