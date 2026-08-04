@@ -9,6 +9,7 @@
 //   node scripts/backend.mjs dataset   -> 정답 데이터셋 1,000쌍 생성 (BE1)
 //   node scripts/backend.mjs index     -> ChromaDB 색인 (Ollama 필요)
 //   node scripts/backend.mjs test      -> 백엔드 단위 테스트 (Ollama 불필요)
+//   node scripts/backend.mjs build-exe -> PyInstaller로 server.exe 빌드 (Windows 권장)
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -102,7 +103,16 @@ if (task === 'install') {
 } else if (task === 'test') {
   // 추천 파이프라인·검증·재시도 로직 테스트. LLM을 가짜로 주입해 Ollama 없이 돈다.
   mustSucceed(run(venvPython(), ['-m', 'pytest', 'tests/', '-q']))
+} else if (task === 'build-exe') {
+  // 4주차 산출물 — backend 전체를 실행 파일 하나(dist/server.exe)로 묶는다.
+  // PyInstaller는 실행한 OS용 실행 파일을 만들므로 Windows 배포본은 Windows에서 빌드해야 한다.
+  console.log('server 실행 파일을 빌드합니다. 빌드 사양: backend/server.spec')
+  console.log('처음이면 PyInstaller 설치까지 몇 분 걸립니다.\n')
+  mustSucceed(run(venvPython(), ['-m', 'pip', 'install', 'pyinstaller']))
+  mustSucceed(run(venvPython(), ['-m', 'PyInstaller', 'server.spec', '--noconfirm']))
+  console.log('\n빌드 완료: backend/dist/ 안의 server 실행 파일을 확인하세요.')
+  console.log('Ollama·모델은 포함되지 않습니다 — 사용자 PC에 별도 설치가 필요합니다.')
 } else {
-  console.error('사용법: node scripts/backend.mjs <install|dev|dataset|index|test>')
+  console.error('사용법: node scripts/backend.mjs <install|dev|dataset|index|test|build-exe>')
   process.exit(1)
 }

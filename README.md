@@ -148,12 +148,15 @@ localfile-ai/
 ├─ docs/decisions/      ADR — 왜 그렇게 정했는지
 └─ backend/                                                        BE1 + BE2
    ├─ app/
-   │  ├─ api/routes/    health · mock · preprocess · search · organize
+   │  ├─ api/routes/    health · mock · preprocess · search ·
+   │  │                  organize · indexing · feedback · apply
    │  ├─ contracts/     ai.py(BE1 · 팀 공용 계약) · api.py(BE2 · API 형태)
-   │  ├─ core/          config.py — Ollama·모델 설정 단일 출처       BE1
-   │  ├─ extraction/    문서 텍스트 추출                            BE2
+   │  ├─ core/          config.py 설정 단일 출처 · warmup.py 웜업    BE1
+   │  ├─ extraction/    문서 텍스트 추출 (기획안 7종 형식)           BE2
+   │  ├─ fileops/       승인 후 파일 이동·개명 + 이력·undo (4주차)   BE1
    │  ├─ llm/           추천 프롬프트 · 검증 + 1회 재시도            BE1
-   │  └─ rag/           qwen3 임베딩 · ChromaDB 검색 · k-NN 분류    BE1
+   │  └─ rag/           qwen3 임베딩 · ChromaDB 검색 · 분류          BE1
+   ├─ run.py·server.spec  server.exe 엔트리·빌드 사양 (4주차)        BE1
    ├─ scripts/          데이터셋 생성 · 임베딩 · 모델 비교           BE1
    ├─ tests/            추천 파이프라인 테스트 (Ollama 불필요)       BE1
    └─ mock/pdf/         추출 테스트용 실제 PDF 5건                  BE2
@@ -169,8 +172,9 @@ localfile-ai/
 | `POST /organize` · `GET /organize/status` | **실제** — RAG + LLM 분류·파일명 추천 (3주차) | BE1 |
 | `POST /index` · `GET /index/status` | **실제** — 사용자 폴더 색인. 색인 후 `/search`가 실파일 대상 (3주차) | BE1 |
 | `POST /feedback` · `GET /feedback/status` | **실제** — 승인 결과를 예시로 축적, 분류 맞춤화 (3주차) | BE1 |
+| `POST /apply` · `GET /apply/history` · `POST /apply/undo` | **실제** — 승인 후 파일 이동·개명. 충돌·경로·권한 검증 + 이력·되돌리기 (4주차) | BE1 (BE2 리뷰 필요) |
 | `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |
-| `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음**) | BE2 |
+| `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음** — 폴더 미선택 데모에서만 사용) | BE2 |
 
 API 문서: http://127.0.0.1:8000/docs
 
@@ -199,7 +203,8 @@ cd backend
 | `npm run backend:dev` | FastAPI 서버 |
 | `npm run dataset` | 정답 데이터셋 1,000쌍 재생성 (약 2분) |
 | `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
-| `npm run backend:test` | 백엔드 단위 테스트 45건 (Ollama 불필요) |
+| `npm run backend:test` | 백엔드 단위 테스트 81건 (Ollama 불필요) |
+| `npm run backend:build-exe` | server 실행 파일 빌드 — Windows에서 실행 (4주차) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
 
 ## 알려진 문제
@@ -210,9 +215,11 @@ cd backend
 | **Drag & Drop** 동작 미확인 | 실패 시 앱에 빨간 배너 표시. 콘솔의 `[preload]` 로그 확인 필요 |
 | Ollama는 요청을 **직렬 처리** | 색인 중 검색은 수십 초 대기. 2주차에 큐 분리 필요 |
 
-## 1주차 범위 밖
+## 남은 범위
 
-`실제 파일 이동·이름 변경` · `LLM 추천 연동` · `SQLite` · `Watchdog 증분 인덱싱` ·
-`setup.exe 패키징`
+`SQLite` · `Watchdog 증분 인덱싱` (BE2 몫) · `setup.exe 패키징` (server.exe 빌드
+준비는 완료 — `npm run backend:build-exe`) · FE 로딩 UI (FE1&2 몫)
 
-계획서상 2~4주차 항목입니다. 1주차는 Mock으로 화면을 채웁니다.
+`실제 파일 이동·이름 변경`(4주차)과 `LLM 추천 연동`(3주차)은 완료됐습니다 —
+폴더를 선택하면 실제 AI 추천이, 적용 버튼은 실제 파일 변경(`POST /apply`)이 동작합니다.
+주차별 기록: `docs/weekly/`

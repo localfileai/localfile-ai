@@ -276,6 +276,8 @@ class ApplyRequest(Strict):
     """기획안: '사용자가 승인한 경우에만 파일명 변경 및 이동 실행'."""
 
     approved: bool = Field(..., description="반드시 True여야 한다")
+    root: str = Field(..., min_length=1,
+                      description="정리 대상 폴더의 절대 경로. target_folder는 이 아래의 상대 경로다")
     items: list[ApplyItem] = Field(..., min_length=1)
     dry_run: bool = Field(default=False, description="True면 검증만 하고 실제 변경은 하지 않음")
 
@@ -285,6 +287,27 @@ class ApplyRequest(Strict):
         if not value:
             raise ValueError("사용자 승인 없이는 파일을 변경할 수 없습니다.")
         return value
+
+
+class AppliedItem(Strict):
+    """파일 1건의 적용 결과. 실패해도 전체가 죽지 않고 여기 이유가 남는다."""
+
+    source_path: str = Field(..., min_length=1)
+    target_path: str = Field(default="", description="이동/개명된 최종 경로 (성공 시)")
+    status: str = Field(..., description="moved | valid(dry_run) | skipped | failed")
+    reason: str = Field(default="", max_length=200,
+                        description="예: conflict(대상에 같은 이름 존재), file_in_use, unsafe_path")
+
+
+class ApplyResponse(Strict):
+    """승인 후 파일 변경 API 응답. 기획안 4주차 '권한 에러 방지'가 여기 반영된다."""
+
+    total: int = Field(..., ge=0)
+    moved: int = Field(..., ge=0)
+    failed: int = Field(..., ge=0)
+    dry_run: bool
+    items: list[AppliedItem] = Field(default_factory=list)
+    history_id: str = Field(default="", description="되돌리기(undo)에 쓰는 작업 이력 ID")
 
 
 # =========================================================
@@ -405,10 +428,10 @@ if __name__ == "__main__":
     check_error("범위 밖 확장자(txt)",
                 lambda: FileRef(**{**SAMPLE_FILE, "extension": "txt"}))
     check_error("승인 없는 파일 변경 요청", lambda: ApplyRequest(
-        approved=False,
+        approved=False, root="C:/Users/a/Downloads",
         items=[ApplyItem(source_path="a.pdf", target_folder="lecture", target_filename="b.pdf")]))
     check_ok("승인된 파일 변경 요청", lambda: ApplyRequest(
-        approved=True,
+        approved=True, root="C:/Users/a/Downloads",
         items=[ApplyItem(source_path="a.pdf", target_folder="lecture", target_filename="b.pdf")]))
     check_ok("추천 요청 기본값(mode 생략)",
              lambda: OrganizeRequest(path="C:/Users/a/Documents"))

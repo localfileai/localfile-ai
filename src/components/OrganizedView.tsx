@@ -224,14 +224,46 @@ export default function OrganizeView({
     }
   };
 
+  // 실제 적용(POST /apply) 결과에서 "정말 바뀐" id만 골라낸다.
+  // outcome이 null이면 mock 모드(폴더 미선택)라 전부 성공으로 간주한다.
+  const appliedIdsFrom = (
+    outcome: Awaited<ReturnType<typeof applyRenameRecommendations>>,
+    requestedIds: string[],
+  ): { doneIds: string[]; summary: string } => {
+    if (!outcome) {
+      return { doneIds: requestedIds, summary: `${requestedIds.length}건 적용 완료` };
+    }
+    const doneIds = outcome.appliedIds.filter(
+      (_, index) => outcome.items[index]?.status === 'moved'
+    );
+    const problems = outcome.items
+      .filter((item) => item.status !== 'moved')
+      .map((item) => {
+        const name = item.source_path.split(/[\\/]/).filter(Boolean).at(-1);
+        return `• ${name}: ${item.reason || item.status}`;
+      });
+    let summary = `${doneIds.length}건 적용 완료`;
+    if (problems.length > 0) {
+      summary += `\n적용되지 않음 ${problems.length}건:\n${problems.join('\n')}`;
+    }
+    return { doneIds, summary };
+  };
+
   const handleApplySelected = async () => {
     if (activeTab === 'rename') {
       if (selectedRenameIds.length === 0) return;
-      await applyRenameRecommendations(selectedRenameIds);
-      
+      let outcome;
+      try {
+        outcome = await applyRenameRecommendations(selectedRenameIds);
+      } catch (error) {
+        alert(`적용 중 오류가 발생했습니다:\n${(error as Error).message}`);
+        return;
+      }
+      const { doneIds, summary } = appliedIdsFrom(outcome, selectedRenameIds);
+
       const renameMap = new Map();
       renameList.forEach((item) => {
-        if (selectedRenameIds.includes(item.id)) {
+        if (doneIds.includes(item.id)) {
           renameMap.set(item.currentName, item.recommendedName);
         }
       });
@@ -247,19 +279,26 @@ export default function OrganizeView({
         );
       }
 
-      const updatedRenameList = renameList.filter((item) => !selectedRenameIds.includes(item.id));
+      const updatedRenameList = renameList.filter((item) => !doneIds.includes(item.id));
       setRenameList(updatedRenameList);
       if (setParentRenameList) setParentRenameList(updatedRenameList);
 
-      alert(`선택한 ${selectedRenameIds.length}개 파일명이 성공적으로 변경·적용되었습니다.`);
+      alert(`파일명 변경: ${summary}`);
       setSelectedRenameIds([]);
     } else {
       if (selectedMoveIds.length === 0) return;
-      await applyStructureRecommendations(selectedMoveIds);
-      
+      let outcome;
+      try {
+        outcome = await applyStructureRecommendations(selectedMoveIds);
+      } catch (error) {
+        alert(`적용 중 오류가 발생했습니다:\n${(error as Error).message}`);
+        return;
+      }
+      const { doneIds, summary } = appliedIdsFrom(outcome, selectedMoveIds);
+
       const moveMap = new Map();
       structureList.forEach((item) => {
-        if (selectedMoveIds.includes(item.id)) {
+        if (doneIds.includes(item.id)) {
           moveMap.set(item.fileName, item.targetFolder);
         }
       });
@@ -278,11 +317,11 @@ export default function OrganizeView({
         );
       }
 
-      const updatedStructureList = structureList.filter((item) => !selectedMoveIds.includes(item.id));
+      const updatedStructureList = structureList.filter((item) => !doneIds.includes(item.id));
       setStructureList(updatedStructureList);
       if (setParentStructureList) setParentStructureList(updatedStructureList);
 
-      alert(`선택한 ${selectedMoveIds.length}개 파일 이동이 성공적으로 적용되었습니다.`);
+      alert(`파일 이동: ${summary}`);
       setSelectedMoveIds([]);
     }
   };

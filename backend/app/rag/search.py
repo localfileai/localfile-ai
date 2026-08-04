@@ -18,7 +18,8 @@ from ..contracts.ai import ALLOWED_EXTENSIONS, FileRef, SearchHit, SearchRespons
 from .embedding import COLLECTION_NAME, OllamaEmbeddingFunction, check_ollama
 
 # BE1 스크립트의 기본 저장 위치(`--db ./chroma_db`)와 같아야 한다.
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+# server.exe로 패키징되면 실행 파일 옆 폴더가 된다 — config.BASE_DIR 참고.
+from ..core.config import BASE_DIR as BACKEND_ROOT  # noqa: E402
 CHROMA_PATH = Path(os.getenv("LOCAL_FILE_AI_CHROMA", BACKEND_ROOT / "chroma_db"))
 # 색인된 상대 경로(`files\...`)의 기준 폴더.
 DATASET_ROOT = Path(os.getenv("LOCAL_FILE_AI_DATASET", BACKEND_ROOT / "dataset"))

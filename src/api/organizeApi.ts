@@ -78,6 +78,92 @@ const parentFolder = (path: string): string => {
   return parts.slice(0, -1).join('/') || path;
 };
 
+// ---------------------------------------------------------------------------
+// 실제 적용 API (POST /apply) — 승인한 항목만 실제로 이동·개명한다 (4주차).
+// analyzeFolder가 분석 결과를 여기 캐시해 두면, apply 함수들이 id로 찾아 쓴다.
+// 폴더를 선택하지 않은 데모(mock) 상태에서는 기존 /mock/*/apply로 폴백한다.
+// ---------------------------------------------------------------------------
+
+interface AnalyzedItem {
+  sourcePath: string;       // 원본 파일의 절대 경로
+  sourceName: string;       // 현재 파일명 (확장자 포함)
+  sourceRelFolder: string;  // root 기준 상대 폴더 ('.'이면 root 바로 아래)
+  recommendedName: string;
+  recommendedFolder: string;
+}
+
+let lastAnalysis: { root: string; items: Map<string, AnalyzedItem> } | null = null;
+
+/** 항목 1건의 적용 결과 (백엔드 AppliedItem 계약과 동일). */
+export interface AppliedItem {
+  source_path: string;
+  target_path: string;
+  status: 'moved' | 'valid' | 'skipped' | 'failed';
+  reason: string;
+}
+
+export interface ApplyOutcome {
+  total: number;
+  moved: number;
+  failed: number;
+  items: AppliedItem[];
+  history_id: string;
+  /** 요청에 넣은 순서와 items 순서가 같다 — i번째 id의 결과가 items[i]다. */
+  appliedIds: string[];
+}
+
+const relativeFolder = (root: string, absoluteDir: string): string => {
+  const normalize = (value: string) => value.split(/[\\/]/).filter(Boolean).join('/');
+  const rootNorm = normalize(root);
+  const dirNorm = normalize(absoluteDir);
+  if (dirNorm === rootNorm) return '.';
+  if (dirNorm.startsWith(`${rootNorm}/`)) return dirNorm.slice(rootNorm.length + 1);
+  return '.'; // root 밖이면 백엔드가 unsafe_path로 거른다 — 여기서는 그대로 보낸다
+};
+
+const postApply = async (
+  root: string,
+  ids: string[],
+  toItem: (analyzed: AnalyzedItem) => { target_folder: string; target_filename: string },
+): Promise<ApplyOutcome> => {
+  const selected = ids
+    .map((id) => ({ id, analyzed: lastAnalysis?.items.get(id) }))
+    .filter((entry): entry is { id: string; analyzed: AnalyzedItem } => !!entry.analyzed);
+
+  const response = await fetch(`${BASE_URL}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      approved: true, // 이 요청은 사용자가 체크박스로 승인한 항목만 담는다
+      root,
+      items: selected.map(({ analyzed }) => ({
+        source_path: analyzed.sourcePath,
+        ...toItem(analyzed),
+      })),
+    }),
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null))?.detail;
+    throw new Error(typeof detail === 'string' ? detail : `적용 실패 (HTTP ${response.status})`);
+  }
+  const body = await response.json();
+
+  // 개명 후 이동(또는 그 반대)이 이어져도 원본 경로가 낡지 않도록,
+  // 실제로 옮겨진 항목은 캐시를 새 경로로 갱신한다.
+  (body.items as AppliedItem[]).forEach((applied, index) => {
+    const entry = selected[index];
+    if (applied.status !== 'moved' || !entry) return;
+    const analyzed = lastAnalysis?.items.get(entry.id);
+    if (!analyzed) return;
+    analyzed.sourcePath = applied.target_path;
+    analyzed.sourceName = applied.target_path.split(/[\\/]/).filter(Boolean).at(-1)
+      || analyzed.sourceName;
+    analyzed.sourceRelFolder = relativeFolder(root, parentFolder(applied.target_path));
+  });
+
+  return { ...body, appliedIds: selected.map(({ id }) => id) };
+};
+
 /**
  * 선택한 폴더를 실제 AI로 분석해 추천을 받는다.
  * CPU 환경에서는 파일당 수십 초가 걸릴 수 있다(저사양이면 백엔드가 slim 모드로 자동 강등).
@@ -95,6 +181,18 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
   }
 
   const data: OrganizeResponseBody = await response.json();
+
+  // 적용(POST /apply)에 필요한 원본 경로·추천값을 id로 찾을 수 있게 캐시한다.
+  lastAnalysis = {
+    root: path,
+    items: new Map(data.suggestions.map((item, index) => [String(index + 1), {
+      sourcePath: item.current.path,
+      sourceName: item.current.name,
+      sourceRelFolder: relativeFolder(path, parentFolder(item.current.path)),
+      recommendedName: item.suggestion.recommended_filename,
+      recommendedFolder: item.suggestion.recommended_folder,
+    }])),
+  };
 
   const renameList: RenameRecommendation[] = data.suggestions.map((item, index) => ({
     id: String(index + 1),
@@ -211,19 +309,30 @@ export const getRenameRecommendations = async (): Promise<RenameRecommendation[]
 };
 
 /**
- * 2. 파일명 변경 적용 모의 (POST /mock/rename/apply)
+ * 2. 파일명 변경 적용 (POST /apply — 4주차부터 실제 개명)
+ *
+ * 파일은 지금 있는 폴더에 그대로 두고 이름만 추천안으로 바꾼다.
+ * 분석 캐시가 없으면(폴더 미선택 데모 상태) 기존 mock 적용으로 폴백한다.
  */
-export const applyRenameRecommendations = async (selectedIds: string[]) => {
-  try {
-    const response = await fetch(`${BASE_URL}/mock/rename/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: selectedIds }),
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Apply Rename API 에러:', error);
+export const applyRenameRecommendations = async (
+  selectedIds: string[],
+): Promise<ApplyOutcome | null> => {
+  if (!lastAnalysis) {
+    try {
+      await fetch(`${BASE_URL}/mock/rename/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+    } catch (error) {
+      console.error('Apply Rename API 에러:', error);
+    }
+    return null;
   }
+  return postApply(lastAnalysis.root, selectedIds, (analyzed) => ({
+    target_folder: analyzed.sourceRelFolder,
+    target_filename: analyzed.recommendedName,
+  }));
 };
 
 /**
@@ -270,19 +379,30 @@ export const getStructureRecommendations = async (): Promise<StructureResult> =>
 };
 
 /**
- * 4. 파일 이동 적용 모의 (POST /mock/move/apply)
+ * 4. 파일 이동 적용 (POST /apply — 4주차부터 실제 이동)
+ *
+ * 파일명은 그대로 두고 추천 폴더로만 옮긴다. 이름 변경과 이동을 동시에
+ * 승인한 경우에도 각 적용이 독립적으로 안전하게 동작한다(충돌 시 건너뜀).
  */
-export const applyStructureRecommendations = async (selectedIds: string[]) => {
-  try {
-    const response = await fetch(`${BASE_URL}/mock/move/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: selectedIds }),
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Apply Move API 에러:', error);
+export const applyStructureRecommendations = async (
+  selectedIds: string[],
+): Promise<ApplyOutcome | null> => {
+  if (!lastAnalysis) {
+    try {
+      await fetch(`${BASE_URL}/mock/move/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+    } catch (error) {
+      console.error('Apply Move API 에러:', error);
+    }
+    return null;
   }
+  return postApply(lastAnalysis.root, selectedIds, (analyzed) => ({
+    target_folder: analyzed.recommendedFolder,
+    target_filename: analyzed.sourceName,
+  }));
 };
 
 /**

@@ -10,6 +10,24 @@ ADR-0002 §3 후속 조치: "2주차에 Mock을 실제 Ollama 연동으로 바�
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+
+def _base_dir() -> Path:
+    """데이터(색인·이력)의 기준 폴더 — 실행 형태에 따라 다르다 (4주차 패키징).
+
+    - 개발 실행: backend/ 폴더 (이 파일 기준 두 단계 위)
+    - PyInstaller server.exe: 실행 파일이 있는 폴더.
+      onefile 모드의 `__file__`은 임시 폴더(_MEIPASS)를 가리키는데, 그곳은
+      종료 시 삭제된다 — 색인·이력을 거기 두면 재시작마다 사라진다.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+BASE_DIR = _base_dir()
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 

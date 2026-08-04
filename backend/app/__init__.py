@@ -8,7 +8,8 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from .api.routes import feedback, health, indexing, mock, organize, preprocess, search
+    from .api.routes import (apply, feedback, health, indexing, mock, organize,
+                             preprocess, search)
 
     app = FastAPI(title="Local File AI Backend")
 
@@ -46,4 +47,15 @@ def create_app():
     # 사용자 피드백입니다 (BE1 기능②③ 맞춤화, 3주차). 승인한 분류가 예시로
     # 쌓여 이후 분류에서 우선 참조됩니다.
     app.include_router(feedback.router)
+
+    # 승인 후 파일 변경입니다 (기능④, 4주차). 충돌·경로·권한 검증과
+    # 작업 이력·되돌리기를 포함합니다.
+    app.include_router(apply.router)
+
+    # 검색 웜업입니다 (4주차). 첫 요청을 느리게 만드는 준비 비용(모델 로드·
+    # 색인 열기·라벨 좌표)을 서버 시작 직후 백그라운드로 미리 치릅니다.
+    import os
+    if os.getenv("LOCAL_FILE_AI_WARMUP", "1") != "0":
+        from .core.warmup import start_warmup_thread
+        start_warmup_thread()
     return app
