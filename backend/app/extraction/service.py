@@ -125,6 +125,13 @@ def extract_first_page_text(file_path: str) -> str:
         except ImportError as exc:
             raise RuntimeError("PyMuPDF is required to extract PDF text.") from exc
 
+        # 비표준 PDF(그라데이션 과다 등)에서 MuPDF가 stderr에 찍는 문법 경고를 끕니다.
+        # 그래픽 렌더링 경고일 뿐 텍스트 추출과 무관하고, 실제 실패는 예외로 잡힙니다.
+        try:
+            fitz.TOOLS.mupdf_display_errors(False)
+        except Exception:
+            pass
+
         doc = fitz.open(str(path))
         try:
             if doc.page_count == 0:
