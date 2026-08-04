@@ -214,15 +214,53 @@ def _extract_hwp_text(path: Path) -> str:
         ]
         parts = []
         for name in sorted(streams):
-            raw = ole.openstream(name).read()
-            text = raw.decode("utf-16le", errors="ignore")
-            # 제어 문자와 서식 코드가 섞여 나오므로 걸러냅니다.
-            text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", text)
+            raw = ole.openstream(name).read(LEGACY_STREAM_CAP)
+            text = _decode_hwp_section(raw)
             if text.strip():
                 parts.append(text.strip())
         return " ".join(parts).strip()
     finally:
         ole.close()
+
+
+def _decode_hwp_section(raw: bytes) -> str:
+    """HWP BodyText 섹션 바이트를 읽을 수 있는 텍스트로 바꿉니다.
+
+    실파일 검증(3주차)에서 발견된 버그 수정: HWP 5.x는 본문 스트림이
+    **zlib(raw deflate) 압축**되어 있는 경우가 대부분인데, 압축 해제 없이
+    디코딩하면 `垬䡝圜㸔…` 같은 잡문자가 나와 분류·검색을 오염시킨다.
+    압축 해제를 먼저 시도하고(비압축 파일은 실패해도 무해), 레코드 헤더가
+    글자로 섞여 나오므로 읽을 수 있는 글자 구간만 남긴다.
+    """
+    import zlib
+
+    try:
+        raw = zlib.decompress(raw, -15)  # HWP는 헤더 없는 raw deflate
+    except zlib.error:
+        pass  # 비압축 스트림이면 그대로 진행
+
+    decoded = raw.decode("utf-16le", errors="ignore")
+    decoded = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", decoded)
+    # 레코드 구조를 파싱하지 않는 대신, 한글·영숫자 구간만 추린다.
+    runs = re.findall(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9 .,()\-_:%/·※~]{2,}", decoded)
+    return " ".join(run.strip() for run in runs)
+
+
+# 추출 텍스트 품질 하한 — 정상 글자(한글 음절·ASCII) 비율이 이보다 낮으면
+# 깨진 추출로 본다. 깨진 텍스트가 분류·검색·색인으로 흘러가는 것을 막는다.
+MIN_READABLE_RATIO = 0.5
+
+
+def readable_ratio(text: str) -> float:
+    """텍스트에서 '읽을 수 있는 글자' 비율을 계산합니다."""
+    if not text:
+        return 0.0
+    total = len(text)
+    readable = sum(
+        1 for ch in text
+        if ("가" <= ch <= "힣") or ch.isascii() or ch in "·※…—–「」『』()%,."
+    )
+    return readable / total
 
 
 # ---------------------------------------------------------------------
@@ -415,6 +453,9 @@ def extract_from_path(target_path: str, max_chars: int = 1000) -> List[Dict[str,
         try:
             raw_text = extract_first_page_text(str(file_path))
             normalized_text = normalize_pdf_text(raw_text)
+            # 깨진 추출(암호화·비표준 인코딩)은 여기서 걸러 분류·색인 오염을 막는다.
+            if normalized_text.strip() and readable_ratio(normalized_text) < MIN_READABLE_RATIO:
+                raise ValueError("garbled_text: 추출된 텍스트가 깨져 있습니다 (암호화·비표준 인코딩 가능성)")
             preview_text = truncate_text(normalized_text, max_chars)
             results.append({
                 "path": str(file_path),

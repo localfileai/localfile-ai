@@ -87,6 +87,39 @@ class TestPptRecords:
         _ppt_text_from_records(broken)  # 예외 없이 반환하면 된다
 
 
+class TestHwpDecoding:
+    def test_zlib_압축_섹션을_해제해_읽는다(self):
+        # 실파일 검증에서 발견된 버그의 회귀 테스트 — HWP 5.x 본문은 raw deflate
+        import zlib
+
+        from app.extraction.service import _decode_hwp_section
+
+        source = "자동차운전면허시험 실시 공고 2026년 6월"
+        compressed = zlib.compress(source.encode("utf-16le"))[2:-4]  # raw deflate
+        text = _decode_hwp_section(compressed)
+        assert "자동차운전면허시험" in text
+
+    def test_비압축_섹션도_그대로_읽는다(self):
+        from app.extraction.service import _decode_hwp_section
+
+        raw = "비압축 한글 문서 본문".encode("utf-16le")
+        assert "비압축 한글 문서" in _decode_hwp_section(raw)
+
+
+class TestReadableRatio:
+    def test_깨진_텍스트는_비율이_낮다(self):
+        from app.extraction.service import MIN_READABLE_RATIO, readable_ratio
+
+        garbled = "垬䡝圜㸔ꏳ몎ꮦ년ꅵᢃ僑䍤骃瘢䚫涭ቂ悒듁" * 5
+        assert readable_ratio(garbled) < MIN_READABLE_RATIO
+
+    def test_정상_한글과_영어는_통과한다(self):
+        from app.extraction.service import MIN_READABLE_RATIO, readable_ratio
+
+        assert readable_ratio("데이터베이스 정규화 과제 제출 기한 안내") > MIN_READABLE_RATIO
+        assert readable_ratio("Protein Intake and Kidney Outcomes, Vol. 3") > MIN_READABLE_RATIO
+
+
 def test_지원_확장자는_기획안_7종():
     assert SUPPORTED_TEXT_EXTENSIONS == {
         ".pdf", ".docx", ".doc", ".pptx", ".ppt", ".hwpx", ".hwp"}
