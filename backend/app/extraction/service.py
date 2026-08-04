@@ -241,9 +241,11 @@ def _decode_hwp_section(raw: bytes) -> str:
 
     decoded = raw.decode("utf-16le", errors="ignore")
     decoded = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", decoded)
-    # 레코드 구조를 파싱하지 않는 대신, 한글·영숫자 구간만 추린다.
-    runs = re.findall(r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9 .,()\-_:%/·※~]{2,}", decoded)
-    return " ".join(run.strip() for run in runs)
+    # 레코드 구조를 파싱하지 않는 대신 **의미 있는 토큰만** 추린다.
+    # 레코드 헤더가 우연히 한글 음절 하나(밼, 뀀 등)로 디코딩되는 노이즈가 많아
+    # 한글 2자 이상 / 영문 2자 이상 / 숫자 묶음만 살린다 (실파일 검증 결과 반영).
+    tokens = re.findall(r"[가-힣]{2,}|[A-Za-z]{2,}|[0-9][0-9.,\-:~년월일종호]*", decoded)
+    return " ".join(tokens)
 
 
 # 추출 텍스트 품질 하한 — 정상 글자(한글 음절·ASCII) 비율이 이보다 낮으면
