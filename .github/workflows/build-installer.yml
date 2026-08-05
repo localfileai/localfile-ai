@@ -27,6 +27,10 @@ on:
     # v0.1.0 같은 태그를 밀면 릴리스로 공개한다 (홈페이지 다운로드 버튼의 대상)
     tags:
       - 'v*'
+  # 웹 UI에서 릴리스를 만들어도 빌드해서 설치 파일을 붙인다 —
+  # 터미널 없이 배포하려면 이 경로가 필요하다.
+  release:
+    types: [published]
 
 permissions:
   contents: write   # 릴리스 생성에 필요
@@ -36,15 +40,15 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 로컬에서 Node 16으로 겪은 빌드 실패를 원천 차단한다 (package.json engines와 동일)
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -75,16 +79,16 @@ jobs:
 
       # 팀 내부 확인용 — 로그인한 사람만 받을 수 있다
       - name: 설치 파일 업로드 (아티팩트)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: LocalFileAI-Setup
           path: release/*.exe
           if-no-files-found: error
           retention-days: 30
 
-      # 일반 사용자 배포용 — 태그를 밀었을 때만. 로그인 없이 받을 수 있는 유일한 경로다.
-      - name: 릴리스로 공개 (태그 푸시일 때만)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # 일반 사용자 배포용 — 태그·릴리스일 때만. 로그인 없이 받을 수 있는 유일한 경로다.
+      - name: 릴리스에 설치 파일 첨부
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: release/*.exe
