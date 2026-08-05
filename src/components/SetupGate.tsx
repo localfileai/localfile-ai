@@ -201,7 +201,7 @@ export default function SetupGate({ children }: Props) {
                   <button
                     key={model.name}
                     onClick={() => void handleSelect(model.name)}
-                    className={`w-full rounded-xl border p-3 text-left transition${
+                    className={`w-full rounded-xl border p-3 text-left transition ${
                       active
                         ? 'border-indigo-400 bg-indigo-50/60 ring-1 ring-indigo-200'
                         : 'border-gray-200 hover:border-gray-300'
@@ -209,7 +209,7 @@ export default function SetupGate({ children }: Props) {
                   >
                     <div className="flex items-center gap-2">
                       <span
-                        className={`h-3.5 w-3.5 shrink-0 rounded-full border-[4px] transition${
+                        className={`h-3.5 w-3.5 shrink-0 rounded-full border-[4px] transition ${
                           active ? 'border-indigo-500' : 'border-gray-200'
                         }`}
                       />
@@ -269,7 +269,7 @@ export default function SetupGate({ children }: Props) {
 
         {(installNote || error || download?.error) && (
           <div
-            className={`mt-4 rounded-lg px-3 py-2 text-[11px] leading-relaxed${
+            className={`mt-4 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${
               error || download?.error
                 ? 'bg-red-50 text-red-600'
                 : 'bg-blue-50 text-blue-700'
@@ -343,7 +343,7 @@ function Step({
   return (
     <div className="flex items-start gap-3">
       <div
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold${tone}`}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${tone}`}
       >
         {mark}
       </div>

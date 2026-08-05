@@ -40,7 +40,7 @@ export default function Sidebar({
           <nav className="space-y-1.5">
             <button
               onClick={() => onMenuChange('search')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs transition cursor-pointer${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs transition cursor-pointer ${
                 currentMenu === 'search' ? 'bg-indigo-50/80 text-indigo-600' : 'text-gray-500 hover:bg-gray-100/60'
               }`}
             >
@@ -50,7 +50,7 @@ export default function Sidebar({
 
             <button
               onClick={() => onMenuChange('organize')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-xs transition cursor-pointer${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-xs transition cursor-pointer ${
                 currentMenu === 'organize' ? 'bg-indigo-50/80 text-indigo-600' : 'text-gray-500 hover:bg-gray-100/60'
               }`}
             >
@@ -70,7 +70,7 @@ export default function Sidebar({
         {/* 💡 2. 현재 폴더 정보 카드를 '전체 보유 파일' 보기 클릭 버튼으로 변경 */}
         <button
           onClick={() => onMenuChange('files')}
-          className={`w-full text-left p-4 rounded-2xl border transition cursor-pointer space-y-1.5${
+          className={`w-full text-left p-4 rounded-2xl border transition cursor-pointer space-y-1.5 ${
             currentMenu === 'files'
               ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-500/20'
               : 'bg-white border-gray-200/80 hover:border-gray-300 shadow-2xs'
@@ -99,7 +99,7 @@ export default function Sidebar({
       {/* 보안 안내 */}
       <div className="flex items-start gap-2 text-[11px] text-gray-400 dark:text-gray-500 leading-tight px-1">
         <img className="w-4 h-4 shrink-0 mt-0.5" src="component-14.svg" alt="보안" />
-        <div>문서와 임베딩 데이터는 사용자의 PC<br />내부에만 저장됩니다.</div>
+        <div className="break-keep">문서와 임베딩 데이터는 사용자의 PC 내부에만 저장됩니다.</div>
       </div>
     </aside>
   );

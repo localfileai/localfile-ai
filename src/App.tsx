@@ -10,7 +10,6 @@ import {
   type RenameRecommendation,
   type StructureRecommendation,
 } from './api/organizeApi'
-import { fetchIndexProgress } from './api/indexApi'
 import type { Menu } from './types'
 
 // 1주차 통합 지점.
@@ -39,19 +38,8 @@ function App() {
 
   // 어떤 폴더를 분석해 둔 상태인지. 같은 폴더를 다시 분석하지 않기 위한 표식.
   const [analyzedPath, setAnalyzedPath] = useState('')
-
-  // 앱을 다시 켜면 마지막으로 읽어 둔 폴더로 돌아온다.
-  // 색인은 남아 있는데 화면에는 "폴더를 고르지 않음"으로 보이던 모순을 없앤다.
-  useEffect(() => {
-    let cancelled = false
-    fetchIndexProgress().then((progress) => {
-      if (cancelled || !progress?.last_root) return
-      setSelectedPath((current) => current || progress.last_root)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analyzeError, setAnalyzeError] = useState('')
 
   // 폴더를 고르면 실제 AI 추천(POST /organize)을 받는다.
   // 폴더를 고르기 전에는 아무것도 보여 주지 않는다 — 예전에는 데모용 Mock 추천을
@@ -63,9 +51,12 @@ function App() {
       setCurrentFiles([])
       setTotalFiles(0)
       setAnalyzedPath('')
+      setAnalyzeError('')
       return
     }
 
+    setIsAnalyzing(true)
+    setAnalyzeError('')
     try {
       const data = await analyzeFolder(selectedPath)
       setRenameList(data.renameList)
@@ -74,7 +65,10 @@ function App() {
       setTotalFiles(data.totalFilesCount)
       setAnalyzedPath(selectedPath)
     } catch (error) {
-      console.error('추천 데이터 로딩 에러:', error)
+      // 조용히 비워 두면 "기능이 없는 것"처럼 보인다. 이유를 화면까지 올린다.
+      setAnalyzeError((error as Error).message)
+    } finally {
+      setIsAnalyzing(false)
     }
   }, [selectedPath])
 
@@ -199,6 +193,9 @@ function App() {
               setCurrentFiles={setCurrentFiles}
               totalFiles={totalFiles}
               onRefreshData={loadOrganizeData}
+              selectedPath={selectedPath}
+              isAnalyzing={isAnalyzing}
+              analyzeError={analyzeError}
             />
           )}
 

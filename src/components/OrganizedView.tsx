@@ -17,6 +17,12 @@ interface OrganizeViewProps {
   setCurrentFiles?: React.Dispatch<React.SetStateAction<CurrentFileItem[]>>;
   totalFiles?: number;
   onRefreshData?: () => void;
+  /** 고른 폴더. 없으면 분석할 대상이 없다는 안내를 띄운다 */
+  selectedPath?: string;
+  /** 추천을 계산하는 중 (파일당 몇 초씩 걸린다) */
+  isAnalyzing?: boolean;
+  /** 계산이 실패한 이유 */
+  analyzeError?: string;
 }
 
 // 💡 백엔드 동적 트리를 위한 노드 타입
@@ -125,14 +131,14 @@ function DynamicTreeNode({
               {/* [현재 폴더 구조 트리일 때] */}
               {!isTargetTree && (
                 <div
-                  className={`flex items-center justify-between py-1.5 px-2 rounded-xl transition${
+                  className={`flex items-center justify-between py-1.5 px-2 rounded-xl transition ${
                     selectedMoveIds.includes(node.fileData.id)
                       ? 'bg-rose-50/70 border border-rose-100/80'
                       : 'hover:bg-gray-50'
                   }`}
                 >
                   <span
-                    className={`text-[11px] truncate pr-2${
+                    className={`text-[11px] truncate pr-2 ${
                       selectedMoveIds.includes(node.fileData.id)
                         ? 'text-rose-600'
                         : 'text-gray-700'
@@ -177,6 +183,9 @@ export default function OrganizeView({
   setCurrentFiles,
   totalFiles = 0,
   onRefreshData,
+  selectedPath = '',
+  isAnalyzing = false,
+  analyzeError = '',
 }: OrganizeViewProps) {
   const [activeTab, setActiveTab] = useState<'rename' | 'structure'>('structure');
 
@@ -360,6 +369,54 @@ export default function OrganizeView({
     );
   };
 
+  // 폴더가 없거나 분석 중이면 표 대신 상태를 보여 준다.
+  // 예전에는 둘 다 빈 표로 떨어져 "기능이 구현 안 된 것"처럼 보였다.
+  if (!selectedPath || isAnalyzing || analyzeError) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-10">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-2xs dark:border-gray-700 dark:bg-[#16161e]">
+          {!selectedPath ? (
+            <>
+              <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                정리할 폴더를 먼저 골라 주세요
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                오른쪽 위 <b>[폴더 선택]</b>을 누르면 그 폴더의 문서를 분석해
+                파일명과 폴더 위치를 제안합니다.
+              </p>
+            </>
+          ) : isAnalyzing ? (
+            <>
+              <div className="mx-auto mb-4 h-1.5 w-48 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-500/25">
+                <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[loading_1.2s_ease-in-out_infinite]" />
+              </div>
+              <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                문서를 분석하는 중입니다
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                파일 하나마다 내용을 읽고 이름을 지어 봅니다.
+                그래픽카드가 없으면 파일당 10초 이상 걸릴 수 있습니다.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-bold text-red-600">분석하지 못했습니다</div>
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                {analyzeError}
+              </p>
+              <button
+                onClick={onRefreshData}
+                className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-[12px] font-bold text-white hover:bg-indigo-700"
+              >
+                다시 시도
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-white dark:bg-[#16161e] p-8">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -399,7 +456,7 @@ export default function OrganizeView({
         <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700/70 pb-3">
           <button
             onClick={() => setActiveTab('rename')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
               activeTab === 'rename'
                 ? 'bg-white text-gray-900 border border-gray-200 shadow-2xs'
                 : 'text-gray-400 hover:bg-gray-50'
@@ -413,7 +470,7 @@ export default function OrganizeView({
 
           <button
             onClick={() => setActiveTab('structure')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
               activeTab === 'structure'
                 ? 'bg-white text-gray-900 border border-gray-200 shadow-2xs'
                 : 'text-gray-400 hover:bg-gray-50'
@@ -503,7 +560,7 @@ export default function OrganizeView({
                             <td className="py-4 px-3 pr-4">
                               <div className="flex items-center gap-3">
                                 <span
-                                  className={`px-2 py-1 rounded-lg text-[10px] font-extrabold shrink-0${
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-extrabold shrink-0 ${
                                     item.fileType === 'PDF'
                                       ? 'bg-gray-50 text-black-500 border border-gray-100'
                                       : item.fileType === 'TXT'
@@ -661,7 +718,7 @@ export default function OrganizeView({
                         <div
                           key={item.id}
                           onClick={() => handleToggleMoveSelect(item.id)}
-                          className={`p-4 rounded-2xl border transition cursor-pointer flex items-start gap-3 relative${
+                          className={`p-4 rounded-2xl border transition cursor-pointer flex items-start gap-3 relative ${
                             isChecked
                               ? 'border-indigo-400 bg-white ring-2 ring-indigo-500/20 shadow-xs'
                               : 'border-gray-200/80 bg-white hover:border-gray-300'

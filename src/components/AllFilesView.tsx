@@ -47,7 +47,7 @@ export default function AllFilesView({ currentFiles = [] }: AllFilesViewProps) {
                     <tr key={file.id} className="hover:bg-gray-50/60 transition">
                       <td className="py-3">
                         <span
-                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0${
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 ${
                             file.ext === 'PDF'
                               ? 'bg-red-50 text-red-500 border border-red-100'
                               : file.ext === 'TXT'
