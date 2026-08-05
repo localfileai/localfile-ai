@@ -5,7 +5,12 @@ import {
   type SearchResult,
   type SearchStatus,
 } from '../api/searchApi';
-import { fetchIndexProgress, startIndexing, type IndexProgress } from '../api/indexApi';
+import {
+  fetchIndexProgress,
+  formatEta,
+  startIndexing,
+  type IndexProgress,
+} from '../api/indexApi';
 import { listFolderDocuments, type PreviewItem } from '../api/preprocessApi';
 import FileResultCard from './FileResultCard';
 
@@ -227,17 +232,23 @@ export default function MainView({ selectedPath }: MainViewProps) {
             <div className="mx-auto max-w-md text-[11px]">
               {indexProgress?.running ? (
                 <div className="text-indigo-600">
-                  <div className="font-medium">
-                    문서를 읽고 있습니다
-                    {indexProgress.total > 0 && ` · ${indexProgress.done}/${indexProgress.total}건`}
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium">
+                      문서를 읽고 있습니다
+                      {indexProgress.total > 0 &&
+                        ` · ${indexProgress.processed}/${indexProgress.total}건`}
+                    </span>
+                    <span className="text-gray-400">{formatEta(indexProgress.eta_sec)}</span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100">
                     <div
-                      className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                      className={`h-full rounded-full bg-indigo-500 transition-all duration-500 ${
+                        indexProgress.total ? '' : 'animate-pulse'
+                      }`}
                       style={{
                         width: `${
                           indexProgress.total
-                            ? Math.min(100, (indexProgress.done / indexProgress.total) * 100)
+                            ? Math.min(100, (indexProgress.processed / indexProgress.total) * 100)
                             : 8
                         }%`,
                       }}
@@ -292,7 +303,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
 
             {/* 추천 키워드 칩 */}
             <div className="flex items-center justify-center gap-2 pt-1 text-xs">
-              {['2025년 프로젝트 자료', '네트워크 스케줄링 발표', '최근 수정한 PDF'].map((chip) => (
+              {/* 특정 과목·주제를 박아 두면 대부분의 사용자에게는 맞지 않는 예시가 된다.
+                  누구 폴더에나 있을 법한 문서 종류로 둔다. */}
+              {['과제 보고서', '강의 자료', '발표 슬라이드', '시험 정리 노트'].map((chip) => (
                 <button
                   key={chip}
                   onClick={() => handleChipClick(chip)}
@@ -304,8 +317,10 @@ export default function MainView({ selectedPath }: MainViewProps) {
             </div>
           </div>
 
-          {/* 선택한 폴더에서 실제로 읽어 낸 문서 */}
-          {selectedPath && (
+          {/* 선택한 폴더에서 실제로 읽어 낸 문서.
+              색인·검색이 도는 동안에는 감춘다 — 그때는 진행 상황만 보여야
+              사용자가 "지금 뭘 기다리는지"를 헷갈리지 않는다. */}
+          {selectedPath && !isIndexing && !isLoading && (
             <div className="bg-white rounded-2xl border border-emerald-200/70 shadow-2xs overflow-hidden">
               <div className="bg-emerald-50/60 px-6 h-13 border-b border-emerald-100 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
@@ -340,7 +355,8 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     PDF · DOCX · DOC · PPTX · PPT · HWP · HWPX 를 지원하며, 하위 폴더는 보지 않습니다.
                   </div>
                 ) : (
-                  <div className="divide-y divide-gray-100">
+                  // 파일이 많아도 창 밖으로 밀려나지 않게 이 목록 안에서만 스크롤한다
+                  <div className="max-h-[22rem] overflow-y-auto pr-1 divide-y divide-gray-100">
                     {realDocs.map((doc) => (
                       <div key={doc.path} className="py-3">
                         <button
@@ -425,8 +441,17 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   </div>
                 )}
                 {isLoading ? (
-                  <div className="flex-1 flex items-center justify-center py-12 text-xs text-gray-400 animate-pulse">
-                    로컬 문서를 검색하고 있습니다...
+                  <div className="flex-1 flex flex-col items-center justify-center py-12">
+                    <div className="w-56">
+                      {/* 진행률을 알 수 없는 작업이라 흐르는 막대로 "돌고 있음"을 보여 준다 */}
+                      <div className="h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                        <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[loading_1.2s_ease-in-out_infinite]" />
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs font-medium text-gray-600">
+                      내용이 비슷한 문서를 찾는 중입니다
+                    </div>
+                    <div className="mt-1 text-[11px] text-gray-400">보통 1초 안에 끝납니다.</div>
                   </div>
                 ) : !hasSearched ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
@@ -453,7 +478,8 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="div-results divide-y divide-gray-100">
+                  // 결과가 많아도 페이지 전체가 길어지지 않게 목록 안에서 스크롤한다
+                  <div className="div-results max-h-[26rem] overflow-y-auto pr-1 divide-y divide-gray-100">
                     {filteredResults.map((item) => (
                       <FileResultCard key={item.id} item={item} selectedPath={selectedPath} />
                     ))}

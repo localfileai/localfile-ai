@@ -21,6 +21,7 @@ BE2의 추출 서비스로 첫 페이지 텍스트를 뽑아 임베딩하고, �
 
 from __future__ import annotations
 
+import json
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -52,12 +53,63 @@ _state: dict = {
 }
 
 
+def _last_index_file() -> Path:
+    from ..core.config import BASE_DIR
+
+    return BASE_DIR / "last_index.json"
+
+
+def remember_root(path: str, indexed: int) -> None:
+    """마지막으로 색인한 폴더를 기록한다. 앱을 다시 켜면 이 폴더로 복원된다."""
+    try:
+        _last_index_file().write_text(json.dumps({
+            "root": path,
+            "indexed": indexed,
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+        }, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass  # 기록에 실패해도 색인 자체는 유효하다
+
+
+def last_root() -> str:
+    """마지막으로 색인한 폴더 경로. 없으면 빈 문자열."""
+    try:
+        data = json.loads(_last_index_file().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    root = str(data.get("root", ""))
+    # 폴더가 사라졌으면 복원하지 않는다
+    return root if root and Path(root).exists() else ""
+
+
 def status() -> dict:
     """진행률 스냅샷. 리스트는 복사해서 돌려준다."""
     with _lock:
         snapshot = dict(_state)
         snapshot["failed"] = list(_state["failed"])
-        return snapshot
+
+    # 화면의 진행 바는 "처리한 파일 수"로 그려야 한다. done만 쓰면 증분 색인에서
+    # 대부분이 skipped로 빠져 0에 멈춘 것처럼 보인다.
+    processed = snapshot["done"] + snapshot["skipped"]
+    snapshot["processed"] = processed
+
+    # 남은 시간 추정. 처리 속도가 잡히기 전에는 None을 준다(화면이 0분이라 하지 않게).
+    elapsed = 0.0
+    if snapshot["started_at"]:
+        try:
+            elapsed = max(0.0, (datetime.now()
+                                - datetime.fromisoformat(snapshot["started_at"])).total_seconds())
+        except ValueError:
+            elapsed = 0.0
+    snapshot["elapsed_sec"] = round(elapsed, 1)
+
+    eta = None
+    if snapshot["running"] and processed > 0 and snapshot["total"] > processed and elapsed > 1:
+        eta = (snapshot["total"] - processed) * (elapsed / processed)
+    snapshot["eta_sec"] = round(eta) if eta is not None else None
+
+    snapshot["last_root"] = last_root()
+    return snapshot
 
 
 def _run(path: str, max_files: int) -> None:
@@ -141,6 +193,12 @@ def _run(path: str, max_files: int) -> None:
         with _lock:
             _state["running"] = False
             _state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            indexed = _state["done"] + _state["skipped"]
+            failed_before_start = bool(_state["error"])
+        # 앱을 다시 켰을 때 이 폴더로 돌아오게 한다 — "폴더를 고르지도 않았는데
+        # 검색 준비 완료"로 보이던 혼란이 여기서 사라진다.
+        if indexed and not failed_before_start:
+            remember_root(path, indexed)
 
 
 def start(path: str, max_files: int = 500) -> dict:
