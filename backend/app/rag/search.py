@@ -234,6 +234,85 @@ def _active_collection():
     return _collection(), "dataset"
 
 
+def _is_under(file_path: str, root: str) -> bool:
+    """파일이 그 폴더(하위 폴더 포함) 안에 있는가. 경로 표기 차이를 흡수한다."""
+    def canonical(value: str) -> str:
+        text = str(Path(value).expanduser()).replace("\\", "/").rstrip("/")
+        # Windows 경로는 대소문자를 구분하지 않는다.
+        return text.lower() if os.name == "nt" else text
+
+    target, base = canonical(file_path), canonical(root)
+    return target == base or target.startswith(base + "/")
+
+
+# 파일명을 이어 붙일 때 쓰는 구분자. 사람은 "기말_보고서"도 "기말 보고서"로 기억한다.
+_NAME_SEPARATORS = str.maketrans({c: " " for c in "_-.()[]{}·,~"})
+
+
+def _squash(text: str) -> str:
+    """비교용으로 납작하게. 구분자와 공백을 지우고 소문자로."""
+    return "".join(text.translate(_NAME_SEPARATORS).split()).lower()
+
+
+def _name_score(file_name: str, query: str) -> float:
+    """질의가 이 파일명을 얼마나 가리키는가 (0~1).
+
+    임베딩만으로는 "파일명 그대로 붙여넣고 이거 찾아줘"가 잘 안 맞는다. 질의 전체가
+    한 문장으로 임베딩되면서 조사·군말이 파일명 신호를 덮기 때문이다. 글자 단위
+    비교를 따로 두어, 사용자가 기억하는 이름을 그대로 넣었을 때는 반드시 찾게 한다.
+    """
+    stem = Path(file_name).stem
+    flat_query, flat_stem = _squash(query), _squash(stem)
+    if not flat_stem or not flat_query:
+        return 0.0
+
+    # 파일명을 통째로 붙여넣은 경우 (군말이 앞뒤에 붙어 있어도 잡힌다).
+    if flat_stem in flat_query:
+        return 1.0
+
+    # 일부만 기억해 넣은 경우: 이름 토큰 중 질의에 나타난 비율.
+    tokens = [t for t in stem.translate(_NAME_SEPARATORS).split() if len(t) >= 2]
+    if not tokens:
+        return 0.0
+    matched = sum(1 for token in tokens if token.lower() in flat_query)
+    return matched / len(tokens)
+
+
+# 파일명 대조 대상 상한. 색인 기본 상한(500건)보다 넉넉히 잡되 무한정 읽지 않는다.
+MAX_NAME_SCAN = 3000
+# 이 아래는 "우연히 한 글자 겹친" 수준이라 이름 매칭으로 보지 않는다.
+NAME_MATCH_THRESHOLD = 0.5
+
+
+def _name_matches(collection, query: str) -> list[tuple[float, dict, str]]:
+    """파일명이 질의와 맞는 문서들. (점수, 메타데이터, 본문) 목록을 점수순으로.
+
+    컬렉션이 get()을 지원하지 않으면 조용히 빈 목록 — 벡터 검색만으로 동작한다.
+    """
+    try:
+        rows = collection.get(include=["documents", "metadatas"], limit=MAX_NAME_SCAN)
+    except Exception:
+        return []
+
+    metadatas = rows.get("metadatas") or []
+    documents = rows.get("documents") or []
+
+    scored: list[tuple[float, dict, str]] = []
+    for position, metadata in enumerate(metadatas):
+        metadata = dict(metadata or {})
+        name = str(metadata.get("current_name", ""))
+        if not name:
+            continue
+        score = _name_score(name, query)
+        if score < NAME_MATCH_THRESHOLD:
+            continue
+        document = documents[position] if position < len(documents) else ""
+        scored.append((score, metadata, str(document or "")))
+
+    scored.sort(key=lambda row: row[0], reverse=True)
+    return scored
+
+
 def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
     """자연어 질의로 색인된 문서를 찾는다.
 
@@ -254,32 +333,50 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
             "문서를 읽어 검색을 준비합니다."
         )
 
-    # 계약 밖 확장자가 섞여 있을 수 있으니 조금 더 받아서 걸러낸다.
-    query_args = {"query_texts": [query], "n_results": min(top_k * 2, 100)}
-    if root:
-        query_args["where"] = {"root": root}
-    try:
-        result = collection.query(**query_args)
-    except Exception:
-        # 옛 색인에는 root 메타데이터가 없다. 필터가 통하지 않으면 전체에서 찾는다.
-        result = collection.query(query_texts=[query], n_results=min(top_k * 2, 100))
+    # 계약 밖 확장자와 다른 폴더 문서가 섞일 수 있으니 넉넉히 받아서 걸러낸다.
+    result = collection.query(query_texts=[query],
+                              n_results=min(max(top_k * 3, 30), 200))
 
     metadatas = result.get("metadatas", [[]])[0]
     documents = result.get("documents", [[]])[0]
     distances = result.get("distances", [[]])[0]
 
+    # 두 경로로 후보를 모은다.
+    #   ① 파일명 대조 — 기억하는 이름을 넣었을 때 확실히 잡는다.
+    #   ② 벡터 유사도 — 이름을 몰라도 내용으로 찾는다.
+    # ①을 먼저 넣어 같은 파일이 겹치면 이름 점수가 살아남게 한다.
+    candidates: list[tuple[dict, str, float]] = [
+        (metadata, document, score)
+        for score, metadata, document in _name_matches(collection, query)
+    ]
+    candidates += [
+        (dict(metadata or {}), document or "", _to_score(distance))
+        for metadata, document, distance in zip(metadatas, documents, distances)
+    ]
+
     hits: list[SearchHit] = []
-    for metadata, document, distance in zip(metadatas, documents, distances):
-        file_ref = _to_file_ref(dict(metadata or {}))
-        if file_ref is None:
+    seen: set[str] = set()
+    for metadata, document, score in candidates:
+        file_ref = _to_file_ref(metadata)
+        if file_ref is None or file_ref.path in seen:
             continue
 
-        matched_text = (document or "").strip()[:MAX_MATCHED_TEXT]
+        # 지금 고른 폴더 안의 파일만 남긴다.
+        #
+        # 예전에는 메타데이터 root의 **문자열 완전 일치**로 걸렀는데, 경로 표기가
+        # 조금만 달라도(대소문자·구분자·끝 슬래시) 하나도 안 맞아 검색이 통째로
+        # 빈 결과가 됐다. 실제 파일 경로가 그 폴더 아래인지로 판단한다 —
+        # 표기에 흔들리지 않고, root를 저장하지 않은 옛 색인에도 통한다.
+        if root and not _is_under(file_ref.path, root):
+            continue
+
+        matched_text = document.strip()[:MAX_MATCHED_TEXT]
         if not matched_text:
             # 계약이 빈 문자열을 거부한다. 본문이 없으면 파일명이라도 넣는다.
             matched_text = file_ref.name
 
-        hits.append(SearchHit(file=file_ref, score=_to_score(distance), matched_text=matched_text))
+        seen.add(file_ref.path)
+        hits.append(SearchHit(file=file_ref, score=score, matched_text=matched_text))
         if len(hits) >= top_k:
             break
 

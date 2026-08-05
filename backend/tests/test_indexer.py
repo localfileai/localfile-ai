@@ -19,9 +19,15 @@ class FakeUserCollection:
         for id_, doc, meta in zip(ids, documents, metadatas):
             self.rows[id_] = (doc, meta)
 
-    def get(self, ids):
-        known = [i for i in ids if i in self.rows]
-        return {"ids": known, "metadatas": [self.rows[i][1] for i in known]}
+    def get(self, ids=None, include=None, limit=None):
+        # ids 없이 부르면 전체를 준다 — 검색의 파일명 대조가 이렇게 읽는다.
+        known = [i for i in ids if i in self.rows] if ids is not None else list(self.rows)
+        known = known[:limit] if limit else known
+        return {
+            "ids": known,
+            "metadatas": [self.rows[i][1] for i in known],
+            "documents": [self.rows[i][0] for i in known],
+        }
 
     def count(self):
         return len(self.rows)
@@ -114,6 +120,22 @@ class TestIndexer:
         stored_text = fake_collection.rows[str(file_a)][0]
         assert len(stored_text) == config.INDEX_EMBED_MAX_CHARS
 
+    def test_파일명도_임베딩_대상에_들어간다(self, fake_collection, monkeypatch, tmp_path):
+        # 사람은 기억나는 파일명으로 찾는다. 본문만 임베딩하면 그게 안 된다.
+        folder = tmp_path / "3학년1학기"
+        folder.mkdir()
+        file_a = folder / "운영체제_기말_정리.pdf"
+        file_a.write_bytes(b"x")
+        monkeypatch.setattr(indexer, "extract_from_path", lambda path, max_chars: [
+            extracted(str(file_a), "운영체제_기말_정리.pdf", text="본문에는 제목이 없다")])
+        indexer.start(str(tmp_path))
+        wait_done()
+
+        stored_text = fake_collection.rows[str(file_a)][0]
+        assert "운영체제 기말 정리" in stored_text   # 구분자는 공백으로
+        assert "3학년1학기" in stored_text           # 상위 폴더명도 단서다
+        assert "본문에는 제목이 없다" in stored_text
+
     def test_실패_파일은_기록하고_계속(self, fake_collection, monkeypatch, tmp_path):
         good = tmp_path / "a.pdf"
         good.write_bytes(b"x")
@@ -182,3 +204,79 @@ class TestSearchSourceSwitch:
 
         status = search_module.index_status()
         assert status["source"] == "dataset"
+
+
+class TestSearchFindsWhatUserRemembers:
+    """"다른 PC에 설치했더니 파일명을 그대로 넣어도 못 찾는다"에 대한 회귀 테스트."""
+
+    @pytest.fixture()
+    def indexed(self, fake_collection, monkeypatch, tmp_path):
+        monkeypatch.setattr(search_module, "check_ollama", lambda *a, **k: (True, ""))
+        folder = tmp_path / "학교자료"
+        folder.mkdir()
+
+        def add(relative_name: str, text: str):
+            path = folder / relative_name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+            fake_collection.upsert(
+                ids=[str(path)],
+                documents=[text],
+                metadatas=[{"source": "user", "current_name": path.name,
+                            "current_path": str(path), "extension": "pdf",
+                            "root": str(folder), "mtime_us": 1}])
+            return path
+
+        return folder, add
+
+    def test_파일명을_그대로_넣으면_찾는다(self, indexed):
+        folder, add = indexed
+        target = add("운영체제_기말_정리.pdf", "본문 아무 내용")
+        add("네트워크_중간고사.pdf", "전혀 다른 내용")
+
+        response = search_module.search("운영체제_기말_정리.pdf 이거 찾아줘", root=str(folder))
+        assert response.hits[0].file.path == str(target)
+        assert response.hits[0].score == 1.0
+
+    def test_이름_일부만_기억해도_찾는다(self, indexed):
+        folder, add = indexed
+        target = add("운영체제_기말_정리.pdf", "본문 아무 내용")
+
+        response = search_module.search("운영체제 기말 자료 있나", root=str(folder))
+        assert response.hits[0].file.path == str(target)
+
+    def test_같은_파일이_두_번_나오지_않는다(self, indexed):
+        folder, add = indexed
+        add("운영체제_기말_정리.pdf", "본문 아무 내용")
+
+        response = search_module.search("운영체제_기말_정리", root=str(folder))
+        paths = [hit.file.path for hit in response.hits]
+        assert len(paths) == len(set(paths))
+
+    def test_root_표기가_달라도_같은_폴더로_본다(self, indexed):
+        folder, add = indexed
+        target = add("하위폴더/과제_보고서.pdf", "본문")
+
+        # FE가 보내는 경로 표기는 색인 당시와 다를 수 있다 (끝 슬래시·구분자).
+        for notation in (str(folder), str(folder) + "/", str(folder).replace("/", "\\")):
+            response = search_module.search("과제_보고서", root=notation)
+            assert [hit.file.path for hit in response.hits] == [str(target)], notation
+
+    def test_다른_폴더_파일은_섞이지_않는다(self, indexed, tmp_path):
+        folder, add = indexed
+        add("과제_보고서.pdf", "본문")
+
+        other = tmp_path / "다른폴더"
+        other.mkdir()
+        response = search_module.search("과제_보고서", root=str(other))
+        assert response.hits == []
+
+
+class TestIsUnder:
+    def test_같은_폴더와_하위_폴더는_통과(self):
+        assert search_module._is_under("/home/u/문서/a.pdf", "/home/u/문서")
+        assert search_module._is_under("/home/u/문서/하위/a.pdf", "/home/u/문서/")
+
+    def test_이름이_겹치는_옆_폴더는_걸러진다(self):
+        # 접두어 비교를 "/" 없이 하면 문서2가 문서의 하위로 잘못 잡힌다.
+        assert not search_module._is_under("/home/u/문서2/a.pdf", "/home/u/문서")

@@ -143,10 +143,18 @@ def _run(path: str, max_files: int) -> None:
                         _state["failed"].append(
                             {"path": item["path"], "reason": "empty_text"})
                     continue
-                # 임베딩 시간은 글자 수에 비례한다 — 상한을 걸어 저사양 색인을 당긴다.
-                text = text[:config.INDEX_EMBED_MAX_CHARS]
-
                 file_path = Path(item["path"])
+
+                # 파일명과 상위 폴더명을 본문 앞에 붙인다.
+                # 본문만 임베딩하면 "파일명 그대로 넣어도 못 찾는" 상태가 된다 —
+                # 사람은 기억나는 파일명으로도 찾으므로 파일명 자체가 검색 대상이어야 한다.
+                label = file_path.stem.replace("_", " ").replace("-", " ")
+                parent = file_path.parent.name
+                text = f"{label}\n{parent}\n{text}".strip()
+
+                # 임베딩 시간은 글자 수에 비례한다 — 상한을 걸어 저사양 색인을 당긴다.
+                # 파일명을 붙인 **뒤에** 자른다. 앞에서 자르면 상한을 넘겨 버린다.
+                text = text[:config.INDEX_EMBED_MAX_CHARS]
                 # float mtime은 ChromaDB 저장을 거치며 마지막 비트가 흔들려
                 # 동등 비교가 깨진다(실측). 정수 마이크로초로 저장한다.
                 mtime_us = file_path.stat().st_mtime_ns // 1_000 if file_path.is_file() else 0

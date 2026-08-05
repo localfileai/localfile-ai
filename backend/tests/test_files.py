@@ -53,29 +53,50 @@ class TestSearchScope:
     """검색은 지금 고른 폴더의 문서만 대상으로 해야 한다.
 
     색인 컬렉션은 하나뿐이라 여러 폴더를 오가며 쓰면 예전 폴더의 파일이
-    결과에 섞였다. 색인 시 root를 함께 저장하고 질의에서 걸러 낸다.
+    결과에 섞였다. 결과를 실제 파일 경로 기준으로 걸러 낸다.
     """
 
-    def test_root로_거른_질의를_보낸다(self, monkeypatch):
+    def test_root는_메타데이터_완전일치로_거르지_않는다(self, monkeypatch, tmp_path):
+        """폴더 한정을 Chroma의 where로 넘기면 안 된다.
+
+        한때 `where={"root": root}` 로 걸렀는데, 색인 당시 표기와 FE가 보내는 표기가
+        조금만 달라도(끝 슬래시·구분자·대소문자) 한 건도 안 맞아 검색이 통째로 죽었다.
+        걸러 내기는 파일의 실제 경로로 한다.
+        """
         from app.rag import search as search_module
 
         captured = {}
+        inside = tmp_path / "Downloads" / "과제_보고서.pdf"
+        inside.parent.mkdir(parents=True)
+        inside.write_bytes(b"x")
 
         class FakeCollection:
             def count(self):
                 return 3
 
+            def get(self, **kwargs):
+                return {"ids": [], "metadatas": [], "documents": []}
+
             def query(self, **kwargs):
                 captured.update(kwargs)
-                return {"metadatas": [[]], "documents": [[]], "distances": [[]]}
+                return {
+                    "metadatas": [[{"source": "user", "current_name": inside.name,
+                                    "current_path": str(inside), "extension": "pdf",
+                                    # 색인 당시 표기: 끝 슬래시가 붙어 있다
+                                    "root": str(inside.parent) + "/"}]],
+                    "documents": [["본문"]],
+                    "distances": [[0.2]],
+                }
 
         monkeypatch.setattr(search_module, "check_ollama", lambda *a, **k: (True, ""))
         monkeypatch.setattr(search_module, "_active_collection",
                             lambda: (FakeCollection(), "user"))
 
-        search_module.search("과제", top_k=5, root="C:/Users/a/Downloads")
+        # FE는 끝 슬래시 없이 보낸다 — 그래도 같은 폴더로 봐야 한다.
+        response = search_module.search("과제", top_k=5, root=str(inside.parent))
 
-        assert captured["where"] == {"root": "C:/Users/a/Downloads"}
+        assert "where" not in captured
+        assert [hit.file.path for hit in response.hits] == [str(inside)]
 
     def test_root가_없으면_전체에서_찾는다(self, monkeypatch):
         from app.rag import search as search_module
