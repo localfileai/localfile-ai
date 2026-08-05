@@ -71,32 +71,52 @@ export default function MainView({ selectedPath }: MainViewProps) {
 
   // 폴더를 고르면 색인을 시작한다.
   // 사용자가 "색인"이라는 개념을 알 필요는 없다 — 폴더를 고른다 = 검색 준비다.
-  useEffect(() => {
-    if (!selectedPath) return;
-    setIndexError('');
-    startIndexing(selectedPath).then((error) => {
-      if (error) setIndexError(error);
-    });
-  }, [selectedPath]);
-
-  // 색인이 도는 동안 진행률을 따라간다. 끝나면 검색 상태를 다시 읽어
-  // "검색할 수 없음"에서 "검색 준비됨"으로 화면이 저절로 바뀌게 한다.
+  //
+  // 이미 돌고 있으면 다시 부르지 않는다. 예전에는 그대로 요청해 409를 받았고,
+  // 무해하긴 해도 콘솔에 실패로 남아 진짜 문제를 찾기 어렵게 만들었다.
   useEffect(() => {
     if (!selectedPath) return;
     let cancelled = false;
 
+    fetchIndexProgress().then((progress) => {
+      if (cancelled || progress?.running) return;
+      setIndexError('');
+      startIndexing(selectedPath).then((error) => {
+        if (!cancelled && error) setIndexError(error);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPath]);
+
+  // 색인이 도는 동안 진행률을 따라간다. 끝나면 검색 상태를 다시 읽어
+  // "검색할 수 없음"에서 "검색 준비됨"으로 화면이 저절로 바뀌게 한다.
+  //
+  // 끝난 뒤에도 계속 물어보지는 않는다. 다만 색인이 막 시작하는 순간에는 아직
+  // running=false로 보일 수 있어, 몇 번은 더 확인한 뒤에 멈춘다.
+  useEffect(() => {
+    if (!selectedPath) return;
+    let cancelled = false;
+    let timer = 0;
+    let idleTicks = 0;
+
     const tick = async () => {
       const progress = await fetchIndexProgress();
-      if (cancelled || !progress) return;
-      setIndexProgress(progress);
-      if (!progress.running) void refreshSearchStatus();
+      if (cancelled) return;
+      if (progress) {
+        setIndexProgress(progress);
+        idleTicks = progress.running ? 0 : idleTicks + 1;
+        if (!progress.running) void refreshSearchStatus();
+      }
+      if (idleTicks < 4) timer = window.setTimeout(tick, 1500);
     };
 
     void tick();
-    const timer = window.setInterval(tick, 1500);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [selectedPath, refreshSearchStatus]);
 
@@ -106,9 +126,14 @@ export default function MainView({ selectedPath }: MainViewProps) {
   const [dateRange, setDateRange] = useState<string>('전체 기간');
   const [sortOrder, setSortOrder] = useState<string>('관련도순');
 
+  // 색인 중에는 검색을 막는다.
+  // Ollama가 요청을 하나씩 처리하므로, 색인이 도는 동안 검색을 보내면 그 뒤에
+  // 줄을 서서 응답이 몇 분씩 걸린다. 사용자에게는 "검색이 안 되는" 것으로 보인다.
+  const isIndexing = indexProgress?.running ?? false;
+
   // 3. 검색 실행 함수
   const executeSearch = async (query: string) => {
-    if (!query.trim()) return;
+    if (!query.trim() || isIndexing) return;
 
     setIsLoading(true);
     setSearchError('');
@@ -245,16 +270,22 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
-                    placeholder="예: 2025년에 진행한 프로젝트 자료를 찾아줘"
-                    className="w-full text-xs bg-transparent focus:outline-none text-gray-800 placeholder-gray-300 font-medium caret-indigo-600"
+                    disabled={isIndexing}
+                    placeholder={
+                      isIndexing
+                        ? '문서를 읽는 중입니다. 끝나면 검색할 수 있습니다.'
+                        : '예: 2025년에 진행한 프로젝트 자료를 찾아줘'
+                    }
+                    className="w-full text-xs bg-transparent focus:outline-none text-gray-800 placeholder-gray-300 font-medium caret-indigo-600 disabled:cursor-not-allowed"
                   />
                 </div>
                 <button
                   onClick={handleSearchClick}
-                  disabled={isLoading}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
+                  disabled={isLoading || isIndexing}
+                  title={isIndexing ? '문서를 읽는 중입니다. 끝나면 검색할 수 있습니다.' : ''}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
                 >
-                  <div>{isLoading ? '검색 중...' : '검색'}</div>
+                  <div>{isIndexing ? '준비 중' : isLoading ? '검색 중...' : '검색'}</div>
                 </button>
               </div>
             </div>

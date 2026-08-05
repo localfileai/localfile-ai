@@ -36,16 +36,19 @@ function App() {
   // 깊이를 세지 않으면 오버레이가 깜빡이고 창을 벗어난 시점을 알 수 없습니다.
   const dragDepth = useRef(0)
 
+  // 어떤 폴더를 분석해 둔 상태인지. 같은 폴더를 다시 분석하지 않기 위한 표식.
+  const [analyzedPath, setAnalyzedPath] = useState('')
+
   // 폴더를 고르면 실제 AI 추천(POST /organize)을 받는다.
-  // 폴더를 고르기 전에는 아무것도 보여 주지 않는다.
-  // 예전에는 데모용 Mock 추천을 채웠는데, 실제 앱에서는 있지도 않은 파일이
-  // 추천 목록에 뜨는 셈이라 오히려 혼란스럽다.
+  // 폴더를 고르기 전에는 아무것도 보여 주지 않는다 — 예전에는 데모용 Mock 추천을
+  // 채웠는데, 실제 앱에서는 있지도 않은 파일이 추천 목록에 뜨는 셈이라 혼란스럽다.
   const loadOrganizeData = useCallback(async () => {
     if (!selectedPath) {
       setRenameList([])
       setStructureList([])
       setCurrentFiles([])
       setTotalFiles(0)
+      setAnalyzedPath('')
       return
     }
 
@@ -55,14 +58,25 @@ function App() {
       setStructureList(data.structureList)
       setCurrentFiles(data.currentFiles)
       setTotalFiles(data.totalFilesCount)
+      setAnalyzedPath(selectedPath)
     } catch (error) {
       console.error('추천 데이터 로딩 에러:', error)
     }
   }, [selectedPath])
 
+  // 정리 추천은 **그 화면을 열었을 때만** 계산한다.
+  //
+  // 폴더를 고르자마자 돌리면, 검색 준비(색인)와 LLM 분석이 동시에 Ollama를 두고
+  // 경쟁한다. Ollama는 요청을 하나씩 처리하므로 둘 다 몇 배로 느려지고,
+  // 사용자에게는 "아무것도 안 되는" 상태로 보인다.
   useEffect(() => {
-    loadOrganizeData()
-  }, [loadOrganizeData])
+    if (!selectedPath) {
+      void loadOrganizeData()
+      return
+    }
+    const needsAnalysis = currentMenu === 'organize' || currentMenu === 'files'
+    if (needsAnalysis && analyzedPath !== selectedPath) void loadOrganizeData()
+  }, [selectedPath, currentMenu, analyzedPath, loadOrganizeData])
 
   // FE1: 실제 OS 폴더 선택 창을 띄우고 경로를 받는다. 취소하면 null.
   const handleSelectFolder = async () => {
