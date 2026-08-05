@@ -181,10 +181,21 @@ function App() {
           onSelectFolder={handleSelectFolder}
         />
 
+        {/* 화면을 껐다 켜지 않고 감추기만 한다.
+            메뉴를 옮길 때마다 다시 만들면 검색 화면이 폴더를 처음부터 다시
+            훑고 색인을 또 걸며, 찾아 둔 결과도 사라진다. */}
         <main className="flex-1 overflow-y-auto flex flex-col">
-          {currentMenu === 'search' && <MainView selectedPath={selectedPath} />}
+          <div className={currentMenu === 'search' ? 'flex flex-1 flex-col' : 'hidden'}>
+            <MainView selectedPath={selectedPath} />
+          </div>
 
-          {(currentMenu === 'organize' || currentMenu === 'rename') && (
+          <div
+            className={
+              currentMenu === 'rename' || currentMenu === 'organize'
+                ? 'flex flex-1 flex-col'
+                : 'hidden'
+            }
+          >
             <OrganizeView
               mode={currentMenu === 'rename' ? 'rename' : 'structure'}
               renameList={renameList}
@@ -199,9 +210,11 @@ function App() {
               isAnalyzing={isAnalyzing}
               analyzeError={analyzeError}
             />
-          )}
+          </div>
 
-          {currentMenu === 'files' && <AllFilesView currentFiles={currentFiles} />}
+          <div className={currentMenu === 'files' ? 'flex flex-1 flex-col' : 'hidden'}>
+            <AllFilesView currentFiles={currentFiles} />
+          </div>
         </main>
       </div>
 

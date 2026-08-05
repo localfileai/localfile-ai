@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   fetchRealSearchResults,
   fetchSearchStatus,
@@ -89,8 +89,13 @@ export default function MainView({ selectedPath }: MainViewProps) {
   //
   // 이미 돌고 있으면 다시 부르지 않는다. 예전에는 그대로 요청해 409를 받았고,
   // 무해하긴 해도 콘솔에 실패로 남아 진짜 문제를 찾기 어렵게 만들었다.
+  // 이 폴더에 이미 색인을 걸었는지 기억한다. 화면을 오갈 때마다 다시 걸면
+  // Ollama가 그 작업들로 막혀 검색이 계속 "준비 중"에 머무른다.
+  const indexRequestedFor = useRef('');
+
   useEffect(() => {
-    if (!selectedPath) return;
+    if (!selectedPath || indexRequestedFor.current === selectedPath) return;
+    indexRequestedFor.current = selectedPath;
     let cancelled = false;
 
     fetchIndexProgress().then((progress) => {

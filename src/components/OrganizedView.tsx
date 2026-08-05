@@ -389,11 +389,15 @@ export default function OrganizeView({
           {!selectedPath ? (
             <>
               <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                정리할 폴더를 먼저 골라 주세요
+                {mode === 'rename'
+                  ? '이름을 바꿀 폴더를 먼저 골라 주세요'
+                  : '정리할 폴더를 먼저 골라 주세요'}
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
-                오른쪽 위 <b>[폴더 선택]</b>을 누르면 그 폴더의 문서를 분석해
-                파일명과 폴더 위치를 제안합니다.
+                오른쪽 위 <b>[폴더 선택]</b>을 누르면{' '}
+                {mode === 'rename'
+                  ? '그 폴더의 문서를 읽어 어울리는 파일명을 제안합니다.'
+                  : '그 폴더 안에 갈래별 폴더를 만들어 정리할 계획을 세웁니다.'}
               </p>
             </>
           ) : isAnalyzing ? (
@@ -402,11 +406,14 @@ export default function OrganizeView({
                 <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[loading_1.2s_ease-in-out_infinite]" />
               </div>
               <div className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                문서를 분석하는 중입니다
+                {mode === 'rename'
+                  ? '어울리는 이름을 지어 보는 중입니다'
+                  : '문서를 갈래별로 나누는 중입니다'}
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
-                파일 하나마다 내용을 읽고 이름을 지어 봅니다.
-                그래픽카드가 없으면 파일당 10초 이상 걸릴 수 있습니다.
+                {mode === 'rename'
+                  ? '파일마다 내용을 읽고 무엇에 관한 문서인지 파악해 이름을 만듭니다. 그래픽카드가 없으면 파일당 10초 이상 걸릴 수 있습니다.'
+                  : '파일마다 강의자료·과제·시험 준비 같은 갈래를 정하고, 어느 폴더로 보낼지 결정합니다.'}
               </p>
             </>
           ) : (
