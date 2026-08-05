@@ -175,4 +175,16 @@ python scripts/generate_contracts.py    # → packages/contracts/index.ts
 
 ## 라이선스
 
-[MIT](LICENSE)
+**오픈소스가 아닙니다.** 이 저장소는 만든 사람들의 포트폴리오입니다.
+
+|  | |
+|---|---|
+| ✅ 할 수 있는 것 | 소스 읽기 · 내려받아 직접 빌드하고 실행해 보기(평가·학습 목적) · 인용하고 링크하기 |
+| ❌ 할 수 없는 것 | 복제·배포 · 수정본 공개 · 다른 저작물에 포함 · 상업적 이용 · 자기 작업물로 제출 |
+
+전문은 [LICENSE](LICENSE)에 있습니다. 채용 담당자나 학습자가 코드를 읽고
+직접 돌려 보는 데는 아무 제약이 없도록 열어 두었습니다.
+
+제3자 소프트웨어와 AI 모델은 각자의 라이선스를 따릅니다 —
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+결정 근거는 [ADR-0004](docs/decisions/0004-license.md)에 있습니다.
