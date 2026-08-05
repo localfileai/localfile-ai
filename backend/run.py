@@ -18,6 +18,14 @@ def main() -> None:
 
     import uvicorn
 
+    from app.core.config import BASE_DIR
+
+    # 작업 폴더를 데이터 폴더로 옮긴다. ChromaDB 1.5.x는 **경로에 한글이 있으면
+    # 절대 경로로 색인을 열지 못한다**(app/rag/search.py 주석 참고). 사용자 계정
+    # 이름이 한글이면 `C:\\Users\\강인혁\\AppData\\...`가 되므로, 여기서 cwd를
+    # 데이터 폴더로 맞춰 두면 상대 경로("chroma_db") 우회가 항상 성립한다.
+    os.chdir(BASE_DIR)
+
     from app import create_app
 
     uvicorn.run(

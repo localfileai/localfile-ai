@@ -7,13 +7,36 @@
 `최종.pdf`, `발표자료 2.pdf` — 이름은 기억 안 나도 내용은 기억납니다.
 문서를 외부 서버로 보내지 않고, 내 PC 안에서 찾고 정리합니다.
 
-**1주차 통합본** · Electron + React + TypeScript / FastAPI + Ollama + ChromaDB
+Electron + React + TypeScript / FastAPI + Ollama + ChromaDB
 
 </div>
 
 ---
 
-## 3분 만에 실행하기
+## 그냥 쓰고 싶다면 (설치본)
+
+**설치 파일 하나를 실행하면 끝입니다. 명령어를 칠 일이 없습니다.**
+
+1. `LocalFile AI Setup.exe` 실행 → 설치 → 앱 실행
+2. 앱이 뜨면 **준비 화면**이 나옵니다. 버튼을 누르면 앱이 알아서 합니다.
+   - Ollama(모델 실행기)가 없으면 → **[Ollama 설치하기]**
+   - AI 모델이 없으면 → **[모델 받기 시작]** (기본 약 2.2GB, 진행 바 표시)
+3. 준비가 끝나면 폴더를 고르고 바로 검색·정리를 씁니다.
+
+> 그래픽카드(GPU)가 있으면 준비 화면에서 **고품질 모델(약 4.8GB)** 을 함께 받을 수 있습니다.
+> 나중에 받아도 됩니다 — 앱은 사양에 맞춰 자동으로 모드를 고릅니다.
+
+설치본 만들기(개발자용, Windows에서):
+
+```powershell
+npm run dist:win        # 백엔드 exe 빌드 → 프론트 빌드 → release/ 에 Setup.exe
+```
+
+아래는 **소스에서 직접 개발할 때**의 방법입니다.
+
+---
+
+## 3분 만에 실행하기 (개발자용)
 
 ```powershell
 git clone https://github.com/localfileai/localfile-ai.git
@@ -139,6 +162,7 @@ backend\mock\pdf
 ```
 localfile-ai/
 ├─ electron/            메인 프로세스 · preload · IPC              FE1
+│                      + backend.ts(server.exe 수명) · ollama.ts   BE1(5주차)
 ├─ src/
 │  ├─ App.tsx           FE1 폴더 인식 + FE2 레이아웃이 만나는 곳
 │  ├─ components/       Sidebar · Header · MainView ·
@@ -148,14 +172,15 @@ localfile-ai/
 ├─ docs/decisions/      ADR — 왜 그렇게 정했는지
 └─ backend/                                                        BE1 + BE2
    ├─ app/
-   │  ├─ api/routes/    health · mock · preprocess · search ·
-   │  │                  organize · indexing · feedback · apply
+   │  ├─ api/routes/    health · mock · preprocess · search · organize ·
+   │  │                  indexing · feedback · apply · setup
    │  ├─ contracts/     ai.py(BE1 · 팀 공용 계약) · api.py(BE2 · API 형태)
    │  ├─ core/          config.py 설정 단일 출처 · warmup.py 웜업    BE1
    │  ├─ extraction/    문서 텍스트 추출 (기획안 7종 형식)           BE2
    │  ├─ fileops/       승인 후 파일 이동·개명 + 이력·undo (4주차)   BE1
    │  ├─ llm/           추천 프롬프트 · 검증 + 1회 재시도            BE1
-   │  └─ rag/           qwen3 임베딩 · ChromaDB 검색 · 분류          BE1
+   │  ├─ rag/           qwen3 임베딩 · ChromaDB 검색 · 분류          BE1
+   │  └─ setup/         첫 실행 준비 — 모델 확인·자동 다운로드 (5주차) BE1
    ├─ run.py·server.spec  server.exe 엔트리·빌드 사양 (4주차)        BE1
    ├─ scripts/          데이터셋 생성 · 임베딩 · 모델 비교           BE1
    ├─ tests/            추천 파이프라인 테스트 (Ollama 불필요)       BE1
@@ -173,6 +198,7 @@ localfile-ai/
 | `POST /index` · `GET /index/status` | **실제** — 사용자 폴더 색인. 색인 후 `/search`가 실파일 대상 (3주차) | BE1 |
 | `POST /feedback` · `GET /feedback/status` | **실제** — 승인 결과를 예시로 축적, 분류 맞춤화 (3주차) | BE1 |
 | `POST /apply` · `GET /apply/history` · `POST /apply/undo` | **실제** — 승인 후 파일 이동·개명. 충돌·경로·권한 검증 + 이력·되돌리기 (4주차) | BE1 (BE2 리뷰 필요) |
+| `GET /setup/status` · `POST /setup/models` | **실제** — 첫 실행 준비. 모델 보유 확인과 자동 다운로드 (5주차) | BE1 |
 | `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |
 | `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음** — 폴더 미선택 데모에서만 사용) | BE2 |
 
@@ -205,6 +231,7 @@ cd backend
 | `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
 | `npm run backend:test` | 백엔드 단위 테스트 81건 (Ollama 불필요) |
 | `npm run backend:build-exe` | server 실행 파일 빌드 — Windows에서 실행 (4주차) |
+| `npm run dist:win` | **배포용 Setup.exe 생성** — 백엔드 exe + 프론트 + 설치본 (5주차) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
 
 ## 알려진 문제

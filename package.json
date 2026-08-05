@@ -17,7 +17,8 @@
     "dataset": "node scripts/backend.mjs dataset",
     "index": "node scripts/backend.mjs index",
     "backend:test": "node scripts/backend.mjs test",
-    "backend:build-exe": "node scripts/backend.mjs build-exe"
+    "backend:build-exe": "node scripts/backend.mjs build-exe",
+    "dist:win": "node scripts/backend.mjs build-exe && npm run build && electron-builder --win"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -41,5 +42,39 @@
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5"
   },
-  "main": "dist-electron/main.js"
+  "main": "dist-electron/main.js",
+  "build": {
+    "appId": "com.localfileai.desktop",
+    "productName": "LocalFile AI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "backend/dist/server.exe",
+          "to": "backend/server.exe"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "LocalFile AI"
+    }
+  }
 }

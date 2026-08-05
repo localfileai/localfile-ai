@@ -9,7 +9,7 @@ def create_app():
     from fastapi.middleware.cors import CORSMiddleware
 
     from .api.routes import (apply, feedback, health, indexing, mock, organize,
-                             preprocess, search)
+                             preprocess, search, setup)
 
     app = FastAPI(title="Local File AI Backend")
 
@@ -51,6 +51,10 @@ def create_app():
     # 승인 후 파일 변경입니다 (기능④, 4주차). 충돌·경로·권한 검증과
     # 작업 이력·되돌리기를 포함합니다.
     app.include_router(apply.router)
+
+    # 첫 실행 준비입니다 (5주차 배포본). 사용자가 터미널에서 `ollama pull`을
+    # 치지 않아도 앱 안에서 모델을 받을 수 있게 합니다.
+    app.include_router(setup.router)
 
     # 검색 웜업입니다 (4주차). 첫 요청을 느리게 만드는 준비 비용(모델 로드·
     # 색인 열기·라벨 좌표)을 서버 시작 직후 백그라운드로 미리 치릅니다.

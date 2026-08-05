@@ -14,20 +14,39 @@ import sys
 from pathlib import Path
 
 
+def _user_data_dir() -> Path:
+    """OS가 정한 "이 앱의 사용자 데이터" 폴더."""
+    if sys.platform == "win32":
+        root = os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library" / "Application Support"
+    else:
+        root = os.getenv("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
+    return Path(root) / "LocalFileAI"
+
+
 def _base_dir() -> Path:
-    """데이터(색인·이력)의 기준 폴더 — 실행 형태에 따라 다르다 (4주차 패키징).
+    """데이터(색인·이력)의 기준 폴더 — 실행 형태에 따라 다르다.
 
     - 개발 실행: backend/ 폴더 (이 파일 기준 두 단계 위)
-    - PyInstaller server.exe: 실행 파일이 있는 폴더.
-      onefile 모드의 `__file__`은 임시 폴더(_MEIPASS)를 가리키는데, 그곳은
-      종료 시 삭제된다 — 색인·이력을 거기 두면 재시작마다 사라진다.
+    - 설치된 앱(server.exe): 사용자 데이터 폴더 (`%LOCALAPPDATA%\\LocalFileAI` 등)
+
+    실행 파일 옆에 두면 안 되는 이유(설치형 배포에서 드러나는 문제):
+      - `C:\\Program Files\\...` 아래는 일반 사용자에게 쓰기 권한이 없어
+        색인·이력 저장이 통째로 실패한다.
+      - onefile의 `__file__`이 가리키는 _MEIPASS 임시 폴더는 종료 시 삭제된다.
+    Electron이 `LOCAL_FILE_AI_HOME`으로 자기 userData 경로를 넘겨주면 그걸 쓴다.
     """
+    override = os.getenv("LOCAL_FILE_AI_HOME")
+    if override:
+        return Path(override).expanduser()
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        return _user_data_dir()
     return Path(__file__).resolve().parents[2]
 
 
 BASE_DIR = _base_dir()
+BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 

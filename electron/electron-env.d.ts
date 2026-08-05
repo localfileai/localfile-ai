@@ -21,6 +21,19 @@ declare namespace NodeJS {
   }
 }
 
+/** 앱이 띄운 백엔드의 상태 (electron/backend.ts) */
+interface BackendState {
+  status: 'starting' | 'ready' | 'failed' | 'external'
+  detail: string
+}
+
+/** Ollama 설치 진행 상황 (electron/ollama.ts) */
+interface OllamaInstallProgress {
+  phase: 'downloading' | 'launching' | 'opened-page' | 'failed'
+  percent: number
+  detail: string
+}
+
 // Used in Renderer process, expose in `preload.ts`
 interface Window {
   ipcRenderer: import('electron').IpcRenderer
@@ -29,5 +42,15 @@ interface Window {
     selectFolder: () => Promise<string | null>
     /** 드롭된 File의 로컬 실제 경로 추출 */
     getPathForFile: (file: File) => string
+
+    /** 앱이 띄운 백엔드(server.exe)의 현재 상태 */
+    backendStatus: () => Promise<BackendState>
+    /** 백엔드 상태 변화 구독. 반환값을 호출하면 구독 해제 */
+    onBackendState: (listener: (state: BackendState) => void) => () => void
+
+    /** Ollama 자동 설치를 시작한다 */
+    installOllama: () => Promise<OllamaInstallProgress>
+    /** Ollama 설치 진행률 구독. 반환값을 호출하면 구독 해제 */
+    onOllamaProgress: (listener: (progress: OllamaInstallProgress) => void) => () => void
   }
 }

@@ -1,6 +1,13 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import {
+  getBackendState,
+  onBackendState,
+  startBackend,
+  stopBackend,
+} from './backend'
+import { installOllama } from './ollama'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -35,6 +42,9 @@ function createWindow() {
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
+    // 화면이 준비된 뒤에 현재 백엔드 상태를 한 번 밀어 준다.
+    // (창이 뜨기 전에 상태가 바뀌었을 수 있다)
+    win?.webContents.send('backend:state', getBackendState())
   })
 
   if (VITE_DEV_SERVER_URL) {
@@ -55,6 +65,11 @@ app.on('window-all-closed', () => {
   }
 })
 
+// 앱이 꺼질 때 백엔드도 반드시 함께 정리한다.
+// 남으면 포트를 붙잡아 다음 실행이 "이미 떠 있는 서버"에 붙어 버린다.
+app.on('before-quit', stopBackend)
+app.on('will-quit', stopBackend)
+
 app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
@@ -74,5 +89,18 @@ app.whenReady().then(() => {
     return result.filePaths[0]
   })
 
+  // 백엔드 상태를 렌더러가 물어보거나(invoke) 구독할 수 있게 한다(event).
+  ipcMain.handle('backend:status', () => getBackendState())
+  onBackendState((next) => win?.webContents.send('backend:state', next))
+
+  // Ollama 자동 설치. 진행률은 이벤트로 흘려 준비 화면이 그린다.
+  ipcMain.handle('setup:installOllama', async () => {
+    return installOllama((progress) => win?.webContents.send('setup:ollamaProgress', progress))
+  })
+
   createWindow()
+
+  // 창을 먼저 띄우고 백엔드를 붙인다 — 사용자는 검은 화면 대신
+  // "AI 엔진을 시작하는 중" 안내를 보게 된다.
+  void startBackend()
 })

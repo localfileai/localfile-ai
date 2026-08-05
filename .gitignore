@@ -35,3 +35,7 @@ backend/.env
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# PyInstaller 산출물 (npm run backend:build-exe 로 재생성)
+backend/build/
+backend/dist/

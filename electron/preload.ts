@@ -54,11 +54,27 @@ function resolveDroppedPath(file: File): string {
   return ''
 }
 
-// --------- 앱 전용 API (폴더 선택 IPC + 드롭 파일 경로 추출) ---------
+// --------- 앱 전용 API (폴더 선택 IPC + 드롭 파일 경로 추출 + 첫 실행 준비) ---------
 contextBridge.exposeInMainWorld('api', {
   // 메인 프로세스에 폴더 선택 창을 요청하고 경로를 받는다.
   selectFolder: (): Promise<string | null> =>
     ipcRenderer.invoke('dialog:openDirectory'),
   // 드롭된 File 객체에서 로컬 실제 경로를 추출한다.
   getPathForFile: (file: File): string => resolveDroppedPath(file),
+
+  // 5주차: 백엔드(server.exe)를 앱이 직접 띄우므로 그 상태를 화면에 알린다.
+  backendStatus: () => ipcRenderer.invoke('backend:status'),
+  onBackendState: (listener: (state: unknown) => void) => {
+    const handler = (_event: unknown, state: unknown) => listener(state)
+    ipcRenderer.on('backend:state', handler)
+    return () => ipcRenderer.off('backend:state', handler)
+  },
+
+  // Ollama 자동 설치 (진행률은 onOllamaProgress로 흘러온다).
+  installOllama: () => ipcRenderer.invoke('setup:installOllama'),
+  onOllamaProgress: (listener: (progress: unknown) => void) => {
+    const handler = (_event: unknown, progress: unknown) => listener(progress)
+    ipcRenderer.on('setup:ollamaProgress', handler)
+    return () => ipcRenderer.off('setup:ollamaProgress', handler)
+  },
 })
