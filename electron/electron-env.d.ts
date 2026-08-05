@@ -29,7 +29,7 @@ interface BackendState {
 
 /** Ollama 설치 진행 상황 (electron/ollama.ts) */
 interface OllamaInstallProgress {
-  phase: 'downloading' | 'launching' | 'opened-page' | 'failed'
+  phase: 'downloading' | 'installing' | 'ready' | 'opened-page' | 'failed'
   percent: number
   detail: string
 }

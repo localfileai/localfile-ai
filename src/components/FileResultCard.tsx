@@ -81,7 +81,7 @@ export default function FileResultCard({ item, selectedPath }: Props) {
         <div className="flex items-start gap-3.5">
           {/* 확장자 배지 */}
           <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[10px] shrink-0 ${
+            className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[10px] shrink-0${
               item.type === 'PDF'
                 ? 'bg-red-50 text-red-500 border border-red-100'
                 : item.type === 'TXT'
@@ -97,20 +97,20 @@ export default function FileResultCard({ item, selectedPath }: Props) {
             <div className="flex items-center gap-2">
               <span
                 onClick={handleOpenPreview}
-                className="font-bold text-xs text-gray-800 hover:text-indigo-600 cursor-pointer transition"
+                className="font-bold text-xs text-gray-800 dark:text-gray-100 hover:text-indigo-600 cursor-pointer transition"
               >
                 {item.title}
               </span>
-              <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-md border border-indigo-100">
+              <span className="px-1.5 py-0.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-500/15 rounded-md border border-indigo-100 dark:border-indigo-500/30">
                 {item.matchScore}
               </span>
             </div>
 
-            <div className="text-[10px] text-gray-400 font-medium">
+            <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
               {item.path} · {item.date}
             </div>
 
-            <div className="text-[11px] text-gray-600 pt-0.5 leading-relaxed">
+            <div className="text-[11px] text-gray-600 dark:text-gray-300 pt-0.5 leading-relaxed">
               <span dangerouslySetInnerHTML={{ __html: item.snippetHighlight }} />
             </div>
           </div>
@@ -121,7 +121,7 @@ export default function FileResultCard({ item, selectedPath }: Props) {
           <button
             onClick={handleOpenPreview}
             title="문서 미리보기 추출"
-            className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 transition shadow-2xs cursor-pointer"
+            className="p-2 text-gray-400 dark:text-gray-500 hover:text-indigo-600 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 transition shadow-2xs cursor-pointer"
           >
             <img className="w-4 h-4" src="component-17.svg" alt="열기" />
           </button>
@@ -131,23 +131,23 @@ export default function FileResultCard({ item, selectedPath }: Props) {
       {/* 미리보기 모달 */}
       {isPreviewOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl border border-gray-100">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div className="bg-white dark:bg-[#16161e] rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl border border-gray-100 dark:border-gray-700/70">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-700/70">
               <div>
-                <h3 className="font-bold text-sm text-gray-900">{item.title}</h3>
-                <p className="text-[11px] text-gray-400">문서 원문 미리보기</p>
+                <h3 className="font-bold text-sm text-gray-900 dark:text-gray-50">{item.title}</h3>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">문서 원문 미리보기</p>
               </div>
               <button
                 onClick={() => setIsPreviewOpen(false)}
-                className="text-gray-400 hover:text-gray-600 font-bold text-sm px-2 cursor-pointer"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 font-bold text-sm px-2 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="max-h-80 overflow-y-auto bg-gray-50 p-4 rounded-xl text-xs text-gray-700 leading-relaxed font-mono whitespace-pre-wrap border border-gray-200/60">
+            <div className="max-h-80 overflow-y-auto bg-gray-50 dark:bg-white/5 p-4 rounded-xl text-xs text-gray-700 dark:text-gray-200 leading-relaxed font-mono whitespace-pre-wrap border border-gray-200/60 dark:border-gray-700">
               {isLoading ? (
-                <div className="py-8 text-center text-gray-400">
+                <div className="py-8 text-center text-gray-400 dark:text-gray-500">
                   문서 텍스트를 추출하는 중입니다...
                 </div>
               ) : (
@@ -156,12 +156,12 @@ export default function FileResultCard({ item, selectedPath }: Props) {
             </div>
 
             <div className="flex items-center justify-between pt-2">
-              <span className="text-[10px] text-gray-400">
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">
                 경로: {previewResult?.path || item.path}
               </span>
               <button
                 onClick={() => setIsPreviewOpen(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs rounded-xl transition cursor-pointer"
+                className="px-4 py-2 bg-gray-100 dark:bg-white/10 hover:bg-gray-200 text-gray-700 dark:text-gray-200 font-semibold text-xs rounded-xl transition cursor-pointer"
               >
                 닫기
               </button>

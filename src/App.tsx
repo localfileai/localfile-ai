@@ -169,7 +169,7 @@ function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="relative flex h-screen bg-[#F8F9FA] text-gray-800 font-sans antialiased overflow-hidden"
+      className="relative flex h-screen bg-[#F8F9FA] dark:bg-[#0d0d13] text-gray-800 dark:text-gray-100 font-sans antialiased overflow-hidden"
     >
       <Sidebar
         currentMenu={currentMenu}
@@ -208,7 +208,7 @@ function App() {
 
       {/* 드롭 실패를 조용히 넘기지 않고 알린다 */}
       {dropError && (
-        <div className="absolute bottom-6 left-1/2 z-50 w-[34rem] -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-lg">
+        <div className="absolute bottom-6 left-1/2 z-50 w-[34rem] -translate-x-1/2 rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/15 px-4 py-3 shadow-lg">
           <div className="flex items-start justify-between gap-3">
             <div className="text-[11px] leading-relaxed text-red-700">{dropError}</div>
             <button
@@ -224,9 +224,9 @@ function App() {
       {/* FE1: 드래그 중임을 알리는 오버레이 */}
       {isDragging && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-indigo-500/10 backdrop-blur-[1px]">
-          <div className="rounded-2xl border-2 border-dashed border-indigo-400 bg-white/90 px-8 py-6 text-center shadow-lg">
+          <div className="rounded-2xl border-2 border-dashed border-indigo-400 bg-white/90 dark:bg-[#16161e]/90 px-8 py-6 text-center shadow-lg">
             <div className="text-sm font-bold text-indigo-600">여기에 놓으세요</div>
-            <div className="mt-1 text-[11px] text-gray-500">
+            <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
               폴더나 파일을 놓으면 분석 대상 경로로 인식합니다.
             </div>
           </div>

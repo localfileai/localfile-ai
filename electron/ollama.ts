@@ -9,6 +9,7 @@
  * 페이지를 브라우저로 열어 준다 — 사용자가 막히지 않는 것이 우선이다.
  */
 import { shell, app } from 'electron'
+import { execFile } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
@@ -19,9 +20,31 @@ const DOWNLOAD_PAGE = 'https://ollama.com/download'
 const WINDOWS_INSTALLER = 'https://ollama.com/download/OllamaSetup.exe'
 
 export type InstallProgress = {
-  phase: 'downloading' | 'launching' | 'opened-page' | 'failed'
+  phase: 'downloading' | 'installing' | 'ready' | 'opened-page' | 'failed'
   percent: number
   detail: string
+}
+
+/** Ollama가 응답하는지. 설치가 실제로 끝났는지 판단하는 유일한 기준이다. */
+async function ollamaAlive(): Promise<boolean> {
+  try {
+    const response = await fetch('http://localhost:11434/api/tags', {
+      signal: AbortSignal.timeout(2000),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/** 설치가 끝나 서비스가 뜰 때까지 기다린다. */
+async function waitUntilAlive(timeoutMs = 120_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await ollamaAlive()) return true
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  return false
 }
 
 async function downloadInstaller(
@@ -65,20 +88,32 @@ export async function installOllama(
     }
   }
 
+  if (await ollamaAlive()) {
+    return { phase: 'ready', percent: 100, detail: 'Ollama가 이미 실행 중입니다.' }
+  }
+
   const target = path.join(app.getPath('temp'), 'OllamaSetup.exe')
   try {
     await downloadInstaller(target, onProgress)
-    onProgress({ phase: 'launching', percent: 100, detail: '설치 프로그램을 실행합니다…' })
 
-    // 설치 마법사를 띄운다(UAC 동의는 사용자가 한다). 설치가 끝나면
-    // 사용자가 [다시 확인]을 눌러 상태를 새로 읽는다.
-    const error = await shell.openPath(target)
-    if (error) throw new Error(error)
+    onProgress({ phase: 'installing', percent: 100, detail: 'Ollama를 설치하는 중입니다…' })
+
+    // 무인 설치. 사용자가 설치 마법사를 클릭해 넘길 필요가 없다.
+    // (설치 프로그램이 이 옵션을 무시하면 창이 뜨는데, 그때는 사용자가
+    //  직접 넘기면 되고 아래 대기 로직이 완료를 알아서 감지한다.)
+    await new Promise<void>((resolve) => {
+      execFile(target, ['/VERYSILENT', '/NORESTART'], () => resolve())
+    })
+
+    onProgress({ phase: 'installing', percent: 100, detail: '설치를 마무리하는 중입니다…' })
+    if (await waitUntilAlive()) {
+      return { phase: 'ready', percent: 100, detail: 'Ollama 준비가 끝났습니다.' }
+    }
 
     return {
-      phase: 'launching',
+      phase: 'failed',
       percent: 100,
-      detail: 'Ollama 설치 프로그램이 열렸습니다. 설치를 마친 뒤 [다시 확인]을 눌러 주세요.',
+      detail: 'Ollama가 설치됐지만 아직 응답하지 않습니다. 잠시 뒤 [다시 확인]을 눌러 주세요.',
     }
   } catch (error) {
     await unlink(target).catch(() => undefined)

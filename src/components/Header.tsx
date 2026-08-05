@@ -18,10 +18,10 @@ export default function Header({ currentMenu, selectedPath, onSelectFolder }: He
   const { title, description } = TITLES[currentMenu];
 
   return (
-    <div className="h-16 bg-white border-b border-gray-200/80 px-8 flex items-center justify-between shrink-0">
+    <div className="h-16 bg-white dark:bg-[#16161e] border-b border-gray-200/80 dark:border-gray-700 px-8 flex items-center justify-between shrink-0">
       <div className="min-w-0">
-        <h2 className="text-base font-bold text-gray-900">{title}</h2>
-        <p className="text-xs text-gray-400">{description}</p>
+        <h2 className="text-base font-bold text-gray-900 dark:text-gray-50">{title}</h2>
+        <p className="text-xs text-gray-400 dark:text-gray-500">{description}</p>
       </div>
 
       <div className="flex items-center gap-3 shrink-0">
@@ -29,20 +29,20 @@ export default function Header({ currentMenu, selectedPath, onSelectFolder }: He
         {selectedPath && (
           <code
             title={selectedPath}
-            className="max-w-[22rem] truncate rounded-lg bg-gray-50 px-2.5 py-1 text-[11px] text-gray-500 border border-gray-200/80"
+            className="max-w-[22rem] truncate rounded-lg bg-gray-50 dark:bg-white/5 px-2.5 py-1 text-[11px] text-gray-500 dark:text-gray-400 border border-gray-200/80 dark:border-gray-700"
           >
             {selectedPath}
           </code>
         )}
 
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200/60">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 border border-emerald-200/60">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
           <span>Local Ai</span>
         </div>
 
         <button
           onClick={onSelectFolder}
-          className="flex items-center gap-2 px-3.5 py-1.5 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-medium text-gray-700 transition shadow-2xs cursor-pointer"
+          className="flex items-center gap-2 px-3.5 py-1.5 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-200 transition shadow-2xs cursor-pointer"
         >
           <img className="w-4 h-4" src="component-15.svg" alt="폴더 선택" />
           <span>폴더 선택</span>

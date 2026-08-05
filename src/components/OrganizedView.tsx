@@ -93,19 +93,19 @@ function DynamicTreeNode({
       {/* 📁 폴더인 경우 */}
       {node.isFolder ? (
         <div className="space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-gray-800">
+          <div className="flex items-center justify-between text-[11px] text-gray-800 dark:text-gray-100">
             <div className="flex items-center gap-1.5">
               <span>📁</span>
               <span>{node.name}</span>
             </div>
-            <span className="text-[10px] bg-gray-100 text-gray-400 px-1.5 rounded-full font-semibold">
+            <span className="text-[10px] bg-gray-100 dark:bg-white/10 text-gray-400 dark:text-gray-500 px-1.5 rounded-full font-semibold">
               {node.fileCount}
             </span>
           </div>
 
           {/* 자식 노드가 있으면 들여쓰기 계층선(border-l)과 함께 재귀 렌더링 */}
           {childKeys.length > 0 && (
-            <div className="pl-3 border-l border-gray-100 ml-1.5 space-y-1 pt-0.5">
+            <div className="pl-3 border-l border-gray-100 dark:border-gray-700/70 ml-1.5 space-y-1 pt-0.5">
               {childKeys.map((key) => (
                 <DynamicTreeNode
                   key={key}
@@ -125,14 +125,14 @@ function DynamicTreeNode({
               {/* [현재 폴더 구조 트리일 때] */}
               {!isTargetTree && (
                 <div
-                  className={`flex items-center justify-between py-1.5 px-2 rounded-xl transition ${
+                  className={`flex items-center justify-between py-1.5 px-2 rounded-xl transition${
                     selectedMoveIds.includes(node.fileData.id)
                       ? 'bg-rose-50/70 border border-rose-100/80'
                       : 'hover:bg-gray-50'
                   }`}
                 >
                   <span
-                    className={`text-[11px] truncate pr-2 ${
+                    className={`text-[11px] truncate pr-2${
                       selectedMoveIds.includes(node.fileData.id)
                         ? 'text-rose-600'
                         : 'text-gray-700'
@@ -154,7 +154,7 @@ function DynamicTreeNode({
                   <span className="text-[11px] text-emerald-800 truncate pr-2">
                     📄 {node.name}
                   </span>
-                  <span className="text-[9px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded shrink-0">
+                  <span className="text-[9px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 font-bold px-1.5 py-0.5 rounded shrink-0">
                     새 위치
                   </span>
                 </div>
@@ -361,23 +361,23 @@ export default function OrganizeView({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-white p-8">
+    <div className="flex-1 overflow-y-auto bg-white dark:bg-[#16161e] p-8">
       <div className="max-w-6xl mx-auto space-y-6">
         
         {/* 헤더 영역 */}
         <div className="flex items-center justify-between">
           <div className="space-y-1">
-            <h2 className="text-xl font-black text-gray-900">
+            <h2 className="text-xl font-black text-gray-900 dark:text-gray-50">
               정리 전과 정리 후 구조를 한눈에 비교합니다.
             </h2>
-            <p className="text-xs text-gray-400 font-medium">
+            <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">
               선택한 이동 추천만 반영해 오른쪽의 ‘적용 후 폴더 구조’를 실시간으로 다시 그립니다.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button 
               onClick={handleReanalyze}
-              className="px-4 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
+              className="px-4 py-2 bg-white dark:bg-[#16161e] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
             >
               다시 분석
             </button>
@@ -396,31 +396,31 @@ export default function OrganizeView({
         </div>
 
         {/* 상단 모드 전환 탭 */}
-        <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
+        <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700/70 pb-3">
           <button
             onClick={() => setActiveTab('rename')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer${
               activeTab === 'rename'
                 ? 'bg-white text-gray-900 border border-gray-200 shadow-2xs'
                 : 'text-gray-400 hover:bg-gray-50'
             }`}
           >
             <span>파일명 변경</span>
-            <span className="px-2 py-0.5 text-[10px] bg-gray-50 text-black-600 rounded-full font-bold">
+            <span className="px-2 py-0.5 text-[10px] bg-gray-50 dark:bg-white/5 text-black-600 rounded-full font-bold">
               {renameList.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('structure')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer${
               activeTab === 'structure'
                 ? 'bg-white text-gray-900 border border-gray-200 shadow-2xs'
                 : 'text-gray-400 hover:bg-gray-50'
             }`}
           >
             <span>폴더 구조 비교</span>
-            <span className="px-2 py-0.5 text-[10px] bg-gray-100 text-gray-600 rounded-full font-bold">
+            <span className="px-2 py-0.5 text-[10px] bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 rounded-full font-bold">
               {structureList.length}
             </span>
           </button>
@@ -432,64 +432,64 @@ export default function OrganizeView({
         {activeTab === 'rename' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">분석된 파일</div>
-                <div className="text-2xl font-black text-gray-900">{totalFiles}</div>
-                <div className="text-[10px] text-gray-400 font-medium">PDF · TXT · MD</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">분석된 파일</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{totalFiles}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">PDF · TXT · MD</div>
               </div>
 
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">이름 변경 추천</div>
-                <div className="text-2xl font-black text-gray-900">{renameList.length}</div>
-                <div className="text-[10px] text-gray-400 font-medium">문서 내용 기반</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">이름 변경 추천</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{renameList.length}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">문서 내용 기반</div>
               </div>
 
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">선택된 항목</div>
-                <div className="text-2xl font-black text-gray-900">{selectedRenameIds.length}</div>
-                <div className="text-[10px] text-gray-400 font-medium">사용자 승인 필요</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">선택된 항목</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{selectedRenameIds.length}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">사용자 승인 필요</div>
               </div>
 
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">충돌·오류</div>
-                <div className="text-2xl font-black text-gray-900">0</div>
-                <div className="text-[10px] text-gray-400 font-medium">적용 전 검사 완료</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">충돌·오류</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">0</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">적용 전 검사 완료</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-              <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col">
-                <div className="bg-gray-50/80 px-6 h-13 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div className="lg:col-span-3 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden flex flex-col">
+                <div className="bg-gray-50/80 dark:bg-white/5 px-6 h-13 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between shrink-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-gray-900 text-xs">파일명 변경 추천</h3>
-                    <span className="text-[11px] text-gray-400 font-medium">추천 이름은 직접 수정할 수 있습니다.</span>
+                    <h3 className="font-bold text-gray-900 dark:text-gray-50 text-xs">파일명 변경 추천</h3>
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium">추천 이름은 직접 수정할 수 있습니다.</span>
                   </div>
                   {renameList.length > 0 && (
                     <button
                       onClick={handleSelectAllRename}
-                      className="px-3 py-1 border border-gray-200/80 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-lg transition shadow-2xs cursor-pointer"
+                      className="px-3 py-1 border border-gray-200/80 dark:border-gray-700 bg-white dark:bg-[#16161e] hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-lg transition shadow-2xs cursor-pointer"
                     >
                       {selectedRenameIds.length === renameList.length ? '선택 해제' : '전체 선택'}
                     </button>
                   )}
                 </div>
 
-                <div className="flex-1 bg-white overflow-x-auto flex flex-col">
+                <div className="flex-1 bg-white dark:bg-[#16161e] overflow-x-auto flex flex-col">
                   {renameList.length === 0 ? (
-                    <div className="py-16 text-center text-gray-400 text-xs font-medium">
+                    <div className="py-16 text-center text-gray-400 dark:text-gray-500 text-xs font-medium">
                       🎉 변경 추천 대상 파일이 없거나 모두 적용 완료되었습니다!
                     </div>
                   ) : (
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="border-b border-gray-100 bg-gray-50/80 h-13 text-[11px] text-gray-400 font-bold">
+                        <tr className="border-b border-gray-100 dark:border-gray-700/70 bg-gray-50/80 dark:bg-white/5 h-13 text-[11px] text-gray-400 dark:text-gray-500 font-bold">
                           <th className="px-6 w-12 text-center"></th>
                           <th className="px-3">현재 파일</th>
                           <th className="px-3">추천 파일명</th>
                           <th className="px-6 text-right w-24">신뢰도</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 text-xs px-6">
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700/70 text-xs px-6">
                         {renameList.map((item) => (
                           <tr key={item.id} className="hover:bg-gray-50/40 transition">
                             <td className="py-4 px-6 text-center">
@@ -497,13 +497,13 @@ export default function OrganizeView({
                                 type="checkbox"
                                 checked={selectedRenameIds.includes(item.id)}
                                 onChange={() => handleToggleRenameSelect(item.id)}
-                                className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                               />
                             </td>
                             <td className="py-4 px-3 pr-4">
                               <div className="flex items-center gap-3">
                                 <span
-                                  className={`px-2 py-1 rounded-lg text-[10px] font-extrabold shrink-0 ${
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-extrabold shrink-0${
                                     item.fileType === 'PDF'
                                       ? 'bg-gray-50 text-black-500 border border-gray-100'
                                       : item.fileType === 'TXT'
@@ -514,8 +514,8 @@ export default function OrganizeView({
                                   {item.fileType}
                                 </span>
                                 <div className="space-y-0.5">
-                                  <div className="font-bold text-gray-900 text-xs">{item.currentName}</div>
-                                  <div className="text-[10px] text-gray-400 font-medium">{item.category}</div>
+                                  <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">{item.currentName}</div>
+                                  <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">{item.category}</div>
                                 </div>
                               </div>
                             </td>
@@ -524,7 +524,7 @@ export default function OrganizeView({
                                 type="text"
                                 value={item.recommendedName}
                                 onChange={(e) => handleRenameChange(item.id, e.target.value)}
-                                className="w-full bg-white border border-indigo-100 rounded-2xl px-4 py-2.5 text-xs font-bold text-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
+                                className="w-full bg-white dark:bg-[#16161e] border border-indigo-100 dark:border-indigo-500/30 rounded-2xl px-4 py-2.5 text-xs font-bold text-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
                               />
                             </td>
                             <td className="py-4 px-6 text-right">
@@ -540,17 +540,17 @@ export default function OrganizeView({
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col justify-between">
-                <div className="bg-gray-50/80 px-5 h-13 border-b border-gray-100 flex items-center justify-between shrink-0">
-                  <h3 className="font-bold text-gray-900 text-xs">이름 변경 미리보기</h3>
-                  <span className="text-[10px] text-gray-400 font-medium">안전 적용</span>
+              <div className="bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden flex flex-col justify-between">
+                <div className="bg-gray-50/80 dark:bg-white/5 px-5 h-13 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between shrink-0">
+                  <h3 className="font-bold text-gray-900 dark:text-gray-50 text-xs">이름 변경 미리보기</h3>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">안전 적용</span>
                 </div>
 
-                <div className="p-5 flex-1 bg-white flex flex-col justify-between space-y-5">
+                <div className="p-5 flex-1 bg-white dark:bg-[#16161e] flex flex-col justify-between space-y-5">
                   <div className="space-y-4">
-                    <div className="p-4 rounded-2xl border border-dashed border-gray-200 text-center py-12 bg-gray-50/20">
+                    <div className="p-4 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 text-center py-12 bg-gray-50/20">
                       {selectedRenameIds.length === 0 ? (
-                        <p className="text-gray-400 text-[11px] leading-relaxed font-medium">
+                        <p className="text-gray-400 dark:text-gray-500 text-[11px] leading-relaxed font-medium">
                           왼쪽 목록에서 변경할 파일을 선택하면<br />적용 전 요약을 표시합니다.
                         </p>
                       ) : (
@@ -561,25 +561,25 @@ export default function OrganizeView({
                     </div>
 
                     <div className="space-y-2.5 pt-1">
-                      <div className="flex items-center gap-2.5 text-[11px] text-gray-500 font-medium">
-                        <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold">✓</span>
+                      <div className="flex items-center gap-2.5 text-[11px] text-gray-500 dark:text-gray-400 font-medium">
+                        <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 flex items-center justify-center text-[10px] font-bold">✓</span>
                         <span>동일한 파일명이 있는지 검사합니다.</span>
                       </div>
-                      <div className="flex items-center gap-2.5 text-[11px] text-gray-500 font-medium">
-                        <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold">✓</span>
+                      <div className="flex items-center gap-2.5 text-[11px] text-gray-500 dark:text-gray-400 font-medium">
+                        <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 flex items-center justify-center text-[10px] font-bold">✓</span>
                         <span>운영체제에서 금지된 문자를 확인합니다.</span>
                       </div>
-                      <div className="flex items-center gap-2.5 text-[11px] text-gray-500 font-medium">
-                        <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold">✓</span>
+                      <div className="flex items-center gap-2.5 text-[11px] text-gray-500 dark:text-gray-400 font-medium">
+                        <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 flex items-center justify-center text-[10px] font-bold">✓</span>
                         <span>확장자는 원본 파일과 동일하게 유지합니다.</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                  <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700/70">
                     <button
                       onClick={() => setSelectedRenameIds([])}
-                      className="w-1/2 py-2.5 border border-gray-200/80 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                      className="w-1/2 py-2.5 border border-gray-200/80 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-xl transition cursor-pointer"
                     >
                       선택 해제
                     </button>
@@ -604,53 +604,53 @@ export default function OrganizeView({
         {activeTab === 'structure' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">전체 파일 수</div>
-                <div className="text-2xl font-black text-gray-900">{totalFiles}</div>
-                <div className="text-[10px] text-gray-400 font-medium">분석 대상 문서</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">전체 파일 수</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{totalFiles}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">분석 대상 문서</div>
               </div>
 
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">이동 추천</div>
-                <div className="text-2xl font-black text-gray-900">{structureList.length}</div>
-                <div className="text-[10px] text-gray-400 font-medium">내용·프로젝트 기반</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">이동 추천</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{structureList.length}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">내용·프로젝트 기반</div>
               </div>
 
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">선택된 이동</div>
-                <div className="text-2xl font-black text-gray-900">{selectedMoveIds.length}</div>
-                <div className="text-[10px] text-gray-400 font-medium">오른쪽 구조에 반영</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">선택된 이동</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{selectedMoveIds.length}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">오른쪽 구조에 반영</div>
               </div>
 
-              <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400">생성될 폴더 수</div>
-                <div className="text-2xl font-black text-gray-900">{selectedMoveIds.length}</div>
-                <div className="text-[10px] text-gray-400 font-medium">자동 디렉터리 구성</div>
+              <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">생성될 폴더 수</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{selectedMoveIds.length}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">자동 디렉터리 구성</div>
               </div>
             </div>
 
             {/* 이동 추천 카드 패널 */}
-            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden">
-              <div className="bg-gray-50/80 px-6 py-3.5 border-b border-gray-100 flex items-center justify-between">
+            <div className="bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden">
+              <div className="bg-gray-50/80 dark:bg-white/5 px-6 py-3.5 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between">
                 <div>
-                  <h3 className="font-bold text-gray-900 text-xs">파일 이동 추천</h3>
-                  <p className="text-[10px] text-gray-400 font-medium">
+                  <h3 className="font-bold text-gray-900 dark:text-gray-50 text-xs">파일 이동 추천</h3>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
                     체크한 항목만 아래 비교 화면에 반영됩니다.
                   </p>
                 </div>
                 {structureList.length > 0 && (
                   <button
                     onClick={handleSelectAllMove}
-                    className="px-3 py-1 border border-gray-200/80 bg-white hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-lg transition shadow-2xs cursor-pointer"
+                    className="px-3 py-1 border border-gray-200/80 dark:border-gray-700 bg-white dark:bg-[#16161e] hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 text-xs font-bold rounded-lg transition shadow-2xs cursor-pointer"
                   >
                     {selectedMoveIds.length === structureList.length ? '전체 해제' : '전체 선택'}
                   </button>
                 )}
               </div>
 
-              <div className="p-6 bg-white">
+              <div className="p-6 bg-white dark:bg-[#16161e]">
                 {structureList.length === 0 ? (
-                  <div className="py-8 text-center text-gray-400 text-xs font-medium">
+                  <div className="py-8 text-center text-gray-400 dark:text-gray-500 text-xs font-medium">
                     🎉 이동 추천 대상 파일이 없거나 모두 적용 완료되었습니다!
                   </div>
                 ) : (
@@ -661,7 +661,7 @@ export default function OrganizeView({
                         <div
                           key={item.id}
                           onClick={() => handleToggleMoveSelect(item.id)}
-                          className={`p-4 rounded-2xl border transition cursor-pointer flex items-start gap-3 relative ${
+                          className={`p-4 rounded-2xl border transition cursor-pointer flex items-start gap-3 relative${
                             isChecked
                               ? 'border-indigo-400 bg-white ring-2 ring-indigo-500/20 shadow-xs'
                               : 'border-gray-200/80 bg-white hover:border-gray-300'
@@ -671,19 +671,19 @@ export default function OrganizeView({
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => {}}
-                            className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mt-1 cursor-pointer"
+                            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 mt-1 cursor-pointer"
                           />
                           <div className="space-y-2 flex-1 min-w-0">
-                            <div className="font-bold text-xs text-gray-900 truncate">
+                            <div className="font-bold text-xs text-gray-900 dark:text-gray-50 truncate">
                               {item.fileName}
                             </div>
 
                             <div className="flex items-center gap-1.5 text-[11px] flex-wrap">
-                              <span className="px-2 py-0.5 bg-gray-100 text-gray-500 font-medium rounded-md text-[10px]">
+                              <span className="px-2 py-0.5 bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 font-medium rounded-md text-[10px]">
                                 {item.currentFolder}
                               </span>
-                              <span className="text-gray-300 text-[10px]">→</span>
-                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 font-medium rounded-md truncate max-w-[130px] text-[10px]">
+                              <span className="text-gray-300 dark:text-gray-600 text-[10px]">→</span>
+                              <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 font-medium rounded-md truncate max-w-[130px] text-[10px]">
                                 {item.targetFolder.replace(/^Documents\//, '')}
                               </span>
                             </div>
@@ -704,18 +704,18 @@ export default function OrganizeView({
             <div className="grid grid-cols-1 lg:grid-cols-11 gap-4 items-stretch">
               
               {/* 좌측 트리: 현재 폴더 구조 (동적 생성) */}
-              <div className="lg:col-span-5 bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col h-full">
-                <div className="bg-gray-50/80 px-5 h-12 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div className="lg:col-span-5 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden flex flex-col h-full">
+                <div className="bg-gray-50/80 dark:bg-white/5 px-5 h-12 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between shrink-0">
                   <div className="space-y-0.5">
-                    <h3 className="font-bold text-gray-900 text-xs">현재 폴더 구조</h3>
-                    <p className="text-[9px] text-gray-400 font-medium">실제 파일이 지금 저장된 위치</p>
+                    <h3 className="font-bold text-gray-900 dark:text-gray-50 text-xs">현재 폴더 구조</h3>
+                    <p className="text-[9px] text-gray-400 dark:text-gray-500 font-medium">실제 파일이 지금 저장된 위치</p>
                   </div>
-                  <span className="text-[10px] text-gray-500 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                     <span>이동 예정</span>
                   </span>
                 </div>
-                <div className="p-5 text-xs font-medium text-gray-700 bg-white flex-1 overflow-y-auto">
+                <div className="p-5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-[#16161e] flex-1 overflow-y-auto">
                   <DynamicTreeNode
                     node={currentTree}
                     selectedMoveIds={selectedMoveIds}
@@ -726,31 +726,31 @@ export default function OrganizeView({
 
               {/* 중앙 인디케이터 화살표 */}
               <div className="lg:col-span-1 flex flex-col items-center justify-center text-center py-2 shrink-0">
-                <div className="w-10 h-10 bg-gray-50 border border-black-100 rounded-full flex items-center justify-center text-black-600 font-bold shadow-2xs mb-1">
+                <div className="w-10 h-10 bg-gray-50 dark:bg-white/5 border border-black-100 rounded-full flex items-center justify-center text-black-600 font-bold shadow-2xs mb-1">
                   ➔
                 </div>
                 <div className="text-xs font-black text-black-600">
                   {selectedMoveIds.length}개
                 </div>
-                <div className="text-[10px] text-gray-400 font-medium">이동 반영</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">이동 반영</div>
               </div>
 
               {/* 우측 트리: 적용 후 폴더 구조 (동적 생성) */}
-              <div className="lg:col-span-5 bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col h-full">
-                <div className="bg-gray-50/80 px-5 h-12 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div className="lg:col-span-5 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden flex flex-col h-full">
+                <div className="bg-gray-50/80 dark:bg-white/5 px-5 h-12 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between shrink-0">
                   <div className="space-y-0.5">
-                    <h3 className="font-bold text-gray-900 text-xs">적용 후 폴더 구조</h3>
-                    <p className="text-[9px] text-gray-400 font-medium">승인한 이동이 반영된 예상 구조</p>
+                    <h3 className="font-bold text-gray-900 dark:text-gray-50 text-xs">적용 후 폴더 구조</h3>
+                    <p className="text-[9px] text-gray-400 dark:text-gray-500 font-medium">승인한 이동이 반영된 예상 구조</p>
                   </div>
-                  <span className="text-[10px] text-gray-500 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                     <span>새 위치</span>
                   </span>
                 </div>
 
-                <div className="p-5 text-xs font-medium text-gray-700 bg-white flex-1 overflow-y-auto">
+                <div className="p-5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-[#16161e] flex-1 overflow-y-auto">
                   {selectedMoveIds.length === 0 ? (
-                    <div className="text-gray-400 text-[11px] py-12 text-center font-medium">
+                    <div className="text-gray-400 dark:text-gray-500 text-[11px] py-12 text-center font-medium">
                       선택된 이동 항목이 없습니다.
                     </div>
                   ) : (
@@ -766,19 +766,19 @@ export default function OrganizeView({
             </div>
 
             {/* 하단 푸터 */}
-            <div className="p-4 bg-white rounded-2xl border border-gray-200/80 shadow-2xs flex items-center justify-between">
+            <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs flex items-center justify-between">
               <div>
-                <h4 className="font-bold text-gray-900 text-xs">
+                <h4 className="font-bold text-gray-900 dark:text-gray-50 text-xs">
                   {selectedMoveIds.length}개 파일 이동이 적용 후 구조에 반영되었습니다.
                 </h4>
-                <p className="text-[11px] text-gray-400 font-medium">
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 font-medium">
                   왼쪽의 현재 위치는 빨간색 줄, 오른쪽의 새 위치는 초록색 카드로 연동되어 표시됩니다.
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setSelectedMoveIds([])}
-                  className="px-4 py-2 border border-gray-200/80 hover:bg-gray-50 text-gray-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  className="px-4 py-2 border border-gray-200/80 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer"
                 >
                   선택 해제
                 </button>

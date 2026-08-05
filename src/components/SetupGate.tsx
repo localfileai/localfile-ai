@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   getSetupStatus,
   selectModel,
@@ -71,18 +71,35 @@ export default function SetupGate({ children }: Props) {
     return () => window.clearInterval(timer);
   }, [refresh, status?.ready, status?.download.running]);
 
-  const handleInstallOllama = async () => {
+  const handleInstallOllama = useCallback(async () => {
     setError('');
     setBusy(true);
     try {
       const result = await window.api.installOllama();
       setInstallNote(result.detail);
+      await refresh();
     } catch (exception) {
       setError((exception as Error).message);
     } finally {
       setBusy(false);
     }
-  };
+  }, [refresh]);
+
+  // Ollama가 없으면 사용자가 버튼을 누르길 기다리지 않고 바로 설치를 시작한다.
+  // "설치 파일 하나 받아 실행하면 나머지는 알아서"가 이 앱의 약속이다.
+  //
+  // 모델은 자동으로 받지 않는다 — 용량이 크고(1.6~4.8GB) PC 사양에 따라
+  // 고를 것이 달라지므로, 그건 사용자가 보고 결정해야 한다.
+  // 설치 프로그램이 PC에 있는데 꺼져 있기만 한 경우는 건드리지 않는다.
+  const autoInstallTried = useRef(false);
+  useEffect(() => {
+    if (autoInstallTried.current || busy) return;
+    if (!status || status.ollama.running || status.ollama.binary_found) return;
+    if (!window.api?.installOllama) return;
+
+    autoInstallTried.current = true;
+    void handleInstallOllama();
+  }, [status, busy, handleInstallOllama]);
 
   const handleDownload = async () => {
     setError('');
@@ -125,10 +142,10 @@ export default function SetupGate({ children }: Props) {
     (generateModels.find((m) => m.name === chosenModel && !m.present)?.approx_gb ?? 0);
 
   return (
-    <div className="flex h-screen items-center justify-center overflow-y-auto bg-[#F8F9FA] p-8">
-      <div className="my-auto w-[34rem] rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-        <div className="text-lg font-bold text-gray-800">LocalFile AI 준비</div>
-        <p className="mt-1 text-[12px] leading-relaxed text-gray-500">
+    <div className="flex h-screen items-center justify-center overflow-y-auto bg-[#F8F9FA] dark:bg-[#0d0d13] p-8">
+      <div className="my-auto w-[34rem] rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#16161e] p-8 shadow-sm">
+        <div className="text-lg font-bold text-gray-800 dark:text-gray-100">LocalFile AI 준비</div>
+        <p className="mt-1 text-[12px] leading-relaxed text-gray-500 dark:text-gray-400">
           처음 한 번만 필요한 과정입니다. 모든 처리는 이 PC 안에서만 이뤄지며,
           문서 내용이 밖으로 나가지 않습니다.
         </p>
@@ -170,10 +187,10 @@ export default function SetupGate({ children }: Props) {
         {status && !download?.running && (
           <div className="mt-6">
             <div className="flex items-baseline justify-between">
-              <div className="text-[12px] font-bold text-gray-700">파일명 추천 모델</div>
-              <div className="text-[11px] text-gray-400">{status.hardware.summary}</div>
+              <div className="text-[12px] font-bold text-gray-700 dark:text-gray-200">파일명 추천 모델</div>
+              <div className="text-[11px] text-gray-400 dark:text-gray-500">{status.hardware.summary}</div>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+            <p className="mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
               {status.recommendation.reason}
             </p>
 
@@ -184,7 +201,7 @@ export default function SetupGate({ children }: Props) {
                   <button
                     key={model.name}
                     onClick={() => void handleSelect(model.name)}
-                    className={`w-full rounded-xl border p-3 text-left transition ${
+                    className={`w-full rounded-xl border p-3 text-left transition${
                       active
                         ? 'border-indigo-400 bg-indigo-50/60 ring-1 ring-indigo-200'
                         : 'border-gray-200 hover:border-gray-300'
@@ -192,29 +209,29 @@ export default function SetupGate({ children }: Props) {
                   >
                     <div className="flex items-center gap-2">
                       <span
-                        className={`h-3.5 w-3.5 shrink-0 rounded-full border-[4px] transition ${
+                        className={`h-3.5 w-3.5 shrink-0 rounded-full border-[4px] transition${
                           active ? 'border-indigo-500' : 'border-gray-200'
                         }`}
                       />
-                      <span className="text-[12px] font-bold text-gray-800">{model.label}</span>
+                      <span className="text-[12px] font-bold text-gray-800 dark:text-gray-100">{model.label}</span>
                       {model.recommended && (
-                        <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">
+                        <span className="rounded bg-indigo-100 dark:bg-indigo-500/25 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">
                           이 PC에 추천
                         </span>
                       )}
                       {model.present && (
-                        <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700">
+                        <span className="rounded bg-green-100 dark:bg-green-500/20 px-1.5 py-0.5 text-[10px] font-bold text-green-700">
                           받아 둠
                         </span>
                       )}
-                      <span className="ml-auto text-[11px] text-gray-400">
+                      <span className="ml-auto text-[11px] text-gray-400 dark:text-gray-500">
                         {model.approx_gb}GB
                       </span>
                     </div>
-                    <div className="mt-1.5 pl-5 text-[11px] leading-relaxed text-gray-500">
+                    <div className="mt-1.5 pl-5 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
                       {model.purpose}
                       <br />
-                      <span className="text-gray-400">{model.detail}</span>
+                      <span className="text-gray-400 dark:text-gray-500">{model.detail}</span>
                     </div>
                   </button>
                 );
@@ -222,7 +239,7 @@ export default function SetupGate({ children }: Props) {
             </div>
 
             {embedModel && (
-              <p className="mt-2 text-[11px] text-gray-400">
+              <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
                 {embedModel.present
                   ? `검색·분류 엔진(${embedModel.approx_gb}GB)은 준비돼 있습니다.`
                   : `검색·분류 엔진(${embedModel.approx_gb}GB)은 선택과 무관하게 함께 받습니다.`}
@@ -234,17 +251,17 @@ export default function SetupGate({ children }: Props) {
         {/* 다운로드 진행 바 */}
         {download?.running && (
           <div className="mt-6">
-            <div className="flex justify-between text-[11px] text-gray-500">
+            <div className="flex justify-between text-[11px] text-gray-500 dark:text-gray-400">
               <span>{download.model} — {download.phase}</span>
               <span>{download.overall.toFixed(0)}%</span>
             </div>
-            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-100">
+            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
               <div
                 className="h-full rounded-full bg-indigo-500 transition-all duration-300"
                 style={{ width: `${download.overall}%` }}
               />
             </div>
-            <p className="mt-2 text-[11px] text-gray-400">
+            <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
               네트워크 속도에 따라 몇 분에서 수십 분이 걸립니다. 창을 닫지 마세요.
             </p>
           </div>
@@ -252,7 +269,7 @@ export default function SetupGate({ children }: Props) {
 
         {(installNote || error || download?.error) && (
           <div
-            className={`mt-4 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${
+            className={`mt-4 rounded-lg px-3 py-2 text-[11px] leading-relaxed${
               error || download?.error
                 ? 'bg-red-50 text-red-600'
                 : 'bg-blue-50 text-blue-700'
@@ -286,7 +303,7 @@ export default function SetupGate({ children }: Props) {
           <button
             onClick={() => void refresh()}
             disabled={busy}
-            className="rounded-lg border border-gray-200 px-4 py-2.5 text-[12px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-[12px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
           >
             다시 확인
           </button>
@@ -295,7 +312,7 @@ export default function SetupGate({ children }: Props) {
         {!download?.running && (
           <button
             onClick={() => setBypassed(true)}
-            className="mt-3 w-full text-[11px] text-gray-400 underline underline-offset-2 hover:text-gray-600"
+            className="mt-3 w-full text-[11px] text-gray-400 dark:text-gray-500 underline underline-offset-2 hover:text-gray-600"
           >
             준비 없이 화면만 둘러보기 (검색·추천은 동작하지 않습니다)
           </button>
@@ -326,13 +343,13 @@ function Step({
   return (
     <div className="flex items-start gap-3">
       <div
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${tone}`}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold${tone}`}
       >
         {mark}
       </div>
       <div className="min-w-0">
-        <div className="text-[12px] font-bold text-gray-700">{label}</div>
-        {detail && <div className="text-[11px] text-gray-500">{detail}</div>}
+        <div className="text-[12px] font-bold text-gray-700 dark:text-gray-200">{label}</div>
+        {detail && <div className="text-[11px] text-gray-500 dark:text-gray-400">{detail}</div>}
       </div>
     </div>
   );

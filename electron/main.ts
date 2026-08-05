@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import {
@@ -32,6 +32,10 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null
 
 function createWindow() {
+  // 기본 메뉴(File/Edit/View/Window/Help)는 Electron이 붙여 주는 것이고
+  // 이 앱에는 쓸 항목이 없다. 설정은 화면 안의 설정 버튼으로 연다.
+  Menu.setApplicationMenu(null)
+
   win = new BrowserWindow({
     // 창·작업 표시줄 아이콘. 설치본의 실행 파일 아이콘은 build/icon.ico를 쓴다.
     icon: path.join(process.env.VITE_PUBLIC, 'app-icon.png'),

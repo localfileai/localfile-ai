@@ -210,19 +210,19 @@ export default function MainView({ selectedPath }: MainViewProps) {
   }, [searchResults, selectedTypes, dateRange, sortOrder]);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-white p-8">
+    <div className="flex-1 overflow-y-auto bg-white dark:bg-[#16161e] p-8">
       <div className="div-search-view">
         <div className="max-w-5xl mx-auto space-y-10">
           
           {/* 상단 검색 헤더 영역 */}
           <div className="text-center space-y-3 pt-4">
-            <div className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase bg-indigo-50 px-3 py-1 rounded-full inline-block">
+            <div className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase bg-indigo-50 dark:bg-indigo-500/15 px-3 py-1 rounded-full inline-block">
               <div>Semantic file search</div>
             </div>
-            <div className="text-2xl font-extrabold text-gray-900 tracking-tight">
+            <div className="text-2xl font-extrabold text-gray-900 dark:text-gray-50 tracking-tight">
               <div>무슨 파일인지 설명 해보세요.</div>
             </div>
-            <div className="text-xs text-gray-400 max-w-md mx-auto">
+            <div className="text-xs text-gray-400 dark:text-gray-500 max-w-md mx-auto">
               <div>
                 문서 내용, 파일명, 경로, 수정일을 함께 분석해 파일을 찾습니다.
               </div>
@@ -238,11 +238,11 @@ export default function MainView({ selectedPath }: MainViewProps) {
                       {indexProgress.total > 0 &&
                         ` · ${indexProgress.processed}/${indexProgress.total}건`}
                     </span>
-                    <span className="text-gray-400">{formatEta(indexProgress.eta_sec)}</span>
+                    <span className="text-gray-400 dark:text-gray-500">{formatEta(indexProgress.eta_sec)}</span>
                   </div>
-                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-500/25">
                     <div
-                      className={`h-full rounded-full bg-indigo-500 transition-all duration-500 ${
+                      className={`h-full rounded-full bg-indigo-500 transition-all duration-500${
                         indexProgress.total ? '' : 'animate-pulse'
                       }`}
                       style={{
@@ -254,26 +254,28 @@ export default function MainView({ selectedPath }: MainViewProps) {
                       }}
                     />
                   </div>
-                  <div className="mt-1 text-gray-400">끝나면 바로 검색할 수 있습니다.</div>
+                  <div className="mt-1 text-gray-400 dark:text-gray-500">끝나면 바로 검색할 수 있습니다.</div>
                 </div>
               ) : indexError ? (
                 <span className="text-red-500">{indexError}</span>
+              ) : !selectedPath ? (
+                // 색인이 남아 있어도 폴더를 고르기 전에는 "준비 완료"라고 하지 않는다.
+                // 사용자 입장에서 아무것도 고르지 않았는데 준비됐다는 건 앞뒤가 안 맞는다.
+                <span className="text-amber-600">
+                  오른쪽 위 <b>[폴더 선택]</b>으로 정리할 폴더를 고르면 검색을 준비합니다.
+                </span>
               ) : searchStatus?.ready ? (
                 <span className="text-emerald-600">
                   문서 {searchStatus.indexed_documents.toLocaleString()}건 검색 준비 완료
                 </span>
-              ) : selectedPath ? (
-                <span className="text-gray-400">문서를 확인하는 중입니다…</span>
               ) : (
-                <span className="text-amber-600">
-                  오른쪽 위 <b>[폴더 선택]</b>으로 정리할 폴더를 고르면 검색을 준비합니다.
-                </span>
+                <span className="text-gray-400 dark:text-gray-500">문서를 확인하는 중입니다…</span>
               )}
             </div>
 
             {/* 검색어 입력 폼 */}
             <div className="max-w-2xl mx-auto pt-2">
-              <div className="flex items-center shadow-sm rounded-2xl bg-white border border-gray-200/90 p-1.5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition">
+              <div className="flex items-center shadow-sm rounded-2xl bg-white dark:bg-[#16161e] border border-gray-200/90 dark:border-gray-700 p-1.5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition">
                 <img className="w-4 h-4 ml-3 opacity-40" src="component-16.svg" alt="검색" />
                 <div className="w-full px-3 py-2">
                   <input
@@ -287,7 +289,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                         ? '문서를 읽는 중입니다. 끝나면 검색할 수 있습니다.'
                         : '예: 2025년에 진행한 프로젝트 자료를 찾아줘'
                     }
-                    className="w-full text-xs bg-transparent focus:outline-none text-gray-800 placeholder-gray-300 font-medium caret-indigo-600 disabled:cursor-not-allowed"
+                    className="w-full text-xs bg-transparent focus:outline-none text-gray-800 dark:text-gray-100 placeholder-gray-300 font-medium caret-indigo-600 disabled:cursor-not-allowed"
                   />
                 </div>
                 <button
@@ -309,7 +311,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 <button
                   key={chip}
                   onClick={() => handleChipClick(chip)}
-                  className="px-3 py-1.5 bg-white border border-gray-200/80 rounded-full text-[11px] text-gray-500 hover:border-indigo-300 hover:text-indigo-600 transition shadow-2xs font-medium cursor-pointer"
+                  className="px-3 py-1.5 bg-white dark:bg-[#16161e] border border-gray-200/80 dark:border-gray-700 rounded-full text-[11px] text-gray-500 dark:text-gray-400 hover:border-indigo-300 hover:text-indigo-600 transition shadow-2xs font-medium cursor-pointer"
                 >
                   <div>{chip}</div>
                 </button>
@@ -321,10 +323,10 @@ export default function MainView({ selectedPath }: MainViewProps) {
               색인·검색이 도는 동안에는 감춘다 — 그때는 진행 상황만 보여야
               사용자가 "지금 뭘 기다리는지"를 헷갈리지 않는다. */}
           {selectedPath && !isIndexing && !isLoading && (
-            <div className="bg-white rounded-2xl border border-emerald-200/70 shadow-2xs overflow-hidden">
-              <div className="bg-emerald-50/60 px-6 h-13 border-b border-emerald-100 flex items-center justify-between shrink-0">
+            <div className="bg-white dark:bg-[#16161e] rounded-2xl border border-emerald-200/70 dark:border-emerald-500/30 shadow-2xs overflow-hidden">
+              <div className="bg-emerald-50/60 dark:bg-emerald-500/15 px-6 h-13 border-b border-emerald-100 dark:border-emerald-500/30 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-gray-900 text-xs">선택한 폴더의 실제 문서</div>
+                  <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">선택한 폴더의 실제 문서</div>
                   <div className="text-[11px] text-emerald-700">
                     {isExtracting
                       ? '추출 중...'
@@ -334,7 +336,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   </div>
                 </div>
                 <code
-                  className="max-w-[26rem] truncate text-[10px] text-gray-400"
+                  className="max-w-[26rem] truncate text-[10px] text-gray-400 dark:text-gray-500"
                   title={selectedPath}
                 >
                   {selectedPath}
@@ -343,32 +345,32 @@ export default function MainView({ selectedPath }: MainViewProps) {
 
               <div className="p-6">
                 {isExtracting ? (
-                  <div className="py-6 text-center text-xs text-gray-400 animate-pulse">
+                  <div className="py-6 text-center text-xs text-gray-400 dark:text-gray-500 animate-pulse">
                     문서 텍스트를 추출하고 있습니다...
                   </div>
                 ) : realDocsError ? (
                   <div className="py-4 text-[11px] leading-relaxed text-red-600">{realDocsError}</div>
                 ) : realDocs.length === 0 ? (
-                  <div className="py-4 text-[11px] leading-relaxed text-gray-500">
+                  <div className="py-4 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
                     이 폴더 바로 아래에 읽을 수 있는 문서가 없습니다.
                     <br />
                     PDF · DOCX · DOC · PPTX · PPT · HWP · HWPX 를 지원하며, 하위 폴더는 보지 않습니다.
                   </div>
                 ) : (
                   // 파일이 많아도 창 밖으로 밀려나지 않게 이 목록 안에서만 스크롤한다
-                  <div className="max-h-[22rem] overflow-y-auto pr-1 divide-y divide-gray-100">
+                  <div className="max-h-[22rem] overflow-y-auto pr-1 divide-y divide-gray-100 dark:divide-gray-700/70">
                     {realDocs.map((doc) => (
                       <div key={doc.path} className="py-3">
                         <button
                           onClick={() => setOpenedDoc(openedDoc === doc.path ? '' : doc.path)}
                           className="flex w-full items-start gap-3 text-left cursor-pointer"
                         >
-                          <div className="mt-0.5 w-9 h-9 shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 text-[10px] font-bold text-emerald-600 flex items-center justify-center">
+                          <div className="mt-0.5 w-9 h-9 shrink-0 rounded-xl border border-emerald-100 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/15 text-[10px] font-bold text-emerald-600 flex items-center justify-center">
                             {doc.extension.replace('.', '').toUpperCase()}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-bold text-gray-800">{doc.name}</div>
-                            <div className="mt-0.5 truncate text-[11px] text-gray-500">
+                            <div className="truncate text-xs font-bold text-gray-800 dark:text-gray-100">{doc.name}</div>
+                            <div className="mt-0.5 truncate text-[11px] text-gray-500 dark:text-gray-400">
                               {doc.error ? (
                                 <span className="text-red-500">추출 실패: {doc.error}</span>
                               ) : (
@@ -382,7 +384,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                         </button>
 
                         {openedDoc === doc.path && !doc.error && (
-                          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-gray-200/60 bg-gray-50 p-4 font-mono text-[11px] leading-relaxed text-gray-700">
+                          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-gray-200/60 dark:border-gray-700 bg-gray-50 dark:bg-white/5 p-4 font-mono text-[11px] leading-relaxed text-gray-700 dark:text-gray-200">
                             {doc.preview_text}
                           </pre>
                         )}
@@ -398,15 +400,15 @@ export default function MainView({ selectedPath }: MainViewProps) {
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
             
             {/* 좌측 패널: 검색 결과 (상단 연회색 / 하단 흰색 분리) */}
-            <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-200/80 min-h-120 flex flex-col shadow-2xs overflow-hidden">
+            <div className="lg:col-span-3 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 min-h-120 flex flex-col shadow-2xs overflow-hidden">
               
               {/* 💡 2. h-13 고정 및 동일 높이 정렬 적용 (검색 결과 상단바) */}
-              <div className="bg-gray-50/80 px-6 h-13 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div className="bg-gray-50/80 dark:bg-white/5 px-6 h-13 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-gray-900 text-xs">
+                  <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">
                     <div>검색 결과</div>
                   </div>
-                  <div className="text-[11px] text-gray-400">
+                  <div className="text-[11px] text-gray-400 dark:text-gray-500">
                     <div>
                       {isLoading
                         ? '내용이 비슷한 문서를 찾는 중...'
@@ -423,7 +425,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     <select
                       value={sortOrder}
                       onChange={(e) => setSortOrder(e.target.value)}
-                      className="text-[11px] text-gray-600 border border-gray-200/80 rounded-lg px-2.5 py-1 focus:outline-none bg-white font-medium cursor-pointer shadow-2xs"
+                      className="text-[11px] text-gray-600 dark:text-gray-300 border border-gray-200/80 dark:border-gray-700 rounded-lg px-2.5 py-1 focus:outline-none bg-white dark:bg-[#16161e] font-medium cursor-pointer shadow-2xs"
                     >
                       <option value="관련도순">관련도순</option>
                       <option value="최신순">최신순</option>
@@ -433,10 +435,10 @@ export default function MainView({ selectedPath }: MainViewProps) {
               </div>
 
               {/* [검색 결과 하단 컨텐츠] */}
-              <div className="p-6 flex-1 bg-white flex flex-col">
+              <div className="p-6 flex-1 bg-white dark:bg-[#16161e] flex flex-col">
                 {/* 실제 검색이 준비되지 않았을 때 이유를 그대로 보여 준다 */}
                 {searchError && (
-                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] leading-relaxed text-amber-800">
+                  <div className="mb-4 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/15 px-4 py-3 text-[11px] leading-relaxed text-amber-800">
                     {searchError}
                   </div>
                 )}
@@ -444,42 +446,42 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   <div className="flex-1 flex flex-col items-center justify-center py-12">
                     <div className="w-56">
                       {/* 진행률을 알 수 없는 작업이라 흐르는 막대로 "돌고 있음"을 보여 준다 */}
-                      <div className="h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-500/25">
                         <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[loading_1.2s_ease-in-out_infinite]" />
                       </div>
                     </div>
-                    <div className="mt-3 text-xs font-medium text-gray-600">
+                    <div className="mt-3 text-xs font-medium text-gray-600 dark:text-gray-300">
                       내용이 비슷한 문서를 찾는 중입니다
                     </div>
-                    <div className="mt-1 text-[11px] text-gray-400">보통 1초 안에 끝납니다.</div>
+                    <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">보통 1초 안에 끝납니다.</div>
                   </div>
                 ) : !hasSearched ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
-                    <div className="w-12 h-12 bg-indigo-50/80 rounded-2xl flex items-center justify-center mb-3 mx-auto">
+                    <div className="w-12 h-12 bg-indigo-50/80 dark:bg-indigo-500/15 rounded-2xl flex items-center justify-center mb-3 mx-auto">
                       <img className="w-5 h-5 opacity-70" src="component-17.svg" alt="결과 없음" />
                     </div>
-                    <div className="font-bold text-gray-800 text-sm mb-1">
+                    <div className="font-bold text-gray-800 dark:text-gray-100 text-sm mb-1">
                       <div>아직 검색한 내용이 없어요</div>
                     </div>
-                    <div className="text-[11px] text-gray-400">
+                    <div className="text-[11px] text-gray-400 dark:text-gray-500">
                       위 검색창에 기억나는 내용이나 날짜를 입력해 보세요.
                     </div>
                   </div>
                 ) : filteredResults.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
-                    <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mb-3 mx-auto">
+                    <div className="w-12 h-12 bg-gray-100 dark:bg-white/10 rounded-2xl flex items-center justify-center mb-3 mx-auto">
                       <img className="w-5 h-5 opacity-40" src="component-17.svg" alt="결과 없음" />
                     </div>
-                    <div className="font-bold text-gray-800 text-sm mb-1">
+                    <div className="font-bold text-gray-800 dark:text-gray-100 text-sm mb-1">
                       <div>일치하는 검색 결과가 없어요</div>
                     </div>
-                    <div className="text-[11px] text-gray-400">
+                    <div className="text-[11px] text-gray-400 dark:text-gray-500">
                       필터 조건에 일치하는 문서를 찾지 못했습니다. 우측 필터를 변경해 보세요.
                     </div>
                   </div>
                 ) : (
                   // 결과가 많아도 페이지 전체가 길어지지 않게 목록 안에서 스크롤한다
-                  <div className="div-results max-h-[26rem] overflow-y-auto pr-1 divide-y divide-gray-100">
+                  <div className="div-results max-h-[26rem] overflow-y-auto pr-1 divide-y divide-gray-100 dark:divide-gray-700/70">
                     {filteredResults.map((item) => (
                       <FileResultCard key={item.id} item={item} selectedPath={selectedPath} />
                     ))}
@@ -490,15 +492,15 @@ export default function MainView({ selectedPath }: MainViewProps) {
             </div>
 
             {/* 우측 패널: 필터 (상단 연회색 / 하단 흰색 분리) */}
-            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-2xs overflow-hidden flex flex-col">
+            <div className="bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden flex flex-col">
               
               {/* 💡 2. h-13 고정 및 동일 높이 정렬 적용 (필터 상단바) */}
-              <div className="bg-gray-50/80 px-5 h-13 border-b border-gray-100 flex items-center justify-between shrink-0">
-                <div className="font-bold text-gray-900 text-xs">
+              <div className="bg-gray-50/80 dark:bg-white/5 px-5 h-13 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between shrink-0">
+                <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">
                   <div>필터</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-gray-400 font-medium">검색 범위</span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">검색 범위</span>
                   <button
                     onClick={() => {
                       setSelectedTypes(SUPPORTED_TYPES);
@@ -513,21 +515,21 @@ export default function MainView({ selectedPath }: MainViewProps) {
               </div>
 
               {/* [필터 하단 옵션] */}
-              <div className="p-5 space-y-4 bg-white flex-1 flex flex-col justify-between">
+              <div className="p-5 space-y-4 bg-white dark:bg-[#16161e] flex-1 flex flex-col justify-between">
                 <div className="space-y-4">
                   {/* ① 파일 형식 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-bold text-gray-400">
+                    <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">
                       <div>파일 형식</div>
                     </div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
                       {SUPPORTED_TYPES.map((type) => (
-                        <label key={type} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 font-medium">
+                        <label key={type} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-300 font-medium">
                           <input
                             type="checkbox"
                             checked={selectedTypes.includes(type)}
                             onChange={() => handleTypeToggle(type)}
-                            className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                           />
                           <div>{type}</div>
                         </label>
@@ -536,8 +538,8 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   </div>
 
                   {/* ② 검색 대상 */}
-                  <div className="space-y-2 pt-3 border-t border-gray-100">
-                    <div className="text-[11px] font-bold text-gray-400">
+                  <div className="space-y-2 pt-3 border-t border-gray-100 dark:border-gray-700/70">
+                    <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">
                       <div>검색 대상</div>
                     </div>
                     {[
@@ -545,12 +547,12 @@ export default function MainView({ selectedPath }: MainViewProps) {
                       { id: 'content', label: '문서 내용' },
                       { id: 'path', label: '경로·수정일' },
                     ].map((target) => (
-                      <label key={target.id} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 font-medium">
+                      <label key={target.id} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 dark:text-gray-300 font-medium">
                         <input
                           type="checkbox"
                           checked={selectedTargets.includes(target.id)}
                           onChange={() => handleTargetToggle(target.id)}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         />
                         <div>{target.label}</div>
                       </label>
@@ -558,14 +560,14 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   </div>
 
                   {/* ③ 기간 */}
-                  <div className="space-y-2 pt-3 border-t border-gray-100">
-                    <div className="text-[11px] font-bold text-gray-400">
+                  <div className="space-y-2 pt-3 border-t border-gray-100 dark:border-gray-700/70">
+                    <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">
                       <div>기간</div>
                     </div>
                     <select
                       value={dateRange}
                       onChange={(e) => setDateRange(e.target.value)}
-                      className="w-full text-[11px] text-gray-600 border border-gray-200/80 rounded-xl p-2 bg-white focus:outline-none font-medium cursor-pointer shadow-2xs"
+                      className="w-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-200/80 dark:border-gray-700 rounded-xl p-2 bg-white dark:bg-[#16161e] focus:outline-none font-medium cursor-pointer shadow-2xs"
                     >
                       <option value="전체 기간">전체 기간</option>
                       <option value="최근 1주일">최근 1주일</option>
@@ -575,7 +577,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 </div>
 
                 {/* 하단 안내 */}
-                <div className="p-3 bg-gray-50/80 rounded-xl text-[10px] text-gray-400 leading-relaxed border border-gray-100 mt-4">
+                <div className="p-3 bg-gray-50/80 dark:bg-white/5 rounded-xl text-[10px] text-gray-400 dark:text-gray-500 leading-relaxed border border-gray-100 dark:border-gray-700/70 mt-4">
                   <div>
                     검색 결과에는 질문과 일치한 문장, 실제 파일 경로, 관련도가 함께 표시됩니다.
                   </div>

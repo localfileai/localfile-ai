@@ -81,7 +81,9 @@
       "createDesktopShortcut": true,
       "shortcutName": "LocalFile AI",
       "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
+      "uninstallerIcon": "build/icon.ico",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
     }
   },
   "engines": {
