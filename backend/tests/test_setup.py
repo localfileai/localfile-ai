@@ -32,10 +32,22 @@ class FakeResponse:
 
 
 @pytest.fixture(autouse=True)
-def clean_progress():
+def clean_progress(tmp_path, monkeypatch):
+    # 사용자 선택(settings.json)이 실제 설정 폴더를 오염시키지 않게 한다
+    from app.core import config, settings
+
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(settings, "_cache", None)
     provision._progress.reset()
     yield
     provision._progress.reset()
+
+
+def required_names():
+    """준비 완료로 판정되려면 있어야 하는 모델 — 임베딩 + 생성 모델 하나."""
+    from app.core import config
+
+    return [config.OLLAMA_EMBED_MODEL, config.OLLAMA_GENERATE_MODEL_SLIM]
 
 
 def fake_tags(monkeypatch, names):
@@ -61,20 +73,32 @@ class TestStatus:
         assert len(state["missing_required"]) == 2  # 임베딩 + slim
 
     def test_필수_모델이_다_있으면_준비_완료(self, monkeypatch):
-        required = [m["name"] for m in provision.MODEL_PLAN if m["required"]]
-        fake_tags(monkeypatch, required)
+        fake_tags(monkeypatch, required_names())
         state = provision.status()
         assert state["ready"] is True
         assert state["missing_required"] == []
 
-    def test_고품질_모델은_없어도_준비_완료(self, monkeypatch):
-        """경량 기본 구성 — 7.8b는 선택 업그레이드라 준비 판정을 막지 않는다."""
-        required = [m["name"] for m in provision.MODEL_PLAN if m["required"]]
-        fake_tags(monkeypatch, required)
+    def test_표준_모델은_없어도_준비_완료(self, monkeypatch):
+        """생성 모델은 하나만 있으면 된다 — 나머지는 선택지지 필수가 아니다."""
+        fake_tags(monkeypatch, required_names())
         state = provision.status()
-        full = [m for m in state["models"] if m["role"] == "generate_full"][0]
-        assert full["present"] is False and full["required"] is False
+        standard = [m for m in state["models"] if m["tier"] == "standard"][0]
+        assert standard["present"] is False and standard["required"] is False
         assert state["ready"] is True
+
+    def test_사양에_맞는_모델을_추천한다(self, monkeypatch):
+        from app.core import config
+
+        fake_tags(monkeypatch, [])
+        monkeypatch.setattr(provision, "detect_hardware",
+                            lambda: {"has_usable_gpu": True, "vram_gb": 8.0})
+        assert provision.status()["recommendation"]["generate_model"] == \
+            config.OLLAMA_GENERATE_MODEL
+
+        monkeypatch.setattr(provision, "detect_hardware",
+                            lambda: {"has_usable_gpu": False, "gpu_name": ""})
+        assert provision.status()["recommendation"]["generate_model"] == \
+            config.OLLAMA_GENERATE_MODEL_SLIM
 
 
 class TestDownload:
@@ -84,25 +108,38 @@ class TestDownload:
             provision.start_download()
 
     def test_이미_있으면_받지_않는다(self, monkeypatch):
-        required = [m["name"] for m in provision.MODEL_PLAN if m["required"]]
-        fake_tags(monkeypatch, required)
+        fake_tags(monkeypatch, required_names())
+        monkeypatch.setattr(provision, "detect_hardware",
+                            lambda: {"has_usable_gpu": False})
         result = provision.start_download()
         assert result["started"] is False and result["models"] == []
 
     def test_없는_것만_골라_받는다(self, monkeypatch):
-        embed = provision.MODEL_PLAN[0]["name"]
-        slim = provision.MODEL_PLAN[1]["name"]
-        fake_tags(monkeypatch, [embed])
+        from app.core import config
+
+        fake_tags(monkeypatch, [config.OLLAMA_EMBED_MODEL])
+        monkeypatch.setattr(provision, "detect_hardware", lambda: {"has_usable_gpu": False})
         monkeypatch.setattr(provision, "_download_worker", lambda names: None)
 
         result = provision.start_download()
-        assert result["models"] == [slim]
+        assert result["models"] == [config.OLLAMA_GENERATE_MODEL_SLIM]
 
-    def test_고품질_포함_선택시_7_8b도_받는다(self, monkeypatch):
+    def test_고른_모델을_받고_그것을_사용_모델로_삼는다(self, monkeypatch):
+        from app.core import config, settings
+
         fake_tags(monkeypatch, [])
         monkeypatch.setattr(provision, "_download_worker", lambda names: None)
-        result = provision.start_download(include_full=True)
-        assert len(result["models"]) == 3
+        result = provision.start_download(models=[config.OLLAMA_GENERATE_MODEL])
+
+        assert result["models"] == [config.OLLAMA_EMBED_MODEL, config.OLLAMA_GENERATE_MODEL]
+        assert settings.generate_model() == config.OLLAMA_GENERATE_MODEL
+
+    def test_목록에_없는_모델은_거부한다(self, monkeypatch):
+        fake_tags(monkeypatch, [])
+        with pytest.raises(ValueError):
+            provision.start_download(models=["llama3:70b"])
+        with pytest.raises(ValueError):
+            provision.select_model("llama3:70b")
 
     def test_진행_중이면_거부한다(self, monkeypatch):
         fake_tags(monkeypatch, [])

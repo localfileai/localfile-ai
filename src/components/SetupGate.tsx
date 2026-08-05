@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   getSetupStatus,
+  selectModel,
   startModelDownload,
   type SetupStatus,
 } from '../api/setupApi';
@@ -26,8 +27,10 @@ export default function SetupGate({ children }: Props) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [installNote, setInstallNote] = useState('');
   const [error, setError] = useState('');
-  const [includeFull, setIncludeFull] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 사용자가 고른 파일명 추천 모델. 비어 있으면 아직 안 골랐다는 뜻이라
+  // 상태를 읽은 뒤 추천 모델로 채운다.
+  const [chosenModel, setChosenModel] = useState('');
   // 준비 없이 화면만 둘러보는 통로. 팀원의 UI 작업과 데모용 —
   // 이 상태에서는 실제 검색·추천이 503으로 실패한다.
   const [bypassed, setBypassed] = useState(false);
@@ -50,7 +53,11 @@ export default function SetupGate({ children }: Props) {
 
   const refresh = useCallback(async () => {
     const next = await getSetupStatus();
-    if (next) setStatus(next);
+    if (next) {
+      setStatus(next);
+      // 첫 진입에서는 이 PC에 권장되는 모델을 미리 골라 둔다.
+      setChosenModel((current) => current || next.recommendation.generate_model);
+    }
     return next;
   }, []);
 
@@ -81,7 +88,7 @@ export default function SetupGate({ children }: Props) {
     setError('');
     setBusy(true);
     try {
-      const note = await startModelDownload(includeFull);
+      const note = await startModelDownload(chosenModel ? [chosenModel] : []);
       if (note) setInstallNote(note);
       await refresh();
     } catch (exception) {
@@ -91,18 +98,35 @@ export default function SetupGate({ children }: Props) {
     }
   };
 
+  // 이미 받아 둔 모델끼리 갈아타는 경우 — 다운로드 없이 설정만 바꾼다.
+  const handleSelect = async (model: string) => {
+    setChosenModel(model);
+    const target = status?.models.find((entry) => entry.name === model);
+    if (!target?.present) return;
+    try {
+      await selectModel(model);
+      await refresh();
+    } catch (exception) {
+      setError((exception as Error).message);
+    }
+  };
+
   // 준비 완료 — 본 화면으로.
   if (status?.ready || bypassed) return <>{children}</>;
 
   const ollamaMissing = status !== null && !status.ollama.running;
   const download = status?.download;
-  const requiredGb = (status?.models ?? [])
-    .filter((model) => model.required && !model.present)
-    .reduce((sum, model) => sum + model.approx_gb, 0);
+  const generateModels = (status?.models ?? []).filter((model) => model.role === 'generate');
+  const embedModel = (status?.models ?? []).find((model) => model.role === 'embed');
+
+  // 이번에 실제로 받아야 하는 용량 — 이미 있는 모델은 빼고 계산한다.
+  const pendingGb =
+    (embedModel && !embedModel.present ? embedModel.approx_gb : 0) +
+    (generateModels.find((m) => m.name === chosenModel && !m.present)?.approx_gb ?? 0);
 
   return (
-    <div className="flex h-screen items-center justify-center bg-[#F8F9FA] p-8">
-      <div className="w-[32rem] rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+    <div className="flex h-screen items-center justify-center overflow-y-auto bg-[#F8F9FA] p-8">
+      <div className="my-auto w-[34rem] rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
         <div className="text-lg font-bold text-gray-800">LocalFile AI 준비</div>
         <p className="mt-1 text-[12px] leading-relaxed text-gray-500">
           처음 한 번만 필요한 과정입니다. 모든 처리는 이 PC 안에서만 이뤄지며,
@@ -137,10 +161,75 @@ export default function SetupGate({ children }: Props) {
                 ? '확인 중…'
                 : status.missing_required.length === 0
                   ? '준비 완료'
-                  : `${status.missing_required.length}개 필요 (약 ${requiredGb.toFixed(1)}GB)`
+                  : `${status.missing_required.length}개 필요 (약 ${pendingGb.toFixed(1)}GB)`
             }
           />
         </div>
+
+        {/* 모델 선택 — 어떤 것을 왜 권하는지 보여 주고 사용자가 고른다 */}
+        {status && !download?.running && (
+          <div className="mt-6">
+            <div className="flex items-baseline justify-between">
+              <div className="text-[12px] font-bold text-gray-700">파일명 추천 모델</div>
+              <div className="text-[11px] text-gray-400">{status.hardware.summary}</div>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+              {status.recommendation.reason}
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {generateModels.map((model) => {
+                const active = chosenModel === model.name;
+                return (
+                  <button
+                    key={model.name}
+                    onClick={() => void handleSelect(model.name)}
+                    className={`w-full rounded-xl border p-3 text-left transition ${
+                      active
+                        ? 'border-indigo-400 bg-indigo-50/60 ring-1 ring-indigo-200'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-3.5 w-3.5 shrink-0 rounded-full border-[4px] transition ${
+                          active ? 'border-indigo-500' : 'border-gray-200'
+                        }`}
+                      />
+                      <span className="text-[12px] font-bold text-gray-800">{model.label}</span>
+                      {model.recommended && (
+                        <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">
+                          이 PC에 추천
+                        </span>
+                      )}
+                      {model.present && (
+                        <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700">
+                          받아 둠
+                        </span>
+                      )}
+                      <span className="ml-auto text-[11px] text-gray-400">
+                        {model.approx_gb}GB
+                      </span>
+                    </div>
+                    <div className="mt-1.5 pl-5 text-[11px] leading-relaxed text-gray-500">
+                      {model.purpose}
+                      <br />
+                      <span className="text-gray-400">{model.detail}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {embedModel && (
+              <p className="mt-2 text-[11px] text-gray-400">
+                {embedModel.present
+                  ? `검색·분류 엔진(${embedModel.approx_gb}GB)은 준비돼 있습니다.`
+                  : `검색·분류 엔진(${embedModel.approx_gb}GB)은 선택과 무관하게 함께 받습니다.`}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* 다운로드 진행 바 */}
         {download?.running && (
@@ -159,24 +248,6 @@ export default function SetupGate({ children }: Props) {
               네트워크 속도에 따라 몇 분에서 수십 분이 걸립니다. 창을 닫지 마세요.
             </p>
           </div>
-        )}
-
-        {/* 고품질 모델 선택 — 기본은 경량 구성 */}
-        {!download?.running && status?.ollama.running && status.missing_required.length > 0 && (
-          <label className="mt-6 flex cursor-pointer items-start gap-2 rounded-lg bg-gray-50 p-3">
-            <input
-              type="checkbox"
-              checked={includeFull}
-              onChange={(event) => setIncludeFull(event.target.checked)}
-              className="mt-0.5"
-            />
-            <span className="text-[11px] leading-relaxed text-gray-600">
-              <b>고품질 모델도 함께 받기</b> (약 4.8GB 추가)
-              <br />
-              그래픽카드(GPU)가 있는 PC에서 파일명 추천 품질이 좋아집니다.
-              나중에 받아도 됩니다.
-            </span>
-          </label>
         )}
 
         {(installNote || error || download?.error) && (
@@ -208,7 +279,7 @@ export default function SetupGate({ children }: Props) {
               disabled={busy}
               className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-[12px] font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              모델 받기 시작
+              {pendingGb > 0 ? `선택한 모델 받기 (약 ${pendingGb.toFixed(1)}GB)` : '모델 받기 시작'}
             </button>
           )}
 

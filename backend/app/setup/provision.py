@@ -20,32 +20,66 @@ import threading
 
 import requests
 
-from ..core import config
+from ..core import config, settings
+from .hardware import detect as detect_hardware
+from .hardware import summary as hardware_summary
 
-# 받아야 할 모델과 그 이유. 근거 수치는 docs/decisions/0002-model-selection.md.
-MODEL_PLAN: list[dict] = [
+# 고를 수 있는 모델 목록. 전부 3주차에 같은 평가셋으로 실측한 것들이다
+# (docs/decisions/0002-model-selection.md). 검증하지 않은 모델은 여기 넣지 않는다 —
+# 고르게 해 놓고 성능을 보장 못 하면 선택지가 아니라 함정이다.
+MODEL_CATALOG: list[dict] = [
     {
         "name": config.OLLAMA_EMBED_MODEL,
         "role": "embed",
-        "required": True,
+        "tier": "",
+        "label": "검색·분류 엔진",
         "approx_gb": 0.6,
-        "purpose": "검색과 문서 분류. 이 모델이 없으면 앱이 동작하지 않습니다.",
+        "purpose": "문서를 이해해 검색하고 분류합니다. 앱의 핵심이라 반드시 필요합니다.",
+        "detail": "GPU가 없어도 문서 1건당 0.2초 수준으로 동작합니다.",
     },
     {
         "name": config.OLLAMA_GENERATE_MODEL_SLIM,
-        "role": "generate_slim",
-        "required": True,
+        "role": "generate",
+        "tier": "light",
+        "label": "파일명 추천 · 경량",
         "approx_gb": 1.6,
-        "purpose": "파일명 추천(경량). GPU가 없어도 쓸 수 있습니다.",
+        "purpose": "추천 파일명을 만듭니다. 그래픽카드가 없는 PC를 위한 선택입니다.",
+        "detail": "파일명 품질 84%. GPU 없이 파일당 약 13초.",
     },
     {
         "name": config.OLLAMA_GENERATE_MODEL,
-        "role": "generate_full",
-        "required": False,
+        "role": "generate",
+        "tier": "standard",
+        "label": "파일명 추천 · 표준",
         "approx_gb": 4.8,
-        "purpose": "파일명 추천(고품질). GPU가 있을 때 선택해 받으세요.",
+        "purpose": "추천 파일명을 만듭니다. 그래픽카드가 있으면 이쪽이 빠르고 정확합니다.",
+        "detail": "GPU에서 파일당 약 4초. GPU가 없으면 파일당 80초가 넘어 권하지 않습니다.",
     },
 ]
+
+# 이전 이름. 외부에서 참조하던 곳이 있어 남겨 둔다.
+MODEL_PLAN = MODEL_CATALOG
+
+
+def recommended_generate_model(hardware: dict) -> str:
+    """이 PC에 권하는 파일명 추천 모델.
+
+    기준은 하나다 — **쓸 만한 GPU가 있는가**. 3주차 실측에서 7.8b는 GPU 4.3초 /
+    CPU 81초로 갈렸다. GPU가 없으면 표준 모델은 받아 봐야 못 쓴다.
+    """
+    if hardware.get("has_usable_gpu"):
+        return config.OLLAMA_GENERATE_MODEL
+    return config.OLLAMA_GENERATE_MODEL_SLIM
+
+
+def recommendation_reason(hardware: dict) -> str:
+    """왜 그 모델을 권하는지 사용자에게 한 줄로."""
+    if hardware.get("has_usable_gpu"):
+        vram = hardware.get("vram_gb") or 0
+        return f"그래픽카드({vram:g}GB)가 있어 표준 모델을 권합니다."
+    if hardware.get("gpu_name"):
+        return "그래픽카드 메모리가 부족해 경량 모델을 권합니다."
+    return "그래픽카드가 없어 경량 모델을 권합니다. 표준 모델은 너무 느립니다."
 
 # 다운로드는 몇 분~수십 분 걸린다. 청크 사이 간격만 제한한다.
 _PULL_TIMEOUT = (10, 120)
@@ -102,15 +136,25 @@ def _ollama_models() -> tuple[bool, set[str]]:
     return True, names
 
 
-def _plan_with_presence(installed: set[str]) -> list[dict]:
-    return [{**entry, "present": entry["name"] in installed} for entry in MODEL_PLAN]
-
-
 def status() -> dict:
     """앱이 쓸 수 있는 상태인가? FE 준비 화면이 이 값 하나로 그려진다."""
     running, installed = _ollama_models()
-    models = _plan_with_presence(installed)
-    missing = [m["name"] for m in models if m["required"] and not m["present"]]
+
+    hardware = detect_hardware()
+    recommended = recommended_generate_model(hardware)
+    selected = settings.generate_model()
+
+    models = [{
+        **entry,
+        "present": entry["name"] in installed,
+        "recommended": entry["role"] == "embed" or entry["name"] == recommended,
+        # 임베딩은 선택 대상이 아니라 필수다.
+        "required": entry["role"] == "embed",
+        "selected": entry["name"] == selected,
+    } for entry in MODEL_CATALOG]
+
+    embed_missing = [m["name"] for m in models if m["role"] == "embed" and not m["present"]]
+    has_generate = any(m["role"] == "generate" and m["present"] for m in models)
 
     try:
         from ..rag.search import index_status
@@ -126,10 +170,16 @@ def status() -> dict:
             "binary_found": shutil.which("ollama") is not None,
             "base_url": config.OLLAMA_BASE_URL,
         },
+        "hardware": {**hardware, "summary": hardware_summary(hardware)},
+        "recommendation": {
+            "generate_model": recommended,
+            "reason": recommendation_reason(hardware),
+        },
+        "selected_model": selected,
         "models": models,
-        "missing_required": missing,
+        "missing_required": embed_missing + ([] if has_generate else [selected]),
         # 이 값이 True면 앱을 바로 쓸 수 있다 (색인은 폴더 선택 시 만들어진다).
-        "ready": running and not missing,
+        "ready": running and not embed_missing and has_generate,
         "download": _progress.snapshot(),
         "index": index,
     }
@@ -196,8 +246,21 @@ def _download_worker(names: list[str]) -> None:
             _progress.phase = "완료" if not _progress.error else "실패"
 
 
-def start_download(include_full: bool = False) -> dict:
-    """없는 모델만 골라 백그라운드로 받는다. 이미 진행 중이면 DownloadBusy."""
+def select_model(name: str) -> str:
+    """파일명 추천에 쓸 모델을 고른다. 목록에 없는 이름은 거부한다."""
+    allowed = {entry["name"] for entry in MODEL_CATALOG if entry["role"] == "generate"}
+    if name not in allowed:
+        raise ValueError(f"고를 수 없는 모델입니다: {name}")
+    settings.set_generate_model(name)
+    return name
+
+
+def start_download(include_full: bool = False, models: list[str] | None = None) -> dict:
+    """없는 모델만 골라 백그라운드로 받는다. 이미 진행 중이면 DownloadBusy.
+
+    models를 주면 그 목록을(임베딩은 항상 포함) 받는다. 안 주면 이 PC에
+    권장되는 구성을 받는다.
+    """
     with _progress.lock:
         if _progress.running:
             raise DownloadBusy("이미 모델을 받는 중입니다.")
@@ -207,9 +270,26 @@ def start_download(include_full: bool = False) -> dict:
         raise RuntimeError(
             "Ollama가 실행 중이 아닙니다. Ollama를 설치·실행한 뒤 다시 시도하세요.")
 
-    wanted = [entry for entry in MODEL_PLAN
-              if entry["required"] or (include_full and entry["role"] == "generate_full")]
-    names = [entry["name"] for entry in wanted if entry["name"] not in installed]
+    catalog = {entry["name"]: entry for entry in MODEL_CATALOG}
+    if models:
+        unknown = [name for name in models if name not in catalog]
+        if unknown:
+            raise ValueError(f"목록에 없는 모델입니다: {', '.join(unknown)}")
+        wanted = [config.OLLAMA_EMBED_MODEL] + list(models)
+    else:
+        generate = (config.OLLAMA_GENERATE_MODEL if include_full
+                    else recommended_generate_model(detect_hardware()))
+        wanted = [config.OLLAMA_EMBED_MODEL, generate]
+
+    # 받기로 한 생성 모델을 그대로 사용 모델로 삼는다 (사용자가 고른 것 = 쓸 것).
+    for name in wanted:
+        if catalog[name]["role"] == "generate":
+            settings.set_generate_model(name)
+            break
+
+    seen: set[str] = set()
+    names = [name for name in wanted
+             if name not in installed and not (name in seen or seen.add(name))]
 
     if not names:
         return {"started": False, "detail": "이미 모든 모델이 준비돼 있습니다.", "models": []}

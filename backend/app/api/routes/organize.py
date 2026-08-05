@@ -25,7 +25,7 @@ from ...contracts.ai import (
     OrganizeResponse,
     SuggestionItem,
 )
-from ...core import config
+from ...core import config, settings
 from ...extraction.service import extract_from_path
 from ...llm import client as llm_client
 from ...llm.suggest import suggest_full, suggest_slim
@@ -59,7 +59,7 @@ def _resolve_mode(requested: str | None) -> str:
 
     if _auto_resolved["mode"] is None:
         try:
-            elapsed = llm_client.probe_generation_seconds(config.OLLAMA_GENERATE_MODEL)
+            elapsed = llm_client.probe_generation_seconds(settings.generate_model())
         except llm_client.LLMRequestError:
             # 재보기조차 실패할 정도면 저사양·불안정 쪽으로 둔다.
             elapsed = float("inf")
@@ -91,7 +91,7 @@ async def organize_status():
     """추천 경로 준비 상태. FE가 왜 추천이 안 되는지 표시할 때 쓴다."""
     mode = config.RECOMMEND_MODE_DEFAULT
     model = (config.OLLAMA_GENERATE_MODEL_SLIM if mode == "slim"
-             else config.OLLAMA_GENERATE_MODEL)
+             else settings.generate_model())
     ready, detail = llm_client.check_generate_model(model)
     return {
         "ready": ready,
@@ -99,7 +99,7 @@ async def organize_status():
         # auto의 판정 결과. 아직 첫 추천 요청 전이면 null이다.
         "mode_resolved": _auto_resolved["mode"],
         "probe_sec": _auto_resolved["probe_sec"],
-        "generate_model": config.OLLAMA_GENERATE_MODEL,
+        "generate_model": settings.generate_model(),
         "generate_model_slim": config.OLLAMA_GENERATE_MODEL_SLIM,
         "detail": detail,
         # slim 모드와 RAG 예시 주입은 색인에 의존한다.
@@ -114,7 +114,7 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
 
     mode = _resolve_mode(request.mode)
     model = (config.OLLAMA_GENERATE_MODEL_SLIM if mode == "slim"
-             else config.OLLAMA_GENERATE_MODEL)
+             else settings.generate_model())
 
     ready, detail = llm_client.check_generate_model(model)
     if not ready:
