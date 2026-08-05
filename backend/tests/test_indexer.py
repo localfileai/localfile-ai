@@ -152,6 +152,60 @@ class TestIndexer:
         with pytest.raises(FileNotFoundError):
             indexer.start("/없는/경로/어딘가")
 
+    def test_한_파일이_임베딩에_실패해도_나머지는_색인된다(
+            self, fake_collection, monkeypatch, tmp_path):
+        """묶음 하나가 터져도 색인 전체를 포기하면 안 된다.
+
+        예전에는 upsert 예외가 _run 전체를 빠져나가, 임베딩 한 번만 실패해도
+        **한 건도 색인되지 않은 채** "완료"가 됐다. 그러면 폴더 안 파일은 다 보이는데
+        검색만 죽어 있어 사용자가 원인을 알 수 없다.
+        """
+        good = tmp_path / "정상문서.pdf"
+        bad = tmp_path / "문제문서.pdf"
+        good.write_bytes(b"x")
+        bad.write_bytes(b"x")
+        monkeypatch.setattr(indexer, "extract_from_path", lambda path, max_chars: [
+            extracted(str(good), "정상문서.pdf"),
+            extracted(str(bad), "문제문서.pdf"),
+        ])
+
+        original_upsert = fake_collection.upsert
+
+        def flaky_upsert(ids, documents, metadatas):
+            if str(bad) in ids:
+                raise RuntimeError("임베딩 서버 응답 없음")
+            original_upsert(ids, documents, metadatas)
+
+        monkeypatch.setattr(fake_collection, "upsert", flaky_upsert)
+
+        indexer.start(str(tmp_path))
+        state = wait_done()
+
+        assert str(good) in fake_collection.rows      # 멀쩡한 파일은 들어갔다
+        assert state["done"] == 1
+        assert [f["path"] for f in state["failed"]] == [str(bad)]
+        assert "임베딩 서버 응답 없음" in state["failed"][0]["reason"]
+        assert not state["error"]                     # 일부 실패는 전체 실패가 아니다
+
+    def test_전부_실패하면_이유를_남긴다(self, fake_collection, monkeypatch, tmp_path):
+        # 화면이 "왜 검색이 안 되는지"를 말하려면 백엔드가 이유를 남겨야 한다.
+        file_a = tmp_path / "a.pdf"
+        file_a.write_bytes(b"x")
+        monkeypatch.setattr(indexer, "extract_from_path",
+                            lambda path, max_chars: [extracted(str(file_a), "a.pdf")])
+
+        def always_fails(ids, documents, metadatas):
+            raise RuntimeError("Ollama 연결 끊김")
+
+        monkeypatch.setattr(fake_collection, "upsert", always_fails)
+
+        indexer.start(str(tmp_path))
+        state = wait_done()
+
+        assert state["done"] == 0
+        assert "Ollama 연결 끊김" in state["error"]
+        assert state["finished_at"]  # 끝났다는 사실 자체는 남아야 화면이 대기를 멈춘다
+
 
 class TestIndexRoute:
     @pytest.fixture()

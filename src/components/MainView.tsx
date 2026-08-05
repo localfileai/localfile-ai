@@ -17,6 +17,11 @@ import FileResultCard from './FileResultCard';
 /** 기획안이 정한 지원 문서 형식 7종 (backend contracts/ai.py의 ALLOWED_EXTENSIONS와 같다). */
 const SUPPORTED_TYPES = ['PDF', 'DOCX', 'DOC', 'PPTX', 'PPT', 'HWP', 'HWPX'];
 
+/** 같은 폴더를 가리키는 경로인가. 끝 슬래시·구분자·대소문자 차이를 흡수한다. */
+const sameFolder = (a: string, b: string) =>
+  a.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase() ===
+  b.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+
 interface MainViewProps {
   /** FE1이 IPC/Drag&Drop으로 인식한 폴더 경로 */
   selectedPath?: string;
@@ -92,46 +97,78 @@ export default function MainView({ selectedPath }: MainViewProps) {
   // 폴더를 고르면 색인을 시작한다.
   // 사용자가 "색인"이라는 개념을 알 필요는 없다 — 폴더를 고른다 = 검색 준비다.
   //
-  // 이미 돌고 있으면 다시 부르지 않는다. 예전에는 그대로 요청해 409를 받았고,
-  // 무해하긴 해도 콘솔에 실패로 남아 진짜 문제를 찾기 어렵게 만들었다.
+  // 백엔드가 **다른 폴더**를 색인하는 중이면 지금은 시작할 수 없다. 예전에는 그때
+  // 그냥 포기하고 "요청함"으로 표시해 버려서, 그 폴더는 영영 색인되지 않은 채
+  // 화면만 "확인하는 중"에 머물렀다. 이제는 자리가 빌 때까지 기다렸다가 건다.
   useEffect(() => {
     if (!selectedPath || indexRequestedFor.current === selectedPath) return;
-    indexRequestedFor.current = selectedPath;
     let cancelled = false;
+    let timer = 0;
 
-    fetchIndexProgress().then((progress) => {
-      if (cancelled || progress?.running) return;
+    const request = async () => {
+      const progress = await fetchIndexProgress();
+      if (cancelled) return;
+
+      // 다른 폴더를 읽고 있는 중 — 끝나면 우리 차례다.
+      if (progress?.running && !sameFolder(progress.path, selectedPath)) {
+        timer = window.setTimeout(() => void request(), 1500);
+        return;
+      }
+      // 이 폴더를 이미 읽고 있으면 다시 걸 필요가 없다.
+      if (progress?.running) {
+        indexRequestedFor.current = selectedPath;
+        return;
+      }
+
       setIndexError('');
-      startIndexing(selectedPath).then((error) => {
-        if (!cancelled && error) setIndexError(error);
-      });
-    });
+      const error = await startIndexing(selectedPath);
+      if (cancelled) return;
+      if (error) {
+        // 실패했으면 "요청함"으로 기억하지 않는다. 새로고침이나 폴더 재선택으로
+        // 다시 시도할 수 있어야 한다.
+        setIndexError(error);
+        return;
+      }
+      indexRequestedFor.current = selectedPath;
+    };
+
+    void request();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [selectedPath, refreshToken]);
 
   // 색인이 도는 동안 진행률을 따라간다. 끝나면 검색 상태를 다시 읽어
   // "검색할 수 없음"에서 "검색 준비됨"으로 화면이 저절로 바뀌게 한다.
   //
-  // 끝난 뒤에도 계속 물어보지는 않는다. 다만 색인이 막 시작하는 순간에는 아직
-  // running=false로 보일 수 있어, 몇 번은 더 확인한 뒤에 멈춘다.
+  // **이 폴더의 색인이 끝날 때까지 멈추지 않는다.** 예전에는 running=false를 네 번
+  // 보면 그만뒀는데, 색인이 시작되기 전 몇 초 사이에 그 네 번이 다 지나갈 수 있었다.
+  // 그러면 이후 진행률을 아무도 안 읽어서, 색인이 멀쩡히 돌고 끝나도 화면은
+  // "문서를 확인하는 중입니다…"에 영원히 멈춰 있었다.
   useEffect(() => {
     if (!selectedPath) return;
     let cancelled = false;
     let timer = 0;
-    let idleTicks = 0;
 
     const tick = async () => {
       const progress = await fetchIndexProgress();
       if (cancelled) return;
+
+      let settled = false;
       if (progress) {
         setIndexProgress(progress);
-        idleTicks = progress.running ? 0 : idleTicks + 1;
-        if (!progress.running) void refreshSearchStatus();
+        if (!progress.running) {
+          void refreshSearchStatus();
+          // 이 폴더의 결과가 나왔거나 오류로 끝났으면 더 물어볼 것이 없다.
+          settled = Boolean(progress.error)
+            || (sameFolder(progress.path, selectedPath) && Boolean(progress.finished_at));
+        }
       }
-      if (idleTicks < 4) timer = window.setTimeout(tick, 1500);
+
+      // 아직 이 폴더 차례가 오지 않았으면 계속 지켜본다.
+      if (!settled) timer = window.setTimeout(() => void tick(), 1500);
     };
 
     void tick();
@@ -153,15 +190,17 @@ export default function MainView({ selectedPath }: MainViewProps) {
   // 색인 중에는 검색을 막는다.
   // Ollama가 요청을 하나씩 처리하므로, 색인이 도는 동안 검색을 보내면 그 뒤에
   // 줄을 서서 응답이 몇 분씩 걸린다. 사용자에게는 "검색이 안 되는" 것으로 보인다.
-  // 진행률이 **지금 고른 폴더**의 것인지 확인한다. 폴더를 바꾸면 백엔드에는
-  // 아직 이전 폴더의 완료 상태가 남아 있어, 그대로 믿으면 새 폴더를 읽지도
-  // 않고 "준비 완료"가 된다.
-  const sameFolder = (a: string, b: string) =>
-    a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase();
+  //
+  // 색인이 **어느 폴더 것이든** 돌고 있으면 기다려야 한다. 예전에는 경로가
+  // 지금 폴더와 같을 때만 "색인 중"으로 봤는데, 표기가 조금만 달라도 앱은
+  // 한가한 척하면서 파일 목록을 띄우고 검색까지 받아 놓고는 결과를 못 냈다.
+  const isIndexing = Boolean(indexProgress?.running);
+
+  // 진행률이 **지금 고른 폴더**의 것인지. 폴더를 바꾸면 백엔드에는 아직 이전
+  // 폴더의 완료 상태가 남아 있어, 그대로 믿으면 새 폴더를 읽지도 않고 "준비 완료"가 된다.
   const progressIsCurrent = Boolean(
     indexProgress && selectedPath && sameFolder(indexProgress.path, selectedPath),
   );
-  const isIndexing = Boolean(indexProgress?.running && progressIsCurrent);
 
   // 추출과 색인은 내부적으로 다른 단계지만 사용자에게는 하나의 기다림이다.
   // 둘 중 무엇이든 돌고 있으면 "준비 중"으로 묶어 진행 표시만 보여 준다.
@@ -174,6 +213,20 @@ export default function MainView({ selectedPath }: MainViewProps) {
   const indexFinished = Boolean(progressIsCurrent && indexProgress
                                 && !indexProgress.running && indexProgress.finished_at);
   const searchReady = Boolean(searchStatus?.ready) && indexFinished && !isPreparing;
+
+  // 색인은 끝났는데 한 건도 안 들어갔다. 화면이 이걸 "확인하는 중"이라고 말하면
+  // 사용자는 영원히 기다린다. 왜 비었는지를 그대로 보여 준다.
+  const indexedNothing = indexFinished && (indexProgress?.processed ?? 0) === 0;
+  const failedCount = indexProgress?.failed?.length ?? 0;
+  // 백엔드가 남긴 중단 사유. POST 실패(indexError)와 달리 색인 도중의 실패다.
+  const indexRunError = indexProgress?.error ?? '';
+
+  // 준비가 끝나기 전에 검색해서 받은 "아직 검색할 문서가 없습니다" 안내문은,
+  // 준비가 끝나는 순간 사실이 아니게 된다. 결과 창에 그대로 남겨 두면
+  // 검색이 가능해진 뒤에도 안 되는 것처럼 보인다.
+  useEffect(() => {
+    if (searchReady && searchResults.length === 0) setSearchError('');
+  }, [searchReady, searchResults.length]);
 
   // 3. 검색 실행 함수
   const executeSearch = async (query: string) => {
@@ -205,6 +258,10 @@ export default function MainView({ selectedPath }: MainViewProps) {
     setSearchResults([]);
     setHasSearched(false);
     setSearchError('');
+    // 지난 결과를 지우지 않으면 다시 읽는 동안에도 이전 상태("준비 완료"나 오류)가
+    // 그대로 보여서, 새로고침이 아무 일도 안 한 것처럼 느껴진다.
+    setIndexProgress(null);
+    setIndexError('');
     setRefreshToken((token) => token + 1);
   };
   const handleChipClick = (keyword: string) => {
@@ -328,8 +385,19 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     끝나면 바로 검색할 수 있습니다.
                   </div>
                 </div>
-              ) : indexError ? (
-                <span className="text-red-500">{indexError}</span>
+              ) : indexError || indexRunError ? (
+                // 색인이 중간에 멈춘 이유를 그대로 보여 준다. 예전에는 백엔드가
+                // 이유를 남겨도 화면은 "확인하는 중"만 반복해, 사용자가 무엇이
+                // 잘못됐는지 알 방법이 없었다.
+                <div className="text-red-500">
+                  <div>{indexError || indexRunError}</div>
+                  <button
+                    onClick={handleRefresh}
+                    className="mt-1 font-medium underline underline-offset-2 hover:text-red-600"
+                  >
+                    다시 시도
+                  </button>
+                </div>
               ) : !selectedPath ? (
                 // 색인이 남아 있어도 폴더를 고르기 전에는 "준비 완료"라고 하지 않는다.
                 // 사용자 입장에서 아무것도 고르지 않았는데 준비됐다는 건 앞뒤가 안 맞는다.
@@ -337,11 +405,32 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   오른쪽 위 <b>[폴더 선택]</b>으로 정리할 폴더를 고르면 검색을 준비합니다.
                 </span>
               ) : searchReady ? (
-                <span className="text-emerald-600">
+                <div className="text-emerald-600">
                   문서 {searchStatus?.indexed_documents.toLocaleString()}건 검색 준비 완료
-                </span>
+                  {failedCount > 0 && (
+                    <span className="text-gray-400 dark:text-gray-500">
+                      {' '}· {failedCount}건은 읽지 못했습니다
+                    </span>
+                  )}
+                </div>
+              ) : indexedNothing ? (
+                <div className="text-amber-600">
+                  이 폴더에서 읽을 수 있는 문서를 찾지 못했습니다.
+                  <div className="mt-0.5 text-gray-400 dark:text-gray-500">
+                    {failedCount > 0
+                      ? `${failedCount}건이 읽기에 실패했습니다 (${indexProgress?.failed?.[0]?.reason ?? ''}).`
+                      : 'PDF · DOCX · DOC · PPTX · PPT · HWP · HWPX 문서가 있는 폴더를 골라 주세요.'}
+                  </div>
+                </div>
               ) : (
-                <span className="text-gray-400 dark:text-gray-500">문서를 확인하는 중입니다…</span>
+                // 아직 이 폴더의 색인 차례를 기다리는 중이다. 문구만 두면 멈춘 것처럼
+                // 보이므로 진행 중임이 보이는 막대를 함께 둔다.
+                <div className="text-indigo-600">
+                  <div className="font-medium">검색 준비를 시작하는 중입니다</div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-500/25">
+                    <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[loading_1.2s_ease-in-out_infinite]" />
+                  </div>
+                </div>
               )}
             </div>
 

@@ -112,6 +112,45 @@ def status() -> dict:
     return snapshot
 
 
+def _record_failure(path: str, reason: str) -> None:
+    with _lock:
+        _state["failed"].append({"path": path, "reason": str(reason)[:180]})
+
+
+def _upsert_batch(collection, ids: list, documents: list, metadatas: list) -> int:
+    """한 묶음을 색인하고 실제로 들어간 건수를 돌려준다.
+
+    묶음 하나가 실패해도 색인 전체를 포기하지 않는다. 예전에는 여기서 난 예외가
+    _run 전체를 빠져나가, 임베딩 요청 한 번만 실패해도 **한 건도 색인되지 않은 채**
+    "색인 완료"가 됐다. 그러면 화면에는 폴더 안 파일이 다 보이는데 검색만 죽어 있어
+    사용자가 원인을 알 방법이 없다.
+
+    묶음이 실패하면 한 건씩 다시 시도한다. 문제 있는 파일 하나 때문에 같이 묶인
+    멀쩡한 15건을 버리지 않기 위해서다.
+    """
+    try:
+        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        return len(ids)
+    except Exception as batch_error:
+        stored = 0
+        for position, id_ in enumerate(ids):
+            try:
+                collection.upsert(ids=[id_], documents=[documents[position]],
+                                  metadatas=[metadatas[position]])
+                stored += 1
+            except Exception as file_error:
+                _record_failure(id_, f"{type(file_error).__name__}: {file_error}")
+        if stored == 0:
+            # 묶음도 개별도 다 실패했다 — 파일 문제가 아니라 임베딩 쪽 문제다.
+            # 이유를 남겨야 화면이 "왜 안 되는지"를 말할 수 있다.
+            with _lock:
+                if not _state["error"]:
+                    _state["error"] = (
+                        f"문서를 읽어 들이지 못했습니다 "
+                        f"({type(batch_error).__name__}: {batch_error})"[:300])
+        return stored
+
+
 def _run(path: str, max_files: int) -> None:
     collection = user_collection(create=True)
     try:
@@ -176,13 +215,18 @@ def _run(path: str, max_files: int) -> None:
                 continue
 
             # 증분: 이미 같은 mtime으로 색인된 파일은 임베딩하지 않는다.
-            existing = collection.get(ids=ids)
+            # 이 조회가 실패하면 "전부 새 파일"로 보고 그냥 다시 색인한다 —
+            # 건너뛰기는 최적화일 뿐이라, 여기서 색인을 멈출 이유가 없다.
             unchanged = set()
-            for known_id, known_meta in zip(existing.get("ids", []),
-                                            existing.get("metadatas", []) or []):
-                position = ids.index(known_id)
-                if (known_meta or {}).get("mtime_us") == metadatas[position]["mtime_us"]:
-                    unchanged.add(known_id)
+            try:
+                existing = collection.get(ids=ids)
+                for known_id, known_meta in zip(existing.get("ids", []),
+                                                existing.get("metadatas", []) or []):
+                    position = ids.index(known_id)
+                    if (known_meta or {}).get("mtime_us") == metadatas[position]["mtime_us"]:
+                        unchanged.add(known_id)
+            except Exception:
+                pass
 
             fresh = [i for i, id_ in enumerate(ids) if id_ not in unchanged]
             with _lock:
@@ -190,16 +234,20 @@ def _run(path: str, max_files: int) -> None:
 
             if fresh:
                 # upsert: 같은 경로가 다시 오면 갱신된다 (이름은 같고 내용이 바뀐 파일).
-                collection.upsert(
+                stored = _upsert_batch(
+                    collection,
                     ids=[ids[i] for i in fresh],
                     documents=[documents[i] for i in fresh],
                     metadatas=[metadatas[i] for i in fresh],
                 )
-            with _lock:
-                _state["done"] += len(fresh)
+                with _lock:
+                    _state["done"] += stored
     except Exception as exc:
         with _lock:
-            _state["error"] = f"{type(exc).__name__}: {exc}"[:300]
+            # 사용자에게 그대로 보이는 문구다. 예외 이름만 던지면 아무 도움이 안 된다.
+            _state["error"] = (
+                f"폴더를 읽는 중 문제가 생겨 검색 준비를 끝내지 못했습니다 "
+                f"({type(exc).__name__}: {exc})"[:300])
     finally:
         with _lock:
             _state["running"] = False
