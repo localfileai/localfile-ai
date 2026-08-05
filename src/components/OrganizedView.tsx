@@ -3,7 +3,6 @@ import {
   RenameRecommendation, 
   StructureRecommendation,
   CurrentFileItem,
-  reanalyzeProject,
   applyRenameRecommendations,
   applyStructureRecommendations
 } from '../api/organizeApi';
@@ -234,14 +233,12 @@ export default function OrganizeView({
   );
 
   // --- [API 및 액션 핸들러] ---
-  const handleReanalyze = async () => {
-    const res = await reanalyzeProject();
-    if (res) {
-      alert(`재분석이 완료되었습니다!\n• 파일명 추천: ${res.rename_count}건\n• 폴더 이동 추천: ${res.move_count}건`);
-      if (onRefreshData) onRefreshData();
-    } else {
-      alert('재분석 요청 중 오류가 발생했습니다.');
-    }
+  // 폴더를 다시 읽어 추천을 새로 만든다.
+  // 예전에는 Mock API(/mock/reanalyze)를 불러 실제로는 아무것도 바뀌지 않았다.
+  const handleReanalyze = () => {
+    setSelectedRenameIds([]);
+    setSelectedMoveIds([]);
+    onRefreshData?.();
   };
 
   // 실제 적용(POST /apply) 결과에서 "정말 바뀐" id만 골라낸다.
@@ -458,7 +455,7 @@ export default function OrganizeView({
               onClick={handleReanalyze}
               className="px-4 py-2 bg-white dark:bg-[#16161e] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
             >
-              다시 분석
+              {mode === 'rename' ? '↻ 이름 다시 짓기' : '↻ 다시 정리하기'}
             </button>
             <button
               onClick={handleApplySelected}

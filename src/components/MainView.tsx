@@ -23,6 +23,11 @@ interface MainViewProps {
 }
 
 export default function MainView({ selectedPath }: MainViewProps) {
+  // 이 폴더에 이미 색인을 걸었는지 기억한다. 화면을 오갈 때마다 다시 걸면
+  // Ollama가 그 작업들로 막혀 검색이 계속 "준비 중"에 머무른다.
+  const indexRequestedFor = useRef('');
+  // 새로고침을 누를 때마다 올린다. 이 값이 바뀌면 목록·색인이 다시 돈다.
+  const [refreshToken, setRefreshToken] = useState(0);
   // 선택한 폴더에서 실제로 추출된 문서.
   // 검색 결과(Mock)와 달리 이건 진짜 파일에서 뽑은 텍스트입니다.
   const [realDocs, setRealDocs] = useState<FolderFile[]>([]);
@@ -61,7 +66,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedPath]);
+  }, [selectedPath, refreshToken]);
 
   // 1. 검색 상태(State)
   const [searchTerm, setSearchTerm] = useState('');
@@ -89,10 +94,6 @@ export default function MainView({ selectedPath }: MainViewProps) {
   //
   // 이미 돌고 있으면 다시 부르지 않는다. 예전에는 그대로 요청해 409를 받았고,
   // 무해하긴 해도 콘솔에 실패로 남아 진짜 문제를 찾기 어렵게 만들었다.
-  // 이 폴더에 이미 색인을 걸었는지 기억한다. 화면을 오갈 때마다 다시 걸면
-  // Ollama가 그 작업들로 막혀 검색이 계속 "준비 중"에 머무른다.
-  const indexRequestedFor = useRef('');
-
   useEffect(() => {
     if (!selectedPath || indexRequestedFor.current === selectedPath) return;
     indexRequestedFor.current = selectedPath;
@@ -109,7 +110,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedPath]);
+  }, [selectedPath, refreshToken]);
 
   // 색인이 도는 동안 진행률을 따라간다. 끝나면 검색 상태를 다시 읽어
   // "검색할 수 없음"에서 "검색 준비됨"으로 화면이 저절로 바뀌게 한다.
@@ -138,12 +139,15 @@ export default function MainView({ selectedPath }: MainViewProps) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [selectedPath, refreshSearchStatus]);
+  }, [selectedPath, refreshSearchStatus, refreshToken]);
 
   // 2. 필터 상태(State)
   const [selectedTypes, setSelectedTypes] = useState<string[]>(SUPPORTED_TYPES);
   const [selectedTargets, setSelectedTargets] = useState<string[]>(['title', 'content', 'path']);
-  const [dateRange, setDateRange] = useState<string>('전체 기간');
+  // 기간은 달력으로 직접 고른다. '최근 1주일/1개월' 두 가지로는
+  // "지난 학기" 같은 실제 필요를 못 맞춘다.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [sortOrder, setSortOrder] = useState<string>('관련도순');
 
   // 색인 중에는 검색을 막는다.
@@ -194,6 +198,15 @@ export default function MainView({ selectedPath }: MainViewProps) {
 
   // 핸들러 함수들
   const handleSearchClick = () => executeSearch(searchTerm);
+
+  // 폴더 목록과 색인을 다시 읽는다. 폴더 안의 파일이 바뀌었을 때 쓴다.
+  const handleRefresh = () => {
+    indexRequestedFor.current = '';
+    setSearchResults([]);
+    setHasSearched(false);
+    setSearchError('');
+    setRefreshToken((token) => token + 1);
+  };
   const handleChipClick = (keyword: string) => {
     setSearchTerm(keyword);
     executeSearch(keyword);
@@ -219,22 +232,38 @@ export default function MainView({ selectedPath }: MainViewProps) {
   const filteredResults = useMemo(() => {
     if (!searchResults || searchResults.length === 0) return [];
 
+    // 검색 대상 필터에 쓸 질의 낱말. 한 글자는 아무 데나 걸려 의미가 없다.
+    const tokens = searchTerm
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((token) => token.length > 1);
+
     let list = searchResults.filter((item) => {
       // 알 수 없는 확장자가 와도 결과가 통째로 사라지지 않게 한다
       const isTypeMatched =
         selectedTypes.includes(item.type) || !SUPPORTED_TYPES.includes(item.type);
 
-      let isDateMatched = true;
-      if (dateRange !== '전체 기간' && item.date) {
-        const itemDate = new Date(item.date).getTime();
-        const now = new Date().getTime();
-        const diffDays = (now - itemDate) / (1000 * 3600 * 24);
+      // 기간: 달력에서 고른 범위 안의 수정일만
+      const isDateMatched =
+        (!dateFrom || (item.date && item.date >= dateFrom)) &&
+        (!dateTo || (item.date && item.date <= dateTo));
 
-        if (dateRange === '최근 1주일') isDateMatched = diffDays <= 7;
-        if (dateRange === '최근 1개월') isDateMatched = diffDays <= 30;
+      // 검색 대상: 고른 곳 중 하나라도 질의 낱말을 품고 있어야 한다.
+      // 셋 다 골랐거나 질의가 짧으면 의미 검색 결과를 그대로 둔다.
+      let isTargetMatched = true;
+      if (selectedTargets.length === 0) {
+        isTargetMatched = false;
+      } else if (selectedTargets.length < 3 && tokens.length > 0) {
+        isTargetMatched = selectedTargets.some((target) => {
+          const haystack =
+            target === 'title' ? item.title
+              : target === 'content' ? item.snippetHighlight
+                : `${item.path} ${item.date}`;
+          return tokens.some((token) => haystack.toLowerCase().includes(token));
+        });
       }
 
-      return isTypeMatched && isDateMatched;
+      return isTypeMatched && isDateMatched && isTargetMatched;
     });
 
     if (sortOrder === '최신순') {
@@ -242,7 +271,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
     }
 
     return list;
-  }, [searchResults, selectedTypes, dateRange, sortOrder]);
+  }, [searchResults, selectedTypes, selectedTargets, dateFrom, dateTo, sortOrder, searchTerm]);
 
   return (
     <div className="flex-1 overflow-y-auto bg-white dark:bg-[#16161e] p-8">
@@ -315,6 +344,15 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 <span className="text-gray-400 dark:text-gray-500">문서를 확인하는 중입니다…</span>
               )}
             </div>
+
+            {selectedPath && !isPreparing && (
+              <button
+                onClick={handleRefresh}
+                className="text-[11px] font-medium text-gray-400 hover:text-indigo-600 dark:text-gray-500"
+              >
+                ↻ 폴더 다시 읽기
+              </button>
+            )}
 
             {/* 검색어 입력 폼 */}
             <div className="max-w-2xl mx-auto pt-2">
@@ -536,7 +574,8 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     onClick={() => {
                       setSelectedTypes(SUPPORTED_TYPES);
                       setSelectedTargets(['title', 'content', 'path']);
-                      setDateRange('전체 기간');
+                      setDateFrom('');
+                      setDateTo('');
                     }}
                     className="text-[10px] text-indigo-600 hover:underline font-semibold cursor-pointer"
                   >
@@ -595,15 +634,36 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">
                       <div>기간</div>
                     </div>
-                    <select
-                      value={dateRange}
-                      onChange={(e) => setDateRange(e.target.value)}
-                      className="w-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-200/80 dark:border-gray-700 rounded-xl p-2 bg-white dark:bg-[#16161e] focus:outline-none font-medium cursor-pointer shadow-2xs"
-                    >
-                      <option value="전체 기간">전체 기간</option>
-                      <option value="최근 1주일">최근 1주일</option>
-                      <option value="최근 1개월">최근 1개월</option>
-                    </select>
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-2">
+                        <span className="w-8 shrink-0 text-[10px] text-gray-400 dark:text-gray-500">부터</span>
+                        <input
+                          type="date"
+                          value={dateFrom}
+                          max={dateTo || undefined}
+                          onChange={(event) => setDateFrom(event.target.value)}
+                          className="w-full rounded-xl border border-gray-200/80 dark:border-gray-700 bg-white dark:bg-[#16161e] p-2 text-[11px] font-medium text-gray-600 dark:text-gray-300 focus:outline-none"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <span className="w-8 shrink-0 text-[10px] text-gray-400 dark:text-gray-500">까지</span>
+                        <input
+                          type="date"
+                          value={dateTo}
+                          min={dateFrom || undefined}
+                          onChange={(event) => setDateTo(event.target.value)}
+                          className="w-full rounded-xl border border-gray-200/80 dark:border-gray-700 bg-white dark:bg-[#16161e] p-2 text-[11px] font-medium text-gray-600 dark:text-gray-300 focus:outline-none"
+                        />
+                      </label>
+                      {(dateFrom || dateTo) && (
+                        <button
+                          onClick={() => { setDateFrom(''); setDateTo(''); }}
+                          className="text-[10px] text-indigo-600 hover:underline"
+                        >
+                          기간 지우기
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
