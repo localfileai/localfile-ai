@@ -15,6 +15,7 @@ from pathlib import Path
 import chromadb
 
 from ..contracts.ai import ALLOWED_EXTENSIONS, FileRef, SearchHit, SearchResponse
+from ..core import config, settings as embedding_settings
 from .embedding import COLLECTION_NAME, OllamaEmbeddingFunction, check_ollama
 
 # BE1 스크립트의 기본 저장 위치(`--db ./chroma_db`)와 같아야 한다.
@@ -117,10 +118,23 @@ def _collection():
     return _collection_cache
 
 
+def _embed_model_of(collection) -> str:
+    """이 컬렉션이 어떤 임베딩 모델로 만들어졌는가.
+
+    옛 색인에는 기록이 없다. 그때는 개발 기본값으로 만들어졌다고 본다.
+    """
+    metadata = getattr(collection, "metadata", None) or {}
+    return str(metadata.get("embed_model") or config.OLLAMA_EMBED_MODEL)
+
+
 def user_collection(create: bool = False):
     """사용자 폴더 색인 컬렉션. 없으면 None (create=True면 만들어서 반환).
 
     색인기(rag/indexer.py)는 create=True로, 검색은 create=False로 부른다.
+
+    임베딩 모델이 바뀌었으면 **버리고 새로 만든다.** 모델이 다르면 벡터 차원과
+    좌표계가 달라, 섞인 색인에서는 거리 계산이 아무 의미가 없다. 예비 모델로
+    갈아타는 경우가 여기 해당한다.
     """
     global _user_collection_cache
 
@@ -130,20 +144,44 @@ def user_collection(create: bool = False):
     with _collection_lock:
         if _user_collection_cache is not None:
             return _user_collection_cache
-        try:
-            if create:
-                _user_collection_cache = _chroma_client().get_or_create_collection(
-                    USER_COLLECTION_NAME,
-                    embedding_function=OllamaEmbeddingFunction(),
-                    metadata={"hnsw:space": "cosine"},
-                )
-            else:
-                _user_collection_cache = _chroma_client().get_collection(
-                    USER_COLLECTION_NAME, embedding_function=OllamaEmbeddingFunction())
-        except Exception:
-            return None
 
-    return _user_collection_cache
+        embed_model = embedding_settings.embed_model()
+
+        if not create:
+            try:
+                collection = _chroma_client().get_collection(
+                    USER_COLLECTION_NAME, embedding_function=OllamaEmbeddingFunction())
+            except Exception:
+                return None
+            # 모델이 다른 옛 색인으로 검색하면 거리 계산이 의미를 잃는다.
+            # 색인기가 다시 만들 때까지 없는 것으로 친다.
+            if _embed_model_of(collection) != embed_model:
+                return None
+            _user_collection_cache = collection
+            return _user_collection_cache
+
+        def make():
+            return _chroma_client().get_or_create_collection(
+                USER_COLLECTION_NAME,
+                embedding_function=OllamaEmbeddingFunction(),
+                metadata={"hnsw:space": "cosine", "embed_model": embed_model},
+            )
+
+        try:
+            collection = make()
+            if _embed_model_of(collection) != embed_model:
+                raise RuntimeError("embed model changed")
+        except Exception:
+            # 임베딩 모델이 바뀌었거나, 옛 컬렉션이 지금 임베딩 함수를 거부한다.
+            # 어느 쪽이든 그 색인은 더 못 쓴다 — 버리고 새로 만든다.
+            try:
+                _chroma_client().delete_collection(USER_COLLECTION_NAME)
+                collection = make()
+            except Exception:
+                return None
+
+        _user_collection_cache = collection
+        return _user_collection_cache
 
 
 def _resolve_path(relative_path: str, *, user_file: bool = False) -> Path:

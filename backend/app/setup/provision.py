@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import shutil
 import threading
+import time
 
 import requests
 
@@ -136,6 +137,45 @@ def _ollama_models() -> tuple[bool, set[str]]:
     return True, names
 
 
+# 임베딩 실동작 확인 결과 캐시. 확인 한 번이 임베딩 1회라, 상태를 폴링할 때마다
+# 새로 재면 준비 화면이 그 자체로 느려진다.
+_health_lock = threading.Lock()
+_health: dict = {"checked_at": 0.0, "usable": False, "detail": "", "model": ""}
+HEALTH_TTL_SEC = 60.0
+
+
+def reset_embed_health() -> None:
+    """확인 결과를 버린다. 모델을 새로 받은 뒤에 부른다."""
+    with _health_lock:
+        _health["checked_at"] = 0.0
+
+
+def embed_health() -> dict:
+    """검색 모델이 이 PC에서 **실제로** 도는가. (캐시됨)
+
+    이름이 `ollama list`에 있는 것과 도는 것은 다른 문제다. 이 구분이 없으면
+    준비 화면은 "준비 완료"라고 하고, 사용자는 폴더를 고른 뒤에야 아무것도
+    안 된다는 걸 알게 된다.
+    """
+    from ..rag import embedding
+
+    now = time.monotonic()
+    with _health_lock:
+        if now - _health["checked_at"] < HEALTH_TTL_SEC and _health["checked_at"]:
+            return dict(_health)
+
+    try:
+        model = embedding.ensure_usable_model()
+        result = {"checked_at": now, "usable": True, "detail": "", "model": model}
+    except embedding.EmbeddingUnavailable as exc:
+        result = {"checked_at": now, "usable": False, "detail": str(exc),
+                  "model": embedding.resolve_model()}
+
+    with _health_lock:
+        _health.update(result)
+        return dict(result)
+
+
 def status() -> dict:
     """앱이 쓸 수 있는 상태인가? FE 준비 화면이 이 값 하나로 그려진다."""
     running, installed = _ollama_models()
@@ -155,6 +195,9 @@ def status() -> dict:
 
     embed_missing = [m["name"] for m in models if m["role"] == "embed" and not m["present"]]
     has_generate = any(m["role"] == "generate" and m["present"] for m in models)
+    # 모델이 하나도 없는 단계에서 임베딩을 시도할 필요는 없다 (실패가 뻔하다).
+    health = (embed_health() if running and not embed_missing
+              else {"usable": False, "detail": "", "model": settings.embed_model()})
 
     try:
         from ..rag.search import index_status
@@ -163,12 +206,17 @@ def status() -> dict:
     except Exception as exc:
         index = {"ready": False, "detail": f"색인 상태를 확인할 수 없습니다: {exc}"}
 
+    from ..rag import embedding
+
     return {
         "ollama": {
             "running": running,
             # PATH에서 실행 파일이 보이는지. 설치는 됐는데 꺼져 있는 경우를 구분한다.
             "binary_found": shutil.which("ollama") is not None,
             "base_url": config.OLLAMA_BASE_URL,
+            # 낡은 Ollama는 최신 모델을 받아도 실행하지 못한다 — 문의가 들어왔을 때
+            # 제일 먼저 봐야 하는 값이라 상태에 넣어 둔다.
+            "version": embedding.ollama_version(),
         },
         "hardware": {**hardware, "summary": hardware_summary(hardware)},
         "recommendation": {
@@ -176,10 +224,17 @@ def status() -> dict:
             "reason": recommendation_reason(hardware),
         },
         "selected_model": selected,
+        # 실제로 검색에 쓰이는 임베딩 모델. 기본 모델이 이 PC에서 안 돌아
+        # 예비 모델로 갈아탄 경우 카탈로그의 이름과 달라진다.
+        "active_embed_model": settings.embed_model(),
+        # 이름이 목록에 있는지가 아니라 **실제로 도는지**.
+        "embed": health,
         "models": models,
         "missing_required": embed_missing + ([] if has_generate else [selected]),
         # 이 값이 True면 앱을 바로 쓸 수 있다 (색인은 폴더 선택 시 만들어진다).
-        "ready": running and not embed_missing and has_generate,
+        # 검색 모델이 실제로 돌지 않으면 준비된 것이 아니다 — 예전에는 이름만 보고
+        # 통과시켜서, 사용자가 폴더를 고른 뒤에야 아무것도 안 된다는 걸 알았다.
+        "ready": running and not embed_missing and has_generate and health["usable"],
         "download": _progress.snapshot(),
         "index": index,
     }
@@ -226,6 +281,41 @@ def _pull_one(name: str, index: int, total_models: int) -> None:
                 _progress.overall = (index + percent / 100) / total_models * 100
 
 
+def _verify_embed_model() -> None:
+    """받은 검색 모델이 이 PC에서 **정말 도는지** 확인하고, 안 되면 예비 모델로.
+
+    `ollama pull`은 레지스트리에서 파일을 받아 오기만 한다. 낡은 실행기나 부족한
+    메모리 때문에 못 돌아도 pull은 성공하고 목록에도 이름이 뜬다. 그 상태로
+    준비 화면을 통과시키면, 사용자는 폴더를 고르고 한참 기다린 끝에 "검색할 문서가
+    없습니다"만 보게 된다. 그 판정을 여기서, 사용자가 아직 화면 앞에 있을 때 한다.
+    """
+    from ..rag import embedding
+
+    embedding.forget_verified_model()
+    ok, reason = embedding.probe(config.OLLAMA_EMBED_MODEL)
+    if ok:
+        settings.set_embed_model(config.OLLAMA_EMBED_MODEL)
+        return
+
+    for fallback in config.OLLAMA_EMBED_FALLBACKS:
+        with _progress.lock:
+            _progress.model = fallback
+            _progress.percent = 0.0
+            _progress.phase = "이 PC에 맞는 검색 모델로 교체하는 중"
+        try:
+            if fallback not in embedding.installed_models():
+                _pull_one(fallback, 0, 1)
+            if embedding.probe(fallback)[0]:
+                settings.set_embed_model(fallback)
+                embedding.forget_verified_model()
+                return
+        except Exception:
+            continue
+
+    with _progress.lock:
+        _progress.error = reason
+
+
 def _download_worker(names: list[str]) -> None:
     try:
         for index, name in enumerate(names):
@@ -234,6 +324,7 @@ def _download_worker(names: list[str]) -> None:
                 _progress.done.append(name)
                 _progress.percent = 100.0
                 _progress.overall = (index + 1) / len(names) * 100
+        _verify_embed_model()
     except requests.exceptions.RequestException as exc:
         with _progress.lock:
             _progress.error = f"Ollama에 연결할 수 없습니다: {exc}"
@@ -241,6 +332,8 @@ def _download_worker(names: list[str]) -> None:
         with _progress.lock:
             _progress.error = str(exc)
     finally:
+        # 모델 구성이 바뀌었으니 이전 확인 결과는 못 믿는다.
+        reset_embed_health()
         with _progress.lock:
             _progress.running = False
             _progress.phase = "완료" if not _progress.error else "실패"
@@ -292,13 +385,19 @@ def start_download(include_full: bool = False, models: list[str] | None = None) 
              if name not in installed and not (name in seen or seen.add(name))]
 
     if not names:
-        return {"started": False, "detail": "이미 모든 모델이 준비돼 있습니다.", "models": []}
+        # 받을 것이 없어도 검색 모델이 안 돌면 그냥 돌려보내면 안 된다.
+        # 그러면 "다 준비됨"이라 말하고 검색은 죽어 있는 상태가 그대로 유지된다.
+        # 빈 목록으로 작업을 걸어 확인·교체(_verify_embed_model)만 돌린다.
+        if embed_health()["usable"]:
+            return {"started": False, "detail": "이미 모든 모델이 준비돼 있습니다.", "models": []}
+        reset_embed_health()
 
     with _progress.lock:
         _progress.reset()
         _progress.running = True
-        _progress.model = names[0]
-        _progress.phase = "시작"
+        # 받을 것 없이 확인만 도는 경우가 있다 (이미 다 깔렸는데 안 도는 상태).
+        _progress.model = names[0] if names else config.OLLAMA_EMBED_MODEL
+        _progress.phase = "시작" if names else "검색 모델을 확인하는 중"
 
     threading.Thread(target=_download_worker, args=(names,),
                      name="model-download", daemon=True).start()

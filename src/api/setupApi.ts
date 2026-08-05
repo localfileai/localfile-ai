@@ -43,11 +43,27 @@ export interface DownloadProgress {
   error: string;
 }
 
+/**
+ * 검색 모델이 이 PC에서 **실제로** 도는가.
+ *
+ * 이름이 `ollama list`에 있는 것과 도는 것은 다른 문제다. pull은 파일을 받아
+ * 오기만 해서, 낡은 Ollama는 받기에 성공하고 임베딩만 500으로 죽는다.
+ */
+export interface EmbedHealth {
+  usable: boolean;
+  /** 안 될 때 사용자에게 그대로 보여 줄 이유 */
+  detail: string;
+  model: string;
+}
+
 export interface SetupStatus {
-  ollama: { running: boolean; binary_found: boolean; base_url: string };
+  ollama: { running: boolean; binary_found: boolean; base_url: string; version?: string };
   hardware: Hardware;
   recommendation: { generate_model: string; reason: string };
   selected_model: string;
+  /** 실제 검색에 쓰이는 임베딩 모델 (예비 모델로 갈아탔으면 카탈로그와 다르다) */
+  active_embed_model?: string;
+  embed: EmbedHealth;
   models: SetupModel[];
   missing_required: string[];
   ready: boolean;

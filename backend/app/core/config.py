@@ -55,6 +55,21 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 # ⚠️ 모델을 바꾸면 기존 색인과 호환되지 않는다 — `npm run index`로 재색인할 것.
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
 
+# 기본 임베딩 모델이 그 PC에서 안 돌 때 갈아탈 예비 모델.
+#
+# `ollama pull`은 레지스트리에서 파일을 받아 오기만 한다 — 실행기(Ollama)가
+# 낡았으면 pull은 성공하고 `/api/embed`만 500으로 죽는다. 배포본에서 실제로
+# 겪은 상황이고, 우리 설치 과정은 Ollama가 이미 떠 있으면 건드리지 않으므로
+# 남의 PC에 몇 년 된 Ollama가 깔려 있으면 그대로 재현된다.
+#
+# nomic-embed-text는 작고(274MB) 오래돼서 구버전 Ollama와 저사양 PC에서도 돈다.
+# 검색 품질은 기본 모델보다 낮지만, 검색이 아예 안 되는 것보다 낫다는 판단이다.
+OLLAMA_EMBED_FALLBACKS = [
+    name.strip() for name in
+    os.getenv("OLLAMA_EMBED_FALLBACKS", "nomic-embed-text").split(",")
+    if name.strip()
+]
+
 # 추천용 로컬 LLM (기능②③). ADR-0002 §1.
 OLLAMA_GENERATE_MODEL = os.getenv("OLLAMA_GENERATE_MODEL", "exaone3.5:7.8b")
 

@@ -10,16 +10,26 @@ BE1이 `scripts/embed_dataset.py`에서 쓴 것과 **같은 모델·같은 방�
 GPU나 작은 모델로는 줄지 않는다. 실효 대책으로 두 가지를 적용한다.
   - `requests.Session` 재사용: TCP 커넥션을 요청마다 새로 맺지 않는다.
   - `keep_alive`: 요청이 끝나도 모델을 메모리에 유지해 재로딩을 피한다.
+
+5주차 배포 대응: **모델 이름이 목록에 보인다고 그 PC에서 도는 것은 아니다.**
+`ollama pull`은 레지스트리에서 파일을 받아 오기만 하므로, 실행기(Ollama)가
+낡았거나 메모리가 모자라면 pull은 성공하고 `/api/embed`만 500으로 죽는다.
+그래서 이 모듈은 두 가지를 더 한다.
+  - 실패 시 Ollama가 보낸 **본문 메시지를 사람 말로 바꿔 올린다** (예전에는
+    `raise_for_status()`가 삼켜서 "500 Server Error"만 남았다).
+  - 실제로 한 건을 임베딩해 보는 `probe()`와, 안 되면 두루 도는 모델로
+    갈아타는 `ensure_usable_model()`.
 """
 
 from __future__ import annotations
 
 import os
+import threading
 
 import requests
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
-from ..core import config
+from ..core import config, settings
 
 # 1주차 bge-m3 → 3주차 qwen3-embedding:0.6b로 개정 (ADR-0002 §2 개정 참고).
 # 어려운 평가셋 실측: paraphrase Top-1 90%(bge-m3 70%) · k-NN 89.8% · 크기 절반.
@@ -34,12 +44,101 @@ COLLECTION_NAME = os.getenv("LOCAL_FILE_AI_COLLECTION", "file_documents")
 _session = requests.Session()
 
 
+class EmbeddingUnavailable(RuntimeError):
+    """임베딩을 만들 수 없는 상태. 메시지는 그대로 사용자에게 보여 준다."""
+
+
+def resolve_model() -> str:
+    """지금 쓰는 임베딩 모델. 예비 모델로 갈아탄 적이 있으면 그 값."""
+    return settings.embed_model()
+
+
+def _describe_error(response: requests.Response, model: str) -> str:
+    """Ollama의 오류 응답을 "그래서 뭘 해야 하는지" 아는 문장으로 바꾼다.
+
+    Ollama는 실패 이유를 본문 JSON의 `error`에 담아 준다. 예전에는
+    `raise_for_status()`가 상태 코드만 남겨서, 화면에 "500 Server Error"만 뜨고
+    정작 원인(메모리 부족인지, 실행기가 낡은 건지)은 아무 데도 안 남았다.
+    """
+    detail = ""
+    try:
+        detail = str((response.json() or {}).get("error", "")).strip()
+    except ValueError:
+        detail = (response.text or "").strip()
+    detail = detail[:200]
+    lowered = detail.lower()
+
+    if any(hint in lowered for hint in ("more system memory", "out of memory", "cudamalloc")):
+        return (f"이 PC의 메모리가 부족해 검색 모델({model})을 올리지 못했습니다. "
+                f"다른 프로그램을 닫고 다시 시도해 주세요. (Ollama: {detail})")
+    if any(hint in lowered for hint in
+           ("unsupported", "unknown model architecture", "unable to load",
+            "does not support", "no such file", "invalid model")):
+        return (f"설치된 Ollama가 검색 모델({model})을 실행하지 못합니다. "
+                f"Ollama를 최신 버전으로 업데이트해 주세요 (https://ollama.com/download). "
+                f"(Ollama: {detail})")
+    if "not found" in lowered:
+        return (f"검색 모델({model})이 설치되어 있지 않습니다. "
+                f"설정에서 모델을 다시 받아 주세요. (Ollama: {detail})")
+    return (f"검색 모델({model})로 문서를 읽지 못했습니다 "
+            f"(HTTP {response.status_code}: {detail or '이유 없음'})")
+
+
+def _embed(model: str, inputs: list[str], timeout: int) -> list[list[float]]:
+    """Ollama에 임베딩을 요청한다. 실패하면 이유가 담긴 예외를 올린다."""
+    try:
+        response = _session.post(
+            f"{OLLAMA_BASE_URL}/api/embed",
+            json={
+                "model": model,
+                "input": inputs,
+                # 검색이 뜸한 시간대에도 모델이 내려가지 않게 유지한다.
+                "keep_alive": config.OLLAMA_KEEP_ALIVE,
+            },
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise EmbeddingUnavailable(
+            f"Ollama 서버에 연결할 수 없습니다 ({OLLAMA_BASE_URL}): {exc}") from exc
+
+    # 오래된 Ollama에는 묶음 엔드포인트(/api/embed)가 없다. 한 건씩 도는
+    # 옛 엔드포인트로 물러선다 — 느리지만 되는 편이 안 되는 것보다 낫다.
+    if response.status_code == 404:
+        return [_embed_one_legacy(model, text, timeout) for text in inputs]
+
+    if not response.ok:
+        raise EmbeddingUnavailable(_describe_error(response, model))
+
+    vectors = (response.json() or {}).get("embeddings")
+    if not vectors:
+        raise EmbeddingUnavailable(
+            f"검색 모델({model})이 빈 응답을 돌려줬습니다. "
+            f"Ollama를 최신 버전으로 업데이트해 주세요 (https://ollama.com/download).")
+    return vectors
+
+
+def _embed_one_legacy(model: str, text: str, timeout: int) -> list[float]:
+    """구버전 Ollama의 단건 임베딩 엔드포인트."""
+    response = _session.post(
+        f"{OLLAMA_BASE_URL}/api/embeddings",
+        json={"model": model, "prompt": text, "keep_alive": config.OLLAMA_KEEP_ALIVE},
+        timeout=timeout,
+    )
+    if not response.ok:
+        raise EmbeddingUnavailable(_describe_error(response, model))
+    vector = (response.json() or {}).get("embedding")
+    if not vector:
+        raise EmbeddingUnavailable(f"검색 모델({model})이 빈 응답을 돌려줬습니다.")
+    return vector
+
+
 class OllamaEmbeddingFunction(EmbeddingFunction):
     """Ollama의 다국어 임베딩 모델을 ChromaDB에 물리는 어댑터."""
 
-    def __init__(self, model: str = DEFAULT_EMBED_MODEL,
+    def __init__(self, model: str | None = None,
                  timeout: int = config.EMBED_TIMEOUT_SEC) -> None:
-        self._model = model
+        # 기본값을 import 시점에 굳히지 않는다 — 실행 중에 예비 모델로 갈아탈 수 있다.
+        self._model = model or resolve_model()
         self._timeout = timeout
 
     def name(self) -> str:
@@ -47,22 +146,108 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         return f"ollama-{self._model}"
 
     def __call__(self, input: Documents) -> Embeddings:
-        response = _session.post(
-            f"{OLLAMA_BASE_URL}/api/embed",
-            json={
-                "model": self._model,
-                "input": list(input),
-                # 검색이 뜸한 시간대에도 모델이 내려가지 않게 유지한다.
-                "keep_alive": config.OLLAMA_KEEP_ALIVE,
-            },
-            timeout=self._timeout,
-        )
+        return _embed(self._model, list(input), self._timeout)
+
+
+def ollama_version() -> str:
+    """설치된 Ollama 버전. 확인할 수 없으면 빈 문자열."""
+    try:
+        response = _session.get(f"{OLLAMA_BASE_URL}/api/version", timeout=5)
         response.raise_for_status()
-        return response.json()["embeddings"]
+        return str((response.json() or {}).get("version", ""))
+    except (requests.exceptions.RequestException, ValueError):
+        return ""
 
 
-def check_ollama(model: str = DEFAULT_EMBED_MODEL) -> tuple[bool, str]:
+def installed_models() -> set[str]:
+    """설치된 모델 이름 집합. 태그 있는 이름과 없는 이름을 모두 담는다."""
+    try:
+        response = _session.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        response.raise_for_status()
+    except (requests.exceptions.RequestException, ValueError):
+        return set()
+
+    names: set[str] = set()
+    for entry in (response.json() or {}).get("models", []):
+        name = str(entry.get("name", ""))
+        if name:
+            names.add(name)
+            names.add(name.split(":")[0])
+    return names
+
+
+def probe(model: str) -> tuple[bool, str]:
+    """이 모델로 **실제로** 한 건 임베딩해 본다. (되는가, 안 되는 이유)
+
+    이름이 `/api/tags`에 보이는 것과 그 PC에서 도는 것은 다른 문제다.
+    `ollama pull`은 파일을 받아 오기만 하므로, 실행기가 낡았거나 메모리가
+    모자라면 pull은 성공하고 첫 임베딩에서 500이 난다. 그 상태로 색인을
+    시작하면 사용자는 한참 기다린 뒤에야 아무것도 안 됐다는 걸 알게 된다.
+    """
+    try:
+        _embed(model, ["문서 검색 준비 확인"], timeout=min(config.EMBED_TIMEOUT_SEC, 120))
+        return True, ""
+    except EmbeddingUnavailable as exc:
+        return False, str(exc)
+    except Exception as exc:  # 예상 밖의 오류도 이유를 남긴다
+        return False, f"검색 모델({model}) 확인 중 오류: {type(exc).__name__}: {exc}"
+
+
+_ensure_lock = threading.Lock()
+_verified_model = ""
+
+
+def ensure_usable_model(force: bool = False) -> str:
+    """실제로 도는 임베딩 모델을 정해 돌려준다. 하나도 없으면 EmbeddingUnavailable.
+
+    기본 모델이 이 PC에서 안 돌면 **두루 도는 예비 모델로 갈아탄다.**
+    예비 모델(nomic-embed-text)은 작고 오래돼서 구버전 Ollama와 저사양 PC에서도
+    동작한다. 검색 품질은 기본 모델보다 낮지만, 검색이 아예 안 되는 것보다 낫다.
+
+    한 번 확인한 모델은 다시 확인하지 않는다 — 확인 자체가 임베딩 1회다.
+    """
+    global _verified_model
+
+    with _ensure_lock:
+        if _verified_model and not force:
+            return _verified_model
+
+        current = resolve_model()
+        installed = installed_models()
+
+        # 지금 모델 먼저, 그다음 예비 모델. 중복은 없앤다.
+        candidates: list[str] = [current]
+        for fallback in config.OLLAMA_EMBED_FALLBACKS:
+            if fallback not in candidates:
+                candidates.append(fallback)
+
+        reasons: list[str] = []
+        for candidate in candidates:
+            if candidate not in installed and candidate.split(":")[0] not in installed:
+                reasons.append(f"검색 모델({candidate})이 설치되어 있지 않습니다.")
+                continue
+            ok, reason = probe(candidate)
+            if ok:
+                if candidate != current:
+                    settings.set_embed_model(candidate)
+                _verified_model = candidate
+                return candidate
+            reasons.append(reason)
+
+        raise EmbeddingUnavailable(
+            reasons[0] if reasons else f"검색 모델({current})을 쓸 수 없습니다.")
+
+
+def forget_verified_model() -> None:
+    """확인 결과를 잊는다. 모델을 새로 받은 뒤에 부른다."""
+    global _verified_model
+    with _ensure_lock:
+        _verified_model = ""
+
+
+def check_ollama(model: str | None = None) -> tuple[bool, str]:
     """Ollama 서버와 모델이 준비됐는지 확인한다. (준비됨, 안내문)"""
+    model = model or resolve_model()
     try:
         response = _session.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
         response.raise_for_status()

@@ -34,6 +34,19 @@ def _load() -> dict:
     return _cache
 
 
+def _store(key: str, value: str) -> None:
+    global _cache
+    with _lock:
+        data = dict(_cache or {})
+        data[key] = value
+        try:
+            _path().write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+        except OSError:
+            pass  # 저장 실패해도 이번 실행 동안은 적용된다
+        _cache = data
+
+
 def generate_model() -> str:
     """파일명 추천에 쓸 LLM. 사용자가 고른 값이 없으면 개발 기본값."""
     chosen = str(_load().get("generate_model", "")).strip()
@@ -41,13 +54,19 @@ def generate_model() -> str:
 
 
 def set_generate_model(name: str) -> None:
-    global _cache
-    with _lock:
-        data = dict(_cache or {})
-        data["generate_model"] = name
-        try:
-            _path().write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                               encoding="utf-8")
-        except OSError:
-            pass  # 저장 실패해도 이번 실행 동안은 적용된다
-        _cache = data
+    _store("generate_model", name)
+
+
+def embed_model() -> str:
+    """검색·분류에 쓸 임베딩 모델.
+
+    사용자가 고르는 값이 아니다. 기본 모델이 그 PC에서 안 돌 때 앱이 예비
+    모델로 갈아타면서 여기에 적어 둔다 — 색인과 검색이 **같은** 모델을 써야
+    거리 계산이 의미를 갖기 때문에, 그 결정이 앱을 껐다 켜도 남아야 한다.
+    """
+    chosen = str(_load().get("embed_model", "")).strip()
+    return chosen or config.OLLAMA_EMBED_MODEL
+
+
+def set_embed_model(name: str) -> None:
+    _store("embed_model", name)

@@ -46,6 +46,8 @@ def fake_collection(monkeypatch):
     collection = FakeUserCollection()
     monkeypatch.setattr(indexer, "user_collection", lambda create=False: collection)
     monkeypatch.setattr(search_module, "user_collection", lambda create=False: collection)
+    # 색인은 시작 전에 임베딩이 실제로 되는지 확인한다. 테스트에는 Ollama가 없다.
+    monkeypatch.setattr(indexer, "ensure_usable_model", lambda: "test-embed")
     return collection
 
 

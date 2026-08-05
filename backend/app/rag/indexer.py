@@ -29,6 +29,7 @@ from pathlib import Path
 from ..contracts.ai import MAX_FIRST_PAGE_CHARS
 from ..core import config
 from ..extraction.service import extract_from_path
+from .embedding import EmbeddingUnavailable, ensure_usable_model
 from .search import user_collection
 
 # 한 번의 collection.add에 보낼 문서 수. embed_dataset.py의 배치와 같은 크기.
@@ -152,6 +153,20 @@ def _upsert_batch(collection, ids: list, documents: list, metadatas: list) -> in
 
 
 def _run(path: str, max_files: int) -> None:
+    try:
+        # 문서를 읽기 전에 임베딩이 **실제로** 되는지 한 건으로 확인한다.
+        # 이름이 `ollama list`에 보인다고 그 PC에서 도는 것은 아니다 — pull은
+        # 파일을 받아 오기만 하므로, 실행기가 낡았거나 메모리가 모자라면 여기서
+        # 처음 드러난다. 확인 없이 시작하면 몇 분 기다린 끝에 0건으로 끝난다.
+        # 안 되는 모델이면 여기서 예비 모델로 갈아탄다.
+        ensure_usable_model()
+    except EmbeddingUnavailable as exc:
+        with _lock:
+            _state["error"] = str(exc)[:300]
+            _state["running"] = False
+            _state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        return
+
     collection = user_collection(create=True)
     try:
         items = extract_from_path(path, max_chars=MAX_FIRST_PAGE_CHARS)

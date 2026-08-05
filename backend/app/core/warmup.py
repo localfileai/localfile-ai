@@ -29,7 +29,14 @@ def _warm_up() -> None:
 
         search.index_status()
 
-        # 2) 임베딩 모델 로드 + 분류 라벨 좌표 캐시 (한 호출로 둘 다 해결)
+        # 2) 임베딩이 이 PC에서 실제로 되는지 확인 — 안 되면 예비 모델로 갈아탄다.
+        #    사용자가 폴더를 고르기 전에 끝내 두면, 첫 색인이 그냥 성공한다.
+        from ..rag import embedding
+
+        logger.info("검색 모델 확인 중 (Ollama %s)", embedding.ollama_version() or "버전 미확인")
+        logger.info("검색 모델 준비: %s", embedding.ensure_usable_model())
+
+        # 3) 임베딩 모델 로드 + 분류 라벨 좌표 캐시 (한 호출로 둘 다 해결)
         from ..rag import classify
 
         classify._label_vectors()

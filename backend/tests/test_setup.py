@@ -38,9 +38,15 @@ def clean_progress(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(settings, "_cache", None)
+    # 준비 상태 판정은 임베딩을 실제로 한 번 해 본다. 테스트에는 Ollama가 없으므로
+    # 기본은 "잘 돈다"로 두고, 안 도는 경우는 해당 테스트가 직접 뒤집는다.
+    monkeypatch.setattr(provision, "embed_health",
+                        lambda: {"usable": True, "detail": "", "model": "test-embed"})
     provision._progress.reset()
+    provision.reset_embed_health()
     yield
     provision._progress.reset()
+    provision.reset_embed_health()
 
 
 def required_names():
@@ -197,3 +203,87 @@ class TestApi:
         response = client.post("/setup/models")
         assert response.status_code == 202
         assert response.json()["started"] is True
+
+
+class TestEmbedModelMustActuallyRun:
+    """이름이 목록에 있다고 그 PC에서 도는 것은 아니다.
+
+    배포본에서 실제로 겪은 상황이다. `ollama pull`은 레지스트리에서 파일을
+    받아 오기만 해서, 낡은 실행기는 pull에 성공하고 `/api/embed`만 500으로 죽는다.
+    이름만 보고 "준비 완료"를 통과시키면 사용자는 폴더를 고른 뒤에야 알게 된다.
+    """
+
+    def test_모델이_있어도_안_돌면_준비_완료가_아니다(self, monkeypatch):
+        fake_tags(monkeypatch, required_names())
+        monkeypatch.setattr(provision, "detect_hardware", lambda: {"has_usable_gpu": False})
+        monkeypatch.setattr(provision, "embed_health", lambda: {
+            "usable": False,
+            "detail": "설치된 Ollama가 검색 모델을 실행하지 못합니다.",
+            "model": "qwen3-embedding:0.6b",
+        })
+
+        status = provision.status()
+
+        assert status["ready"] is False
+        assert status["embed"]["usable"] is False
+        assert "실행하지 못합니다" in status["embed"]["detail"]
+
+    def test_안_도는_상태면_받을_게_없어도_확인_작업을_건다(self, monkeypatch):
+        # 여기서 "이미 다 준비됨"으로 돌려보내면, 검색이 죽은 채로 굳는다.
+        fake_tags(monkeypatch, required_names())
+        monkeypatch.setattr(provision, "detect_hardware", lambda: {"has_usable_gpu": False})
+        monkeypatch.setattr(provision, "embed_health",
+                            lambda: {"usable": False, "detail": "못 씀", "model": "m"})
+        monkeypatch.setattr(provision.threading, "Thread",
+                            lambda *a, **k: type("T", (), {"start": lambda self: None})())
+
+        result = provision.start_download()
+
+        assert result["started"] is True
+        assert result["models"] == []  # 받을 것은 없고 확인·교체만 돈다
+
+
+class TestVerifyEmbedModel:
+    def test_기본_모델이_안_돌면_예비_모델을_받아_갈아탄다(self, monkeypatch):
+        from app.core import config, settings
+        from app.rag import embedding
+
+        fallback = config.OLLAMA_EMBED_FALLBACKS[0]
+        pulled = []
+
+        monkeypatch.setattr(provision, "_pull_one",
+                            lambda name, i, n: pulled.append(name))
+        monkeypatch.setattr(embedding, "installed_models",
+                            lambda: {config.OLLAMA_EMBED_MODEL})
+        monkeypatch.setattr(embedding, "probe", lambda model: (
+            (False, "실행하지 못합니다") if model == config.OLLAMA_EMBED_MODEL else (True, "")))
+
+        provision._verify_embed_model()
+
+        assert pulled == [fallback]
+        assert settings.embed_model() == fallback
+        assert not provision._progress.error
+
+    def test_기본_모델이_돌면_아무것도_받지_않는다(self, monkeypatch):
+        from app.core import config, settings
+        from app.rag import embedding
+
+        pulled = []
+        monkeypatch.setattr(provision, "_pull_one", lambda name, i, n: pulled.append(name))
+        monkeypatch.setattr(embedding, "probe", lambda model: (True, ""))
+
+        provision._verify_embed_model()
+
+        assert pulled == []
+        assert settings.embed_model() == config.OLLAMA_EMBED_MODEL
+
+    def test_예비_모델도_안_되면_이유를_남긴다(self, monkeypatch):
+        from app.rag import embedding
+
+        monkeypatch.setattr(provision, "_pull_one", lambda name, i, n: None)
+        monkeypatch.setattr(embedding, "installed_models", lambda: set())
+        monkeypatch.setattr(embedding, "probe", lambda model: (False, "메모리가 부족합니다"))
+
+        provision._verify_embed_model()
+
+        assert "메모리가 부족합니다" in provision._progress.error

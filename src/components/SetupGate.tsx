@@ -133,6 +133,11 @@ export default function SetupGate({ children }: Props) {
 
   const ollamaMissing = status !== null && !status.ollama.running;
   const download = status?.download;
+  // 모델은 다 받았는데 검색 모델이 안 도는 상태. 받을 것이 없어 예전에는
+  // 버튼이 하나도 안 나왔고, 사용자가 할 수 있는 일이 없었다.
+  const embedBlocked = Boolean(
+    status?.ollama.running && status.missing_required.length === 0 && !status.embed?.usable,
+  );
   const generateModels = (status?.models ?? []).filter((model) => model.role === 'generate');
   const embedModel = (status?.models ?? []).find((model) => model.role === 'embed');
 
@@ -164,7 +169,9 @@ export default function SetupGate({ children }: Props) {
               status === null
                 ? '확인 중…'
                 : status.ollama.running
-                  ? '실행 중'
+                  // 낡은 Ollama는 최신 모델을 받아도 실행하지 못한다.
+                  // 문제가 났을 때 제일 먼저 확인해야 하는 값이라 항상 보여 준다.
+                  ? `실행 중${status.ollama.version ? ` (v${status.ollama.version})` : ''}`
                   : status.ollama.binary_found
                     ? '설치돼 있지만 실행되지 않았습니다. Ollama를 실행해 주세요.'
                     : '설치가 필요합니다.'
@@ -179,6 +186,23 @@ export default function SetupGate({ children }: Props) {
                 : status.missing_required.length === 0
                   ? '준비 완료'
                   : `${status.missing_required.length}개 필요 (약 ${pendingGb.toFixed(1)}GB)`
+            }
+          />
+          {/* 모델을 받았다고 그 PC에서 도는 것은 아니다.
+              실제로 한 건 임베딩해 보고 그 결과를 여기 보여 준다 — 예전에는
+              이 확인이 없어서, 검색이 죽은 상태로 준비 완료를 통과했다. */}
+          <Step
+            label="검색 모델 동작 확인"
+            done={status?.embed?.usable ?? false}
+            failed={Boolean(status?.embed && !status.embed.usable && status.embed.detail)}
+            detail={
+              status === null
+                ? '확인 중…'
+                : embedBlocked
+                  ? status.embed.detail
+                  : status.embed?.usable
+                    ? `${status.active_embed_model ?? status.embed.model} 정상`
+                    : '모델을 받은 뒤 확인합니다.'
             }
           />
         </div>
@@ -290,13 +314,19 @@ export default function SetupGate({ children }: Props) {
             </button>
           )}
 
-          {status?.ollama.running && status.missing_required.length > 0 && !download?.running && (
+          {status?.ollama.running
+            && (status.missing_required.length > 0 || embedBlocked)
+            && !download?.running && (
             <button
               onClick={handleDownload}
               disabled={busy}
               className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-[12px] font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {pendingGb > 0 ? `선택한 모델 받기 (약 ${pendingGb.toFixed(1)}GB)` : '모델 받기 시작'}
+              {embedBlocked
+                ? '이 PC에서 되는 검색 모델로 바꾸기'
+                : pendingGb > 0
+                  ? `선택한 모델 받기 (약 ${pendingGb.toFixed(1)}GB)`
+                  : '모델 받기 시작'}
             </button>
           )}
 
