@@ -5,13 +5,15 @@ import {
   startModelDownload,
   type SetupStatus,
 } from '../api/setupApi';
+import { openSetupScreen } from '../setupWindow';
 import { applyTheme, readTheme, type Theme } from '../theme';
 
 /**
  * 설정 — 화면 오른쪽 아래 버튼으로 연다.
  *
- * 두 가지만 담는다: 화면 테마와 AI 모델. 모델은 첫 실행 화면에서 한 번 고르지만,
- * 나중에 GPU를 바꾸거나 품질이 아쉬울 때 바꿀 수 있어야 한다.
+ * 세 가지를 담는다: 화면 테마, AI 모델, 그리고 **준비 화면으로 돌아가는 길**.
+ * 마지막 것이 6주차에 추가됐다 — 준비를 건너뛰고 들어온 사용자가 설정을 열어도
+ * 모델을 설치할 방법이 없었고, 그 상태로는 검색이 통째로 죽어 있었다.
  */
 
 /** 모델을 고를 때 도움이 되도록 한 줄 요약. 근거는 3주차 실측(ADR-0002). */
@@ -76,6 +78,8 @@ export default function SettingsPanel() {
 
   const generateModels = (status?.models ?? []).filter((model) => model.role === 'generate');
   const download = status?.download;
+  // 검색 모델이 실제로 안 도는 상태. 준비 화면으로 보내야 한다.
+  const setupBroken = Boolean(status && !status.embed?.usable);
 
   return (
     <>
@@ -101,6 +105,39 @@ export default function SettingsPanel() {
           />
           <div className="fixed bottom-20 right-5 z-50 max-h-[calc(100vh-7rem)] w-[24rem] overflow-y-auto rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#16161e] p-5 shadow-2xl">
             <div className="text-sm font-bold text-gray-800 dark:text-gray-100">설정</div>
+
+            {/* AI 준비 상태 — 문제가 있으면 여기서 바로 준비 화면으로 간다.
+                준비가 끝난 사용자에게도 남겨 둔다: 나중에 Ollama가 망가지거나
+                모델을 다시 받아야 할 때 갈 곳이 이 버튼 하나뿐이다. */}
+            <div className="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
+              <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">
+                AI 준비 상태
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                {status === null
+                  ? '확인 중…'
+                  : setupBroken
+                    ? (status.embed?.detail || '검색 모델이 동작하지 않습니다.')
+                    : status.ready
+                      ? `검색 모델(${status.active_embed_model ?? status.embed?.model}) 정상 동작 중입니다.`
+                      : '아직 준비가 끝나지 않아 검색·추천이 동작하지 않습니다.'}
+              </p>
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  openSetupScreen();
+                }}
+                className={`mt-2 w-full rounded-lg px-3 py-2 text-[11px] font-bold ${
+                  setupBroken || !status?.ready
+                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5'
+                }`}
+              >
+                {setupBroken || !status?.ready
+                  ? '준비 화면 열고 한 번에 설치하기'
+                  : 'AI 준비 화면 열기'}
+              </button>
+            </div>
 
             {/* 화면 테마 */}
             <div className="mt-4">

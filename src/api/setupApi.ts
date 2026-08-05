@@ -16,6 +16,8 @@ export interface SetupModel {
   present: boolean;
   /** 이 PC 사양에 권장되는가 */
   recommended: boolean;
+  /** "한 번에 모두 설치"가 받을 구성에 들어가는가 */
+  planned: boolean;
   /** 현재 사용하도록 설정된 모델인가 */
   selected: boolean;
   approx_gb: number;
@@ -41,7 +43,18 @@ export interface DownloadProgress {
   overall: number;
   done: string[];
   error: string;
+  /** 실패 갈래. 'runtime'이면 모델을 더 받아도 소용없고 Ollama를 다시 깔아야 한다 */
+  error_kind?: FailureKind;
 }
+
+/**
+ * 검색 모델이 안 되는 이유의 갈래. 화면이 "그래서 뭘 눌러야 하나"를 이걸로 정한다.
+ *   runtime — Ollama 설치가 깨졌거나 낡았다. 다시 설치하는 것 말고는 방법이 없다.
+ *   memory  — 이 PC 메모리로 못 올린다.
+ *   missing — 모델 파일이 없다. 받으면 된다.
+ *   offline — Ollama가 응답하지 않는다.
+ */
+export type FailureKind = 'runtime' | 'memory' | 'missing' | 'offline' | 'unknown' | '';
 
 /**
  * 검색 모델이 이 PC에서 **실제로** 도는가.
@@ -54,12 +67,21 @@ export interface EmbedHealth {
   /** 안 될 때 사용자에게 그대로 보여 줄 이유 */
   detail: string;
   model: string;
+  /** 안 되는 이유의 갈래 */
+  kind?: FailureKind;
 }
 
 export interface SetupStatus {
   ollama: { running: boolean; binary_found: boolean; base_url: string; version?: string };
   hardware: Hardware;
-  recommendation: { generate_model: string; reason: string };
+  recommendation: {
+    generate_model: string;
+    reason: string;
+    /** 이 PC에 받아 둘 구성 전부 (고사양이면 경량 모델도 포함) */
+    plan?: string[];
+    /** 그중 아직 안 받은 것 */
+    pending?: string[];
+  };
   selected_model: string;
   /** 실제 검색에 쓰이는 임베딩 모델 (예비 모델로 갈아탔으면 카탈로그와 다르다) */
   active_embed_model?: string;

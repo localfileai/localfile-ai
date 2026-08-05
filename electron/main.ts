@@ -106,9 +106,13 @@ app.whenReady().then(() => {
   ipcMain.handle('backend:status', () => getBackendState())
   onBackendState((next) => win?.webContents.send('backend:state', next))
 
-  // Ollama 자동 설치. 진행률은 이벤트로 흘려 준비 화면이 그린다.
-  ipcMain.handle('setup:installOllama', async () => {
-    return installOllama((progress) => win?.webContents.send('setup:ollamaProgress', progress))
+  // Ollama 자동 설치·복구. 진행률은 이벤트로 흘려 준비 화면이 그린다.
+  // repair=true면 이미 떠 있어도 다시 깐다 (실행기 파일이 빠진 설치를 되돌린다).
+  ipcMain.handle('setup:installOllama', async (_event, options?: { repair?: boolean }) => {
+    return installOllama(
+      (progress) => win?.webContents.send('setup:ollamaProgress', progress),
+      options ?? {},
+    )
   })
 
   createWindow()

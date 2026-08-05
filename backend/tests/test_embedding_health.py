@@ -53,16 +53,34 @@ class TestErrorMessage:
         assert "메모리가 부족" in str(caught.value)
         assert "5.6 GiB" in str(caught.value)  # Ollama 원문도 남긴다
 
-    def test_실행기가_낡으면_업데이트를_안내한다(self, monkeypatch):
+    def test_실행기가_낡으면_재설치로_안내한다(self, monkeypatch):
         monkeypatch.setattr(embedding._session, "post", lambda *a, **k: FakeResponse(
             500, {"error": "unable to load model: unknown model architecture 'qwen3'"}))
 
         with pytest.raises(embedding.EmbeddingUnavailable) as caught:
             embedding._embed("qwen3-embedding:0.6b", ["문서"], timeout=5)
 
-        message = str(caught.value)
-        assert "Ollama를 최신 버전으로" in message
-        assert "ollama.com/download" in message
+        assert caught.value.kind == embedding.FAILURE_RUNTIME
+        assert "다시 설치" in str(caught.value)
+
+    def test_llama_server가_없으면_모델_탓으로_돌리지_않는다(self):
+        """실제 배포본에서 본 오류다. Ollama v0.32.5는 응답하고 pull도 되는데,
+        정작 모델을 돌리는 실행 파일이 설치본에서 빠져 있었다.
+
+        `not found`가 섞여 있어 예전 코드는 이걸 "모델 미설치"로 읽었고, 화면은
+        "설정에서 모델을 다시 받아 주세요"라고 안내했다. 다시 받아도 같은 일이
+        벌어진다 — 고쳐야 하는 건 모델이 아니라 Ollama 설치다.
+        """
+        detail = ("error starting llama-server: llama-server binary not found "
+                  r"(checked: C:\Users\...\Ollama\lib\ollama\llama-server.exe)")
+
+        assert embedding.classify(detail) == embedding.FAILURE_RUNTIME
+
+    def test_메모리_부족은_실행기_손상과_구분한다(self):
+        # 둘 다 500이지만 할 일이 다르다 — 하나는 재설치, 하나는 프로그램 정리.
+        assert embedding.classify(
+            "model requires more system memory (5.6 GiB)") == embedding.FAILURE_MEMORY
+        assert embedding.classify("model 'x' not found") == embedding.FAILURE_MISSING
 
     def test_이유를_모를_때도_원문을_남긴다(self, monkeypatch):
         monkeypatch.setattr(embedding._session, "post", lambda *a, **k: FakeResponse(
@@ -107,7 +125,7 @@ class TestEnsureUsableModel:
     def test_기본_모델이_돌면_그대로_쓴다(self, monkeypatch):
         monkeypatch.setattr(embedding, "installed_models",
                             lambda: {config.OLLAMA_EMBED_MODEL})
-        monkeypatch.setattr(embedding, "probe", lambda model: (True, ""))
+        monkeypatch.setattr(embedding, "probe", lambda model: (True, "", ""))
 
         assert embedding.ensure_usable_model() == config.OLLAMA_EMBED_MODEL
 
@@ -118,18 +136,39 @@ class TestEnsureUsableModel:
         monkeypatch.setattr(embedding, "installed_models",
                             lambda: {config.OLLAMA_EMBED_MODEL, fallback})
         monkeypatch.setattr(embedding, "probe", lambda model: (
-            (False, "설치된 Ollama가 실행하지 못합니다") if model == config.OLLAMA_EMBED_MODEL
-            else (True, "")))
+            (False, "메모리가 모자랍니다", embedding.FAILURE_MEMORY)
+            if model == config.OLLAMA_EMBED_MODEL else (True, "", "")))
 
         assert embedding.ensure_usable_model() == fallback
         # 색인과 검색이 같은 모델을 써야 하므로 결정이 남아야 한다.
         assert settings.embed_model() == fallback
 
+    def test_실행기가_깨졌으면_예비_모델을_시도하지_않는다(self, monkeypatch):
+        """Ollama 자체가 모델을 못 돌리는 상태에서는 어떤 모델도 안 돈다.
+
+        예비 모델을 받아 보게 두면 사용자는 274MB를 헛되이 내려받고 똑같이
+        실패한 화면을 다시 본다. 여기서 멈추고 "Ollama 재설치"로 안내해야 한다.
+        """
+        probed = []
+
+        monkeypatch.setattr(embedding, "installed_models",
+                            lambda: {config.OLLAMA_EMBED_MODEL}
+                            | set(config.OLLAMA_EMBED_FALLBACKS))
+        monkeypatch.setattr(embedding, "probe", lambda model: (
+            probed.append(model)
+            or (False, "Ollama가 모델을 실행하지 못합니다", embedding.FAILURE_RUNTIME)))
+
+        with pytest.raises(embedding.EmbeddingUnavailable) as caught:
+            embedding.ensure_usable_model()
+
+        assert probed == [config.OLLAMA_EMBED_MODEL]  # 예비 모델은 건드리지 않았다
+        assert caught.value.kind == embedding.FAILURE_RUNTIME
+
     def test_설치되지_않은_모델은_시도하지_않는다(self, monkeypatch):
         probed = []
         monkeypatch.setattr(embedding, "installed_models", lambda: set())
         monkeypatch.setattr(embedding, "probe",
-                            lambda model: probed.append(model) or (True, ""))
+                            lambda model: probed.append(model) or (True, "", ""))
 
         with pytest.raises(embedding.EmbeddingUnavailable) as caught:
             embedding.ensure_usable_model()
@@ -137,12 +176,28 @@ class TestEnsureUsableModel:
         assert probed == []
         assert "설치되어 있지 않습니다" in str(caught.value)
 
+    def test_받아_오는_방법을_주면_없는_모델도_받아_본다(self, monkeypatch):
+        """준비 화면에서 부를 때는 진행률을 그리며 받을 수 있다.
+
+        색인 도중(pull 없음)과 준비 화면(pull 있음)의 차이 — 색인 중에 말없이
+        수백 MB를 내려받기 시작하면 안 되므로 기본은 받지 않는 쪽이다.
+        """
+        pulled = []
+        monkeypatch.setattr(embedding, "installed_models", lambda: set())
+        monkeypatch.setattr(embedding, "probe", lambda model: (True, "", ""))
+
+        result = embedding.ensure_usable_model(pull=pulled.append)
+
+        assert result == config.OLLAMA_EMBED_MODEL
+        assert pulled == [config.OLLAMA_EMBED_MODEL]
+
     def test_전부_안_되면_첫_이유를_올린다(self, monkeypatch):
         monkeypatch.setattr(embedding, "installed_models",
                             lambda: {config.OLLAMA_EMBED_MODEL} | set(
                                 config.OLLAMA_EMBED_FALLBACKS))
         monkeypatch.setattr(embedding, "probe",
-                            lambda model: (False, f"{model} 못 씀"))
+                            lambda model: (False, f"{model} 못 씀",
+                                           embedding.FAILURE_MEMORY))
 
         with pytest.raises(embedding.EmbeddingUnavailable) as caught:
             embedding.ensure_usable_model()
@@ -155,7 +210,7 @@ class TestEnsureUsableModel:
 
         def counting_probe(model):
             count["n"] += 1
-            return True, ""
+            return True, "", ""
 
         monkeypatch.setattr(embedding, "installed_models",
                             lambda: {config.OLLAMA_EMBED_MODEL})

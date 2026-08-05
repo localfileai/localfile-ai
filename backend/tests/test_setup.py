@@ -134,10 +134,15 @@ class TestDownload:
         from app.core import config, settings
 
         fake_tags(monkeypatch, [])
+        monkeypatch.setattr(provision, "detect_hardware", lambda: {"has_usable_gpu": False})
         monkeypatch.setattr(provision, "_download_worker", lambda names: None)
         result = provision.start_download(models=[config.OLLAMA_GENERATE_MODEL])
 
-        assert result["models"] == [config.OLLAMA_EMBED_MODEL, config.OLLAMA_GENERATE_MODEL]
+        # 고른 것은 표준 모델이지만 경량 모델도 함께 받는다 — 표준 모델이 이 PC에서
+        # 안 돌 때 물러설 곳이 없으면 파일명 추천 기능이 통째로 죽는다.
+        assert result["models"] == [config.OLLAMA_EMBED_MODEL,
+                                    config.OLLAMA_GENERATE_MODEL_SLIM,
+                                    config.OLLAMA_GENERATE_MODEL]
         assert settings.generate_model() == config.OLLAMA_GENERATE_MODEL
 
     def test_목록에_없는_모델은_거부한다(self, monkeypatch):
@@ -243,6 +248,68 @@ class TestEmbedModelMustActuallyRun:
         assert result["models"] == []  # 받을 것은 없고 확인·교체만 돈다
 
 
+class TestModelPlan:
+    """사양에 맞는 구성을 받되, 경량 모델은 사양과 무관하게 항상 받는다."""
+
+    def test_고사양이면_경량_모델도_함께_받는다(self):
+        from app.core import config
+
+        plan = provision.plan_models({"has_usable_gpu": True, "vram_gb": 8.0})
+
+        # 예전에는 고사양 PC에 표준 모델만 받게 해 놔서, 표준 모델이 그 PC에서
+        # 안 도는 순간 사용자에게 남는 선택지가 하나도 없었다.
+        assert plan == [config.OLLAMA_EMBED_MODEL,
+                        config.OLLAMA_GENERATE_MODEL_SLIM,
+                        config.OLLAMA_GENERATE_MODEL]
+
+    def test_저사양이면_표준_모델은_받지_않는다(self):
+        from app.core import config
+
+        plan = provision.plan_models({"has_usable_gpu": False})
+
+        assert plan == [config.OLLAMA_EMBED_MODEL, config.OLLAMA_GENERATE_MODEL_SLIM]
+        assert config.OLLAMA_GENERATE_MODEL not in plan  # 4.8GB, GPU 없이 파일당 80초
+
+    def test_고사양_기본_다운로드는_세_개_전부(self, monkeypatch):
+        from app.core import config
+
+        fake_tags(monkeypatch, [])
+        monkeypatch.setattr(provision, "detect_hardware",
+                            lambda: {"has_usable_gpu": True, "vram_gb": 8.0})
+        monkeypatch.setattr(provision, "_download_worker", lambda names: None)
+
+        assert provision.start_download()["models"] == [
+            config.OLLAMA_EMBED_MODEL,
+            config.OLLAMA_GENERATE_MODEL_SLIM,
+            config.OLLAMA_GENERATE_MODEL,
+        ]
+
+
+class TestGenerateModelFallback:
+    def test_고른_모델을_못_받았으면_받아_둔_모델로_돌린다(self, monkeypatch):
+        # 표준 모델 받기가 끊겨도 경량 모델이 있으면 파일명 추천은 돌아야 한다.
+        from app.core import config, settings
+
+        settings.set_generate_model(config.OLLAMA_GENERATE_MODEL)
+        fake_tags(monkeypatch, [config.OLLAMA_EMBED_MODEL,
+                                config.OLLAMA_GENERATE_MODEL_SLIM])
+
+        provision._ensure_generate_model()
+
+        assert settings.generate_model() == config.OLLAMA_GENERATE_MODEL_SLIM
+
+    def test_받아_둔_모델이면_건드리지_않는다(self, monkeypatch):
+        from app.core import config, settings
+
+        settings.set_generate_model(config.OLLAMA_GENERATE_MODEL)
+        fake_tags(monkeypatch, [config.OLLAMA_GENERATE_MODEL,
+                                config.OLLAMA_GENERATE_MODEL_SLIM])
+
+        provision._ensure_generate_model()
+
+        assert settings.generate_model() == config.OLLAMA_GENERATE_MODEL
+
+
 class TestVerifyEmbedModel:
     def test_기본_모델이_안_돌면_예비_모델을_받아_갈아탄다(self, monkeypatch):
         from app.core import config, settings
@@ -256,7 +323,8 @@ class TestVerifyEmbedModel:
         monkeypatch.setattr(embedding, "installed_models",
                             lambda: {config.OLLAMA_EMBED_MODEL})
         monkeypatch.setattr(embedding, "probe", lambda model: (
-            (False, "실행하지 못합니다") if model == config.OLLAMA_EMBED_MODEL else (True, "")))
+            (False, "메모리가 모자랍니다", embedding.FAILURE_MEMORY)
+            if model == config.OLLAMA_EMBED_MODEL else (True, "", "")))
 
         provision._verify_embed_model()
 
@@ -270,7 +338,9 @@ class TestVerifyEmbedModel:
 
         pulled = []
         monkeypatch.setattr(provision, "_pull_one", lambda name, i, n: pulled.append(name))
-        monkeypatch.setattr(embedding, "probe", lambda model: (True, ""))
+        monkeypatch.setattr(embedding, "installed_models",
+                            lambda: {config.OLLAMA_EMBED_MODEL})
+        monkeypatch.setattr(embedding, "probe", lambda model: (True, "", ""))
 
         provision._verify_embed_model()
 
@@ -282,8 +352,34 @@ class TestVerifyEmbedModel:
 
         monkeypatch.setattr(provision, "_pull_one", lambda name, i, n: None)
         monkeypatch.setattr(embedding, "installed_models", lambda: set())
-        monkeypatch.setattr(embedding, "probe", lambda model: (False, "메모리가 부족합니다"))
+        monkeypatch.setattr(embedding, "probe", lambda model: (
+            False, "메모리가 부족합니다", embedding.FAILURE_MEMORY))
 
         provision._verify_embed_model()
 
         assert "메모리가 부족합니다" in provision._progress.error
+
+    def test_실행기가_깨졌으면_예비_모델을_받지_않고_갈래를_남긴다(self, monkeypatch):
+        """남의 PC에서 실제로 본 상태 — Ollama는 떠 있는데 llama-server가 없다.
+
+        이때 예비 모델을 받아 봐야 똑같이 죽는다. 받지 않고, 화면이 "Ollama
+        다시 설치"를 띄울 수 있도록 갈래(runtime)를 남겨야 한다.
+        """
+        from app.core import config
+        from app.rag import embedding
+
+        pulled = []
+        monkeypatch.setattr(provision, "_pull_one",
+                            lambda name, i, n: pulled.append(name))
+        monkeypatch.setattr(embedding, "installed_models",
+                            lambda: {config.OLLAMA_EMBED_MODEL}
+                            | set(config.OLLAMA_EMBED_FALLBACKS))
+        monkeypatch.setattr(embedding, "probe", lambda model: (
+            False, "Ollama가 이 PC에서 모델을 실행하지 못합니다",
+            embedding.FAILURE_RUNTIME))
+
+        provision._verify_embed_model()
+
+        assert pulled == []
+        assert provision._progress.error_kind == embedding.FAILURE_RUNTIME
+        assert provision._progress.snapshot()["error_kind"] == "runtime"

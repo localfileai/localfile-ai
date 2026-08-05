@@ -50,8 +50,12 @@ interface Window {
     /** 백엔드 상태 변화 구독. 반환값을 호출하면 구독 해제 */
     onBackendState: (listener: (state: BackendState) => void) => () => void
 
-    /** Ollama 자동 설치를 시작한다 */
-    installOllama: () => Promise<OllamaInstallProgress>
+    /**
+     * Ollama 자동 설치를 시작한다.
+     * `{ repair: true }`면 이미 떠 있어도 다시 깐다 — 응답은 하는데 모델
+     * 실행 파일(llama-server)이 빠져 있는 설치를 되돌린다.
+     */
+    installOllama: (options?: { repair?: boolean }) => Promise<OllamaInstallProgress>
     /** Ollama 설치 진행률 구독. 반환값을 호출하면 구독 해제 */
     onOllamaProgress: (listener: (progress: OllamaInstallProgress) => void) => () => void
   }

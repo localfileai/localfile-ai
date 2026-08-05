@@ -75,7 +75,10 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   // Ollama 자동 설치 (진행률은 onOllamaProgress로 흘러온다).
-  installOllama: () => ipcRenderer.invoke('setup:installOllama'),
+  // { repair: true }를 주면 이미 떠 있어도 설치본을 덮어씌운다 — 응답은 하는데
+  // 모델 실행 파일이 빠져 있는 설치를 되돌리는 유일한 방법이다.
+  installOllama: (options?: { repair?: boolean }) =>
+    ipcRenderer.invoke('setup:installOllama', options),
   onOllamaProgress: (listener: (progress: unknown) => void) => {
     const handler = (_event: unknown, progress: unknown) => listener(progress)
     ipcRenderer.on('setup:ollamaProgress', handler)

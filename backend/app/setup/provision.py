@@ -77,10 +77,26 @@ def recommendation_reason(hardware: dict) -> str:
     """왜 그 모델을 권하는지 사용자에게 한 줄로."""
     if hardware.get("has_usable_gpu"):
         vram = hardware.get("vram_gb") or 0
-        return f"그래픽카드({vram:g}GB)가 있어 표준 모델을 권합니다."
+        return (f"그래픽카드({vram:g}GB)가 있어 표준 모델을 권합니다. "
+                f"경량 모델도 함께 받아 둡니다 (표준 모델이 버거울 때 대신 씁니다).")
     if hardware.get("gpu_name"):
-        return "그래픽카드 메모리가 부족해 경량 모델을 권합니다."
-    return "그래픽카드가 없어 경량 모델을 권합니다. 표준 모델은 너무 느립니다."
+        return "그래픽카드 메모리가 부족해 경량 모델만 받습니다."
+    return "그래픽카드가 없어 경량 모델만 받습니다. 표준 모델은 너무 느립니다."
+
+
+def plan_models(hardware: dict) -> list[str]:
+    """이 PC에 받아 둘 모델 구성. 사용자가 따로 고르지 않으면 이대로 받는다.
+
+    경량 모델(2.4b)은 **사양과 무관하게 항상 받는다.** 표준 모델(7.8b)은 GPU
+    메모리가 모자라면 로딩부터 실패하거나 파일당 80초가 넘어가고, 그때 물러설
+    곳이 없으면 파일명 추천 기능 자체가 죽는다. 1.6GB로 그 위험을 없앤다.
+    예전에는 고사양 PC에 표준 모델만 받게 해 놔서, 표준 모델이 안 도는 순간
+    사용자에게 남는 선택지가 하나도 없었다.
+    """
+    plan = [config.OLLAMA_EMBED_MODEL, config.OLLAMA_GENERATE_MODEL_SLIM]
+    if hardware.get("has_usable_gpu"):
+        plan.append(config.OLLAMA_GENERATE_MODEL)
+    return plan
 
 # 다운로드는 몇 분~수십 분 걸린다. 청크 사이 간격만 제한한다.
 _PULL_TIMEOUT = (10, 120)
@@ -103,6 +119,9 @@ class _Progress:
         self.overall = 0.0        # 전체 진행률 0~100
         self.done: list[str] = []
         self.error = ""
+        # 실패 갈래(embedding.FAILURE_*). 화면이 "그래서 뭘 눌러야 하나"를 정한다 —
+        # runtime이면 모델을 더 받아 봐야 소용없고 Ollama를 다시 설치해야 한다.
+        self.error_kind = ""
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -114,6 +133,7 @@ class _Progress:
                 "overall": round(self.overall, 1),
                 "done": list(self.done),
                 "error": self.error,
+                "error_kind": self.error_kind,
             }
 
 
@@ -140,7 +160,8 @@ def _ollama_models() -> tuple[bool, set[str]]:
 # 임베딩 실동작 확인 결과 캐시. 확인 한 번이 임베딩 1회라, 상태를 폴링할 때마다
 # 새로 재면 준비 화면이 그 자체로 느려진다.
 _health_lock = threading.Lock()
-_health: dict = {"checked_at": 0.0, "usable": False, "detail": "", "model": ""}
+_health: dict = {"checked_at": 0.0, "usable": False, "detail": "", "model": "",
+                 "kind": ""}
 HEALTH_TTL_SEC = 60.0
 
 
@@ -166,10 +187,11 @@ def embed_health() -> dict:
 
     try:
         model = embedding.ensure_usable_model()
-        result = {"checked_at": now, "usable": True, "detail": "", "model": model}
+        result = {"checked_at": now, "usable": True, "detail": "", "model": model,
+                  "kind": ""}
     except embedding.EmbeddingUnavailable as exc:
         result = {"checked_at": now, "usable": False, "detail": str(exc),
-                  "model": embedding.resolve_model()}
+                  "model": embedding.resolve_model(), "kind": exc.kind}
 
     with _health_lock:
         _health.update(result)
@@ -182,6 +204,7 @@ def status() -> dict:
 
     hardware = detect_hardware()
     recommended = recommended_generate_model(hardware)
+    planned = plan_models(hardware)
     selected = settings.generate_model()
 
     models = [{
@@ -190,6 +213,8 @@ def status() -> dict:
         "recommended": entry["role"] == "embed" or entry["name"] == recommended,
         # 임베딩은 선택 대상이 아니라 필수다.
         "required": entry["role"] == "embed",
+        # 이 PC 구성에 포함되는가 — "한 번에 모두 설치"가 받을 목록이다.
+        "planned": entry["name"] in planned,
         "selected": entry["name"] == selected,
     } for entry in MODEL_CATALOG]
 
@@ -197,7 +222,8 @@ def status() -> dict:
     has_generate = any(m["role"] == "generate" and m["present"] for m in models)
     # 모델이 하나도 없는 단계에서 임베딩을 시도할 필요는 없다 (실패가 뻔하다).
     health = (embed_health() if running and not embed_missing
-              else {"usable": False, "detail": "", "model": settings.embed_model()})
+              else {"usable": False, "detail": "", "kind": "",
+                    "model": settings.embed_model()})
 
     try:
         from ..rag.search import index_status
@@ -222,6 +248,11 @@ def status() -> dict:
         "recommendation": {
             "generate_model": recommended,
             "reason": recommendation_reason(hardware),
+            # 이 PC에 받아 둘 구성 전부. 고사양이면 경량 모델도 들어 있다 —
+            # 표준 모델이 안 돌 때 물러설 곳이 있어야 하기 때문이다.
+            "plan": planned,
+            # 이번에 실제로 받아야 하는 것만.
+            "pending": [name for name in planned if name not in installed],
         },
         "selected_model": selected,
         # 실제로 검색에 쓰이는 임베딩 모델. 기본 모델이 이 PC에서 안 돌아
@@ -291,29 +322,37 @@ def _verify_embed_model() -> None:
     """
     from ..rag import embedding
 
-    embedding.forget_verified_model()
-    ok, reason = embedding.probe(config.OLLAMA_EMBED_MODEL)
-    if ok:
-        settings.set_embed_model(config.OLLAMA_EMBED_MODEL)
-        return
-
-    for fallback in config.OLLAMA_EMBED_FALLBACKS:
+    def fetch(name: str) -> None:
+        """예비 모델이 아직 없으면 여기서 받는다 — 진행률은 그대로 화면에 흐른다."""
         with _progress.lock:
-            _progress.model = fallback
-            _progress.percent = 0.0
-            _progress.phase = "이 PC에 맞는 검색 모델로 교체하는 중"
-        try:
-            if fallback not in embedding.installed_models():
-                _pull_one(fallback, 0, 1)
-            if embedding.probe(fallback)[0]:
-                settings.set_embed_model(fallback)
-                embedding.forget_verified_model()
-                return
-        except Exception:
-            continue
+            _progress.phase = "이 PC에서 되는 검색 모델을 받는 중"
+        _pull_one(name, 0, 1)
 
-    with _progress.lock:
-        _progress.error = reason
+    # 기본 모델부터 다시 재 본다. 방금 받았으니 이전 확인 결과는 버린다.
+    embedding.forget_verified_model()
+    try:
+        settings.set_embed_model(
+            embedding.ensure_usable_model(force=True, pull=fetch))
+    except embedding.EmbeddingUnavailable as exc:
+        with _progress.lock:
+            _progress.error = str(exc)
+            _progress.error_kind = exc.kind
+
+
+def _ensure_generate_model() -> None:
+    """쓰기로 한 파일명 모델이 실제로 깔려 있는지 확인하고, 없으면 있는 것으로.
+
+    표준 모델 받기가 중간에 끊겨도 경량 모델이 남아 있으면 파일명 추천은 계속
+    돌아야 한다. 이 확인이 없으면 "설정에는 표준 모델, 디스크에는 없음" 상태로
+    굳어 추천 기능만 조용히 죽는다.
+    """
+    installed = _ollama_models()[1]
+    if settings.generate_model() in installed:
+        return
+    for entry in MODEL_CATALOG:
+        if entry["role"] == "generate" and entry["name"] in installed:
+            settings.set_generate_model(entry["name"])
+            return
 
 
 def _download_worker(names: list[str]) -> None:
@@ -324,10 +363,12 @@ def _download_worker(names: list[str]) -> None:
                 _progress.done.append(name)
                 _progress.percent = 100.0
                 _progress.overall = (index + 1) / len(names) * 100
+        _ensure_generate_model()
         _verify_embed_model()
     except requests.exceptions.RequestException as exc:
         with _progress.lock:
             _progress.error = f"Ollama에 연결할 수 없습니다: {exc}"
+            _progress.error_kind = "offline"
     except Exception as exc:
         with _progress.lock:
             _progress.error = str(exc)
@@ -364,21 +405,26 @@ def start_download(include_full: bool = False, models: list[str] | None = None) 
             "Ollama가 실행 중이 아닙니다. Ollama를 설치·실행한 뒤 다시 시도하세요.")
 
     catalog = {entry["name"]: entry for entry in MODEL_CATALOG}
+    hardware = detect_hardware()
+    # 이 PC의 기본 구성은 뭘 고르든 항상 깔린다. 사용자가 표준 모델을 골랐다고
+    # 경량 모델을 빼면, 표준 모델이 그 PC에서 안 도는 순간 물러설 곳이 없다.
+    wanted = plan_models(hardware)
+    if include_full and config.OLLAMA_GENERATE_MODEL not in wanted:
+        wanted.append(config.OLLAMA_GENERATE_MODEL)
+
     if models:
         unknown = [name for name in models if name not in catalog]
         if unknown:
             raise ValueError(f"목록에 없는 모델입니다: {', '.join(unknown)}")
-        wanted = [config.OLLAMA_EMBED_MODEL] + list(models)
+        wanted += [name for name in models if name not in wanted]
+        # 사용자가 직접 고른 경우 — 고른 것을 그대로 쓴다.
+        use = next((name for name in models if catalog[name]["role"] == "generate"), "")
     else:
-        generate = (config.OLLAMA_GENERATE_MODEL if include_full
-                    else recommended_generate_model(detect_hardware()))
-        wanted = [config.OLLAMA_EMBED_MODEL, generate]
+        use = config.OLLAMA_GENERATE_MODEL if include_full else \
+            recommended_generate_model(hardware)
 
-    # 받기로 한 생성 모델을 그대로 사용 모델로 삼는다 (사용자가 고른 것 = 쓸 것).
-    for name in wanted:
-        if catalog[name]["role"] == "generate":
-            settings.set_generate_model(name)
-            break
+    if use:
+        settings.set_generate_model(use)
 
     seen: set[str] = set()
     names = [name for name in wanted

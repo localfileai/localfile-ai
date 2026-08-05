@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable
 
 import requests
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
@@ -44,8 +45,26 @@ COLLECTION_NAME = os.getenv("LOCAL_FILE_AI_COLLECTION", "file_documents")
 _session = requests.Session()
 
 
+# 실패 원인의 갈래. 화면이 "그래서 뭘 눌러야 하나"를 이 값으로 정한다.
+#   runtime — Ollama 설치 자체가 깨졌거나 낡았다. 어떤 모델을 받아도 안 된다.
+#             앱이 Ollama를 다시 설치하는 것 말고는 방법이 없다.
+#   memory  — 이 PC 메모리로 모델을 못 올린다. 더 작은 모델이면 될 수 있다.
+#   missing — 모델 파일이 없다. 받으면 된다.
+#   offline — Ollama가 응답하지 않는다.
+#   unknown — 나머지. 원문을 그대로 보여 준다.
+FAILURE_RUNTIME = "runtime"
+FAILURE_MEMORY = "memory"
+FAILURE_MISSING = "missing"
+FAILURE_OFFLINE = "offline"
+FAILURE_UNKNOWN = "unknown"
+
+
 class EmbeddingUnavailable(RuntimeError):
     """임베딩을 만들 수 없는 상태. 메시지는 그대로 사용자에게 보여 준다."""
+
+    def __init__(self, message: str, kind: str = FAILURE_UNKNOWN) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 def resolve_model() -> str:
@@ -53,12 +72,36 @@ def resolve_model() -> str:
     return settings.embed_model()
 
 
-def _describe_error(response: requests.Response, model: str) -> str:
-    """Ollama의 오류 응답을 "그래서 뭘 해야 하는지" 아는 문장으로 바꾼다.
+# 메모리 부족은 문구가 뚜렷해 먼저 걸러낸다.
+_MEMORY_HINTS = ("more system memory", "out of memory", "cudamalloc",
+                 "insufficient memory")
+# 실행기가 깨졌거나 낡은 경우. "llama-server binary not found"처럼 `not found`가
+# 섞여 있어서, 모델 미설치보다 **먼저** 봐야 한다 (예전에는 여기서 오진했다).
+_RUNTIME_HINTS = ("llama-server", "llama runner", "runner process",
+                  "binary not found", "error starting", "exit status",
+                  "unknown model architecture", "unable to load",
+                  "unsupported", "does not support", "invalid model",
+                  "no such file")
+
+
+def classify(detail: str) -> str:
+    """Ollama가 보낸 오류 원문이 어느 갈래인지."""
+    lowered = detail.lower()
+    if any(hint in lowered for hint in _MEMORY_HINTS):
+        return FAILURE_MEMORY
+    if any(hint in lowered for hint in _RUNTIME_HINTS):
+        return FAILURE_RUNTIME
+    if "not found" in lowered or "no such model" in lowered:
+        return FAILURE_MISSING
+    return FAILURE_UNKNOWN
+
+
+def _describe_error(response: requests.Response, model: str) -> tuple[str, str]:
+    """Ollama의 오류 응답을 (사람 말, 갈래)로 바꾼다.
 
     Ollama는 실패 이유를 본문 JSON의 `error`에 담아 준다. 예전에는
     `raise_for_status()`가 상태 코드만 남겨서, 화면에 "500 Server Error"만 뜨고
-    정작 원인(메모리 부족인지, 실행기가 낡은 건지)은 아무 데도 안 남았다.
+    정작 원인(메모리 부족인지, 실행기가 깨진 건지)은 아무 데도 안 남았다.
     """
     detail = ""
     try:
@@ -66,22 +109,20 @@ def _describe_error(response: requests.Response, model: str) -> str:
     except ValueError:
         detail = (response.text or "").strip()
     detail = detail[:200]
-    lowered = detail.lower()
 
-    if any(hint in lowered for hint in ("more system memory", "out of memory", "cudamalloc")):
+    kind = classify(detail)
+    if kind == FAILURE_MEMORY:
         return (f"이 PC의 메모리가 부족해 검색 모델({model})을 올리지 못했습니다. "
-                f"다른 프로그램을 닫고 다시 시도해 주세요. (Ollama: {detail})")
-    if any(hint in lowered for hint in
-           ("unsupported", "unknown model architecture", "unable to load",
-            "does not support", "no such file", "invalid model")):
-        return (f"설치된 Ollama가 검색 모델({model})을 실행하지 못합니다. "
-                f"Ollama를 최신 버전으로 업데이트해 주세요 (https://ollama.com/download). "
-                f"(Ollama: {detail})")
-    if "not found" in lowered:
+                f"다른 프로그램을 닫고 다시 시도해 주세요. (Ollama: {detail})"), kind
+    if kind == FAILURE_RUNTIME:
+        return (f"Ollama가 이 PC에서 모델을 실행하지 못합니다 — 설치가 손상됐거나 "
+                f"버전이 낡았습니다. 앱이 Ollama를 다시 설치하면 해결됩니다. "
+                f"(Ollama: {detail})"), kind
+    if kind == FAILURE_MISSING:
         return (f"검색 모델({model})이 설치되어 있지 않습니다. "
-                f"설정에서 모델을 다시 받아 주세요. (Ollama: {detail})")
+                f"설정에서 모델을 다시 받아 주세요. (Ollama: {detail})"), kind
     return (f"검색 모델({model})로 문서를 읽지 못했습니다 "
-            f"(HTTP {response.status_code}: {detail or '이유 없음'})")
+            f"(HTTP {response.status_code}: {detail or '이유 없음'})"), kind
 
 
 def _embed(model: str, inputs: list[str], timeout: int) -> list[list[float]]:
@@ -99,7 +140,8 @@ def _embed(model: str, inputs: list[str], timeout: int) -> list[list[float]]:
         )
     except requests.exceptions.RequestException as exc:
         raise EmbeddingUnavailable(
-            f"Ollama 서버에 연결할 수 없습니다 ({OLLAMA_BASE_URL}): {exc}") from exc
+            f"Ollama 서버에 연결할 수 없습니다 ({OLLAMA_BASE_URL}): {exc}",
+            FAILURE_OFFLINE) from exc
 
     # 오래된 Ollama에는 묶음 엔드포인트(/api/embed)가 없다. 한 건씩 도는
     # 옛 엔드포인트로 물러선다 — 느리지만 되는 편이 안 되는 것보다 낫다.
@@ -107,13 +149,14 @@ def _embed(model: str, inputs: list[str], timeout: int) -> list[list[float]]:
         return [_embed_one_legacy(model, text, timeout) for text in inputs]
 
     if not response.ok:
-        raise EmbeddingUnavailable(_describe_error(response, model))
+        raise EmbeddingUnavailable(*_describe_error(response, model))
 
     vectors = (response.json() or {}).get("embeddings")
     if not vectors:
         raise EmbeddingUnavailable(
-            f"검색 모델({model})이 빈 응답을 돌려줬습니다. "
-            f"Ollama를 최신 버전으로 업데이트해 주세요 (https://ollama.com/download).")
+            f"검색 모델({model})이 빈 응답을 돌려줬습니다. Ollama 설치가 손상됐거나 "
+            f"버전이 낡았을 수 있습니다 — 앱이 Ollama를 다시 설치하면 해결됩니다.",
+            FAILURE_RUNTIME)
     return vectors
 
 
@@ -125,10 +168,11 @@ def _embed_one_legacy(model: str, text: str, timeout: int) -> list[float]:
         timeout=timeout,
     )
     if not response.ok:
-        raise EmbeddingUnavailable(_describe_error(response, model))
+        raise EmbeddingUnavailable(*_describe_error(response, model))
     vector = (response.json() or {}).get("embedding")
     if not vector:
-        raise EmbeddingUnavailable(f"검색 모델({model})이 빈 응답을 돌려줬습니다.")
+        raise EmbeddingUnavailable(f"검색 모델({model})이 빈 응답을 돌려줬습니다.",
+                                   FAILURE_RUNTIME)
     return vector
 
 
@@ -176,8 +220,8 @@ def installed_models() -> set[str]:
     return names
 
 
-def probe(model: str) -> tuple[bool, str]:
-    """이 모델로 **실제로** 한 건 임베딩해 본다. (되는가, 안 되는 이유)
+def probe(model: str) -> tuple[bool, str, str]:
+    """이 모델로 **실제로** 한 건 임베딩해 본다. (되는가, 안 되는 이유, 갈래)
 
     이름이 `/api/tags`에 보이는 것과 그 PC에서 도는 것은 다른 문제다.
     `ollama pull`은 파일을 받아 오기만 하므로, 실행기가 낡았거나 메모리가
@@ -186,23 +230,29 @@ def probe(model: str) -> tuple[bool, str]:
     """
     try:
         _embed(model, ["문서 검색 준비 확인"], timeout=min(config.EMBED_TIMEOUT_SEC, 120))
-        return True, ""
+        return True, "", ""
     except EmbeddingUnavailable as exc:
-        return False, str(exc)
+        return False, str(exc), exc.kind
     except Exception as exc:  # 예상 밖의 오류도 이유를 남긴다
-        return False, f"검색 모델({model}) 확인 중 오류: {type(exc).__name__}: {exc}"
+        return (False, f"검색 모델({model}) 확인 중 오류: {type(exc).__name__}: {exc}",
+                FAILURE_UNKNOWN)
 
 
 _ensure_lock = threading.Lock()
 _verified_model = ""
 
 
-def ensure_usable_model(force: bool = False) -> str:
+def ensure_usable_model(force: bool = False,
+                        pull: Callable[[str], None] | None = None) -> str:
     """실제로 도는 임베딩 모델을 정해 돌려준다. 하나도 없으면 EmbeddingUnavailable.
 
     기본 모델이 이 PC에서 안 돌면 **두루 도는 예비 모델로 갈아탄다.**
     예비 모델(nomic-embed-text)은 작고 오래돼서 구버전 Ollama와 저사양 PC에서도
     동작한다. 검색 품질은 기본 모델보다 낮지만, 검색이 아예 안 되는 것보다 낫다.
+
+    `pull`을 주면 설치되지 않은 후보를 그 함수로 받아 온다 (준비 화면에서
+    진행률을 그리며 받을 때). 안 주면 설치된 것만 시도한다 — 색인 도중에
+    수 GB를 말없이 내려받기 시작하면 안 되기 때문이다.
 
     한 번 확인한 모델은 다시 확인하지 않는다 — 확인 자체가 임베딩 1회다.
     """
@@ -221,21 +271,36 @@ def ensure_usable_model(force: bool = False) -> str:
             if fallback not in candidates:
                 candidates.append(fallback)
 
-        reasons: list[str] = []
+        reasons: list[tuple[str, str]] = []
         for candidate in candidates:
             if candidate not in installed and candidate.split(":")[0] not in installed:
-                reasons.append(f"검색 모델({candidate})이 설치되어 있지 않습니다.")
-                continue
-            ok, reason = probe(candidate)
+                if pull is None:
+                    reasons.append((f"검색 모델({candidate})이 설치되어 있지 않습니다.",
+                                    FAILURE_MISSING))
+                    continue
+                try:
+                    pull(candidate)
+                except Exception as exc:
+                    reasons.append((f"검색 모델({candidate})을 받지 못했습니다: {exc}",
+                                    FAILURE_MISSING))
+                    continue
+
+            ok, reason, kind = probe(candidate)
             if ok:
                 if candidate != current:
                     settings.set_embed_model(candidate)
                 _verified_model = candidate
                 return candidate
-            reasons.append(reason)
 
-        raise EmbeddingUnavailable(
-            reasons[0] if reasons else f"검색 모델({current})을 쓸 수 없습니다.")
+            reasons.append((reason, kind))
+            # 실행기가 깨졌으면 다른 모델을 받아 봐야 똑같이 죽는다. 몇 백 MB를
+            # 헛되이 내려받게 하지 말고 여기서 멈춰 "Ollama 재설치"로 안내한다.
+            if kind == FAILURE_RUNTIME:
+                break
+
+        if reasons:
+            raise EmbeddingUnavailable(*reasons[0])
+        raise EmbeddingUnavailable(f"검색 모델({current})을 쓸 수 없습니다.")
 
 
 def forget_verified_model() -> None:
