@@ -76,8 +76,10 @@
   .brand { display: flex; align-items: center; gap: .6rem; font-weight: 700; letter-spacing: -.02em; }
   .brand svg { width: 30px; height: 30px; border-radius: 9px; }
   .nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.6rem; font-size: .875rem; }
-  .nav-links a { color: var(--muted); text-decoration: none; transition: color .15s; }
-  .nav-links a:hover { color: var(--text); }
+  /* .btn을 빼지 않으면 이 규칙이 .btn-primary의 흰 글자색을 덮어써
+     파란 배경에 회색 글자가 된다 (선택자 우선순위: 클래스+요소 > 클래스). */
+  .nav-links a:not(.btn) { color: var(--muted); text-decoration: none; transition: color .15s; }
+  .nav-links a:not(.btn):hover { color: var(--text); }
   @media (max-width: 720px) { .nav-links a:not(.btn) { display: none; } }
 
   /* ---------- 버튼 ---------- */
@@ -262,7 +264,8 @@
       <a href="#how">사용 방법</a>
       <a href="#spec">시스템 요구사항</a>
       <a href="#faq">자주 묻는 질문</a>
-      <a class="btn btn-primary" href="https://github.com/localfileai/localfile-ai/releases/latest">다운로드</a>
+      <a class="btn btn-primary" data-download
+         href="https://github.com/localfileai/localfile-ai/releases/latest/download/LocalFileAI-Setup.exe">다운로드</a>
     </nav>
   </div>
 </header>
