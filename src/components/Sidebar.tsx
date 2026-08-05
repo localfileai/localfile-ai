@@ -24,7 +24,7 @@ export default function Sidebar({
         {/* 브랜딩 */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shrink-0 shadow-xs">
-            <img className="w-5 h-5" src="/component-10.svg" alt="Logo" />
+            <img className="w-5 h-5" src="component-10.svg" alt="Logo" />
           </div>
           <div>
             <div className="font-bold text-base text-gray-900 leading-snug">LocalFile AI</div>
@@ -44,7 +44,7 @@ export default function Sidebar({
                 currentMenu === 'search' ? 'bg-indigo-50/80 text-indigo-600' : 'text-gray-500 hover:bg-gray-100/60'
               }`}
             >
-              <img className="w-4 h-4" src="/component-11.svg" alt="파일 찾기" />
+              <img className="w-4 h-4" src="component-11.svg" alt="파일 찾기" />
               <span>파일 찾기</span>
             </button>
 
@@ -55,7 +55,7 @@ export default function Sidebar({
               }`}
             >
               <div className="flex items-center gap-3">
-                <img className="w-4 h-4 text-gray-400" src="/component-12.svg" alt="폴더 정리" />
+                <img className="w-4 h-4 text-gray-400" src="component-12.svg" alt="폴더 정리" />
                 <span>폴더 정리</span>
               </div>
               {badgeCount > 0 && (
@@ -78,7 +78,7 @@ export default function Sidebar({
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-gray-700">
-              <img className="w-4 h-4" src="/component-13.svg" alt="현재 폴더" />
+              <img className="w-4 h-4" src="component-13.svg" alt="현재 폴더" />
               <span>현재 폴더</span>
             </div>
             <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
@@ -86,17 +86,19 @@ export default function Sidebar({
             </span>
           </div>
           <div className="font-semibold text-gray-800 text-xs truncate" title={folderName}>
-            {folderName}
+            {folderName || '아직 고르지 않음'}
           </div>
           <div className="text-[11px] text-gray-400">
-            {totalFiles}개 파일 · 로컬 분석 완료
+            {folderName
+              ? `${totalFiles}개 파일 · 이 PC에서 분석`
+              : '오른쪽 위 [폴더 선택]을 눌러 주세요'}
           </div>
         </button>
       </div>
 
       {/* 보안 안내 */}
       <div className="flex items-start gap-2 text-[11px] text-gray-400 leading-tight px-1">
-        <img className="w-4 h-4 shrink-0 mt-0.5" src="/component-14.svg" alt="보안" />
+        <img className="w-4 h-4 shrink-0 mt-0.5" src="component-14.svg" alt="보안" />
         <div>문서와 임베딩 데이터는 사용자의 PC<br />내부에만 저장됩니다.</div>
       </div>
     </aside>

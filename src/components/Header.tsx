@@ -44,7 +44,7 @@ export default function Header({ currentMenu, selectedPath, onSelectFolder }: He
           onClick={onSelectFolder}
           className="flex items-center gap-2 px-3.5 py-1.5 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-medium text-gray-700 transition shadow-2xs cursor-pointer"
         >
-          <img className="w-4 h-4" src="/component-15.svg" alt="폴더 선택" />
+          <img className="w-4 h-4" src="component-15.svg" alt="폴더 선택" />
           <span>폴더 선택</span>
         </button>
       </div>

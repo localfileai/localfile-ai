@@ -110,8 +110,8 @@ def _collection():
             )
         except Exception as exc:
             raise SearchUnavailable(
-                f"벡터 색인이 없습니다 ({COLLECTION_NAME!r}). "
-                "`python scripts/embed_dataset.py` 로 먼저 색인하세요."
+                "아직 검색할 문서가 없습니다. "
+                "[폴더 선택]으로 정리할 폴더를 고르면 문서를 읽어 검색을 준비합니다."
             ) from exc
 
     return _collection_cache
@@ -246,8 +246,8 @@ def search(query: str, top_k: int = 5) -> SearchResponse:
 
     if collection.count() == 0:
         raise SearchUnavailable(
-            "색인이 비어 있습니다. `POST /index`로 폴더를 색인하거나 "
-            "`python scripts/embed_dataset.py` 를 실행하세요."
+            "아직 검색할 문서가 없습니다. [폴더 선택]으로 정리할 폴더를 고르면 "
+            "문서를 읽어 검색을 준비합니다."
         )
 
     # 계약 밖 확장자가 섞여 있을 수 있으니 조금 더 받아서 걸러낸다.
@@ -311,8 +311,8 @@ def index_status() -> dict:
 
     total = user_count + dataset_count
     if total == 0 and not detail:
-        detail = ("색인이 비어 있습니다. `POST /index`로 폴더를 색인하거나 "
-                  "`python scripts/embed_dataset.py` 를 실행하세요.")
+        detail = ("아직 검색할 문서가 없습니다. [폴더 선택]으로 정리할 폴더를 고르면 "
+                  "문서를 읽어 검색을 준비합니다.")
 
     return {
         "ready": total > 0,

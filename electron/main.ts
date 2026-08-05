@@ -33,7 +33,8 @@ let win: BrowserWindow | null
 
 function createWindow() {
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    // 창·작업 표시줄 아이콘. 설치본의 실행 파일 아이콘은 build/icon.ico를 쓴다.
+    icon: path.join(process.env.VITE_PUBLIC, 'app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },

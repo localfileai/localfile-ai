@@ -1,14 +1,16 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-  fetchSearchResults,
   fetchRealSearchResults,
   fetchSearchStatus,
-  type SearchEngine,
   type SearchResult,
   type SearchStatus,
 } from '../api/searchApi';
+import { fetchIndexProgress, startIndexing, type IndexProgress } from '../api/indexApi';
 import { listFolderDocuments, type PreviewItem } from '../api/preprocessApi';
 import FileResultCard from './FileResultCard';
+
+/** 기획안이 정한 지원 문서 형식 7종 (backend contracts/ai.py의 ALLOWED_EXTENSIONS와 같다). */
+const SUPPORTED_TYPES = ['PDF', 'DOCX', 'DOC', 'PPTX', 'PPT', 'HWP', 'HWPX'];
 
 interface MainViewProps {
   /** FE1이 IPC/Drag&Drop으로 인식한 폴더 경로 */
@@ -52,28 +54,54 @@ export default function MainView({ selectedPath }: MainViewProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // 검색 엔진. 'real'은 bge-m3 임베딩 + ChromaDB, 'mock'은 1주차 하드코딩.
-  const [engine, setEngine] = useState<SearchEngine>('real');
   const [searchStatus, setSearchStatus] = useState<SearchStatus | null>(null);
   const [searchError, setSearchError] = useState('');
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
+  const [indexError, setIndexError] = useState('');
 
-  // 색인이 준비됐는지 먼저 확인해, 안 됐으면 이유를 화면에 띄운다.
-  useEffect(() => {
-    let cancelled = false;
-    fetchSearchStatus().then((status) => {
-      if (cancelled) return;
-      setSearchStatus(status);
-      // 색인이 없으면 Mock으로 시작해 화면이 비어 보이지 않게 한다.
-      if (status && !status.ready) setEngine('mock');
-    });
-    return () => {
-      cancelled = true;
-    };
+  const refreshSearchStatus = useCallback(async () => {
+    const status = await fetchSearchStatus();
+    if (status) setSearchStatus(status);
   }, []);
 
+  useEffect(() => {
+    void refreshSearchStatus();
+  }, [refreshSearchStatus]);
+
+  // 폴더를 고르면 색인을 시작한다.
+  // 사용자가 "색인"이라는 개념을 알 필요는 없다 — 폴더를 고른다 = 검색 준비다.
+  useEffect(() => {
+    if (!selectedPath) return;
+    setIndexError('');
+    startIndexing(selectedPath).then((error) => {
+      if (error) setIndexError(error);
+    });
+  }, [selectedPath]);
+
+  // 색인이 도는 동안 진행률을 따라간다. 끝나면 검색 상태를 다시 읽어
+  // "검색할 수 없음"에서 "검색 준비됨"으로 화면이 저절로 바뀌게 한다.
+  useEffect(() => {
+    if (!selectedPath) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      const progress = await fetchIndexProgress();
+      if (cancelled || !progress) return;
+      setIndexProgress(progress);
+      if (!progress.running) void refreshSearchStatus();
+    };
+
+    void tick();
+    const timer = window.setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedPath, refreshSearchStatus]);
+
   // 2. 필터 상태(State)
-  const [selectedTypes, setSelectedTypes] = useState<string[]>(['PDF', 'TXT', 'MD', 'Markdown']);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(SUPPORTED_TYPES);
   const [selectedTargets, setSelectedTargets] = useState<string[]>(['title', 'content', 'path']);
   const [dateRange, setDateRange] = useState<string>('전체 기간');
   const [sortOrder, setSortOrder] = useState<string>('관련도순');
@@ -85,17 +113,11 @@ export default function MainView({ selectedPath }: MainViewProps) {
     setIsLoading(true);
     setSearchError('');
     try {
-      if (engine === 'real') {
-        // 실제 임베딩 검색. 질의를 bge-m3로 벡터화해 ChromaDB에서 유사 문서를 찾는다.
-        const outcome = await fetchRealSearchResults(query, 5);
-        setSearchResults(outcome.results);
-        setSearchError(outcome.error);
-        setElapsedMs(outcome.elapsedMs);
-      } else {
-        const data = await fetchSearchResults(query);
-        setSearchResults(data || []);
-        setElapsedMs(0);
-      }
+      // 질의를 임베딩해 색인에서 의미가 가까운 문서를 찾는다 (전부 이 PC 안에서).
+      const outcome = await fetchRealSearchResults(query, 5);
+      setSearchResults(outcome.results);
+      setSearchError(outcome.error);
+      setElapsedMs(outcome.elapsedMs);
       setHasSearched(true);
     } catch (error) {
       console.error('검색 중 오류 발생:', error);
@@ -114,19 +136,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
 
   // [필터 토글] 파일 형식
   const handleTypeToggle = (type: string) => {
-    setSelectedTypes((prev) => {
-      // Markdown/MD 처리
-      if (type === 'Markdown' || type === 'MD') {
-        const hasMarkdown = prev.includes('Markdown') || prev.includes('MD');
-        if (hasMarkdown) {
-          return prev.filter((t) => t !== 'Markdown' && t !== 'MD');
-        } else {
-          return [...prev, 'Markdown', 'MD'];
-        }
-      }
-      // 일반 확장자 처리 (PDF, TXT)
-      return prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type];
-    });
+    setSelectedTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
   };
 
   // [필터 토글] 검색 대상
@@ -143,8 +155,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
     if (!searchResults || searchResults.length === 0) return [];
 
     let list = searchResults.filter((item) => {
-      const itemType = item.type === 'MD' ? 'Markdown' : item.type;
-      const isTypeMatched = selectedTypes.includes(item.type) || selectedTypes.includes(itemType);
+      // 알 수 없는 확장자가 와도 결과가 통째로 사라지지 않게 한다
+      const isTypeMatched =
+        selectedTypes.includes(item.type) || !SUPPORTED_TYPES.includes(item.type);
 
       let isDateMatched = true;
       if (dateRange !== '전체 기간' && item.date) {
@@ -185,51 +198,47 @@ export default function MainView({ selectedPath }: MainViewProps) {
               </div>
             </div>
 
-            {/* 검색 엔진 선택 — 1주차 Mock과 실제 임베딩 검색을 구분한다 */}
-            <div className="flex items-center justify-center gap-2 pt-1">
-              <div className="inline-flex rounded-xl border border-gray-200 bg-white p-0.5">
-                <button
-                  onClick={() => setEngine('real')}
-                  disabled={!searchStatus?.ready}
-                  title={searchStatus?.ready ? '' : searchStatus?.detail || '색인 확인 중'}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
-                    engine === 'real'
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : searchStatus?.ready
-                      ? 'text-gray-500 hover:bg-gray-50 cursor-pointer'
-                      : 'text-gray-300 cursor-not-allowed'
-                  }`}
-                >
-                  실제 검색 · bge-m3
-                </button>
-                <button
-                  onClick={() => setEngine('mock')}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                    engine === 'mock' ? 'bg-amber-50 text-amber-700' : 'text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  Mock · 1주차
-                </button>
-              </div>
-            </div>
-
-            {/* 색인 상태 */}
-            <div className="text-[11px] text-gray-400">
-              {searchStatus === null ? (
-                '색인 상태 확인 중...'
-              ) : searchStatus.ready ? (
+            {/* 준비 상태 — 사용자가 다음에 뭘 해야 하는지만 알려 준다 */}
+            <div className="mx-auto max-w-md text-[11px]">
+              {indexProgress?.running ? (
+                <div className="text-indigo-600">
+                  <div className="font-medium">
+                    문서를 읽고 있습니다
+                    {indexProgress.total > 0 && ` · ${indexProgress.done}/${indexProgress.total}건`}
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                    <div
+                      className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                      style={{
+                        width: `${
+                          indexProgress.total
+                            ? Math.min(100, (indexProgress.done / indexProgress.total) * 100)
+                            : 8
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <div className="mt-1 text-gray-400">끝나면 바로 검색할 수 있습니다.</div>
+                </div>
+              ) : indexError ? (
+                <span className="text-red-500">{indexError}</span>
+              ) : searchStatus?.ready ? (
                 <span className="text-emerald-600">
-                  색인 {searchStatus.indexed_documents.toLocaleString()}건 · {searchStatus.embed_model}
+                  문서 {searchStatus.indexed_documents.toLocaleString()}건 검색 준비 완료
                 </span>
+              ) : selectedPath ? (
+                <span className="text-gray-400">문서를 확인하는 중입니다…</span>
               ) : (
-                <span className="text-amber-600">{searchStatus.detail}</span>
+                <span className="text-amber-600">
+                  오른쪽 위 <b>[폴더 선택]</b>으로 정리할 폴더를 고르면 검색을 준비합니다.
+                </span>
               )}
             </div>
 
             {/* 검색어 입력 폼 */}
             <div className="max-w-2xl mx-auto pt-2">
               <div className="flex items-center shadow-sm rounded-2xl bg-white border border-gray-200/90 p-1.5 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition">
-                <img className="w-4 h-4 ml-3 opacity-40" src="/component-16.svg" alt="검색" />
+                <img className="w-4 h-4 ml-3 opacity-40" src="component-16.svg" alt="검색" />
                 <div className="w-full px-3 py-2">
                   <input
                     type="text"
@@ -264,7 +273,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
             </div>
           </div>
 
-          {/* 선택한 폴더의 실제 문서 — 1주차에서 Mock이 아닌 유일한 기능 */}
+          {/* 선택한 폴더에서 실제로 읽어 낸 문서 */}
           {selectedPath && (
             <div className="bg-white rounded-2xl border border-emerald-200/70 shadow-2xs overflow-hidden">
               <div className="bg-emerald-50/60 px-6 h-13 border-b border-emerald-100 flex items-center justify-between shrink-0">
@@ -295,9 +304,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   <div className="py-4 text-[11px] leading-relaxed text-red-600">{realDocsError}</div>
                 ) : realDocs.length === 0 ? (
                   <div className="py-4 text-[11px] leading-relaxed text-gray-500">
-                    이 폴더 바로 아래에 PDF · TXT · MD 파일이 없습니다.
+                    이 폴더 바로 아래에 읽을 수 있는 문서가 없습니다.
                     <br />
-                    하위 폴더는 1주차 범위에서 훑지 않습니다.
+                    PDF · DOCX · DOC · PPTX · PPT · HWP · HWPX 를 지원하며, 하위 폴더는 보지 않습니다.
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-100">
@@ -353,27 +362,13 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   <div className="text-[11px] text-gray-400">
                     <div>
                       {isLoading
-                        ? engine === 'real'
-                          ? '질의를 벡터화해 유사 문서를 찾는 중...'
-                          : 'AI가 문서를 분석하는 중...'
+                        ? '내용이 비슷한 문서를 찾는 중...'
                         : hasSearched
                         ? `${filteredResults.length}개의 관련 파일` +
-                          (engine === 'real' && elapsedMs ? ` · ${elapsedMs}ms` : '')
+                          (elapsedMs ? ` · ${elapsedMs}ms` : '')
                         : ''}
                     </div>
                   </div>
-                  {/* 어느 엔진이 답했는지 결과 옆에 남긴다 */}
-                  {hasSearched && !isLoading && (
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                        engine === 'real'
-                          ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                          : 'bg-amber-50 text-amber-600 border-amber-100'
-                      }`}
-                    >
-                      {engine === 'real' ? '실제 검색' : 'Mock'}
-                    </span>
-                  )}
                 </div>
 
                 <div>
@@ -405,7 +400,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 ) : !hasSearched ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
                     <div className="w-12 h-12 bg-indigo-50/80 rounded-2xl flex items-center justify-center mb-3 mx-auto">
-                      <img className="w-5 h-5 opacity-70" src="/component-17.svg" alt="결과 없음" />
+                      <img className="w-5 h-5 opacity-70" src="component-17.svg" alt="결과 없음" />
                     </div>
                     <div className="font-bold text-gray-800 text-sm mb-1">
                       <div>아직 검색한 내용이 없어요</div>
@@ -417,7 +412,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 ) : filteredResults.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center my-auto py-12">
                     <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mb-3 mx-auto">
-                      <img className="w-5 h-5 opacity-40" src="/component-17.svg" alt="결과 없음" />
+                      <img className="w-5 h-5 opacity-40" src="component-17.svg" alt="결과 없음" />
                     </div>
                     <div className="font-bold text-gray-800 text-sm mb-1">
                       <div>일치하는 검색 결과가 없어요</div>
@@ -449,7 +444,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   <span className="text-[10px] text-gray-400 font-medium">검색 범위</span>
                   <button
                     onClick={() => {
-                      setSelectedTypes(['PDF', 'TXT', 'MD', 'Markdown']);
+                      setSelectedTypes(SUPPORTED_TYPES);
                       setSelectedTargets(['title', 'content', 'path']);
                       setDateRange('전체 기간');
                     }}
@@ -468,21 +463,19 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     <div className="text-[11px] font-bold text-gray-400">
                       <div>파일 형식</div>
                     </div>
-                    {['PDF', 'TXT', 'Markdown'].map((type) => (
-                      <label key={type} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 font-medium">
-                        <input
-                          type="checkbox"
-                          checked={
-                            type === 'Markdown'
-                              ? selectedTypes.includes('Markdown') || selectedTypes.includes('MD')
-                              : selectedTypes.includes(type)
-                          }
-                          onChange={() => handleTypeToggle(type)}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                        />
-                        <div>{type}</div>
-                      </label>
-                    ))}
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                      {SUPPORTED_TYPES.map((type) => (
+                        <label key={type} className="flex items-center gap-2 cursor-pointer text-xs text-gray-600 font-medium">
+                          <input
+                            type="checkbox"
+                            checked={selectedTypes.includes(type)}
+                            onChange={() => handleTypeToggle(type)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div>{type}</div>
+                        </label>
+                      ))}
+                    </div>
                   </div>
 
                   {/* ② 검색 대상 */}

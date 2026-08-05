@@ -123,7 +123,7 @@ export default function FileResultCard({ item, selectedPath }: Props) {
             title="문서 미리보기 추출"
             className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-white rounded-lg border border-transparent hover:border-gray-200 transition shadow-2xs cursor-pointer"
           >
-            <img className="w-4 h-4" src="/component-17.svg" alt="열기" />
+            <img className="w-4 h-4" src="component-17.svg" alt="열기" />
           </button>
         </div>
       </div>

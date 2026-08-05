@@ -6,8 +6,6 @@ import OrganizeView from './components/OrganizedView'
 import AllFilesView from './components/AllFilesView'
 import {
   analyzeFolder,
-  getRenameRecommendations,
-  getStructureRecommendations,
   type CurrentFileItem,
   type RenameRecommendation,
   type StructureRecommendation,
@@ -21,12 +19,10 @@ import type { Menu } from './types'
 // 두 사람의 결과물이 만나는 곳은 selectedPath 하나입니다.
 // FE1이 경로를 만들고, FE2의 Header/Sidebar가 그 경로를 화면에 보여줍니다.
 
-const DEFAULT_FOLDER_NAME = 'Documents'
-
 function App() {
   const [currentMenu, setCurrentMenu] = useState<Menu>('search')
 
-  // FE2: Mock API에서 받아오는 추천 데이터
+  // 선택한 폴더를 분석해 받은 추천 데이터
   const [renameList, setRenameList] = useState<RenameRecommendation[]>([])
   const [structureList, setStructureList] = useState<StructureRecommendation[]>([])
   const [currentFiles, setCurrentFiles] = useState<CurrentFileItem[]>([])
@@ -40,28 +36,25 @@ function App() {
   // 깊이를 세지 않으면 오버레이가 깜빡이고 창을 벗어난 시점을 알 수 없습니다.
   const dragDepth = useRef(0)
 
-  // 3주차: 폴더를 선택하면 실제 AI 추천(POST /organize)을, 선택 전에는 1주차 Mock을 쓴다.
-  // CPU 환경에서는 분석이 파일당 수십 초 걸릴 수 있다 — 로딩 UI는 계획서 4주차 항목.
+  // 폴더를 고르면 실제 AI 추천(POST /organize)을 받는다.
+  // 폴더를 고르기 전에는 아무것도 보여 주지 않는다.
+  // 예전에는 데모용 Mock 추천을 채웠는데, 실제 앱에서는 있지도 않은 파일이
+  // 추천 목록에 뜨는 셈이라 오히려 혼란스럽다.
   const loadOrganizeData = useCallback(async () => {
+    if (!selectedPath) {
+      setRenameList([])
+      setStructureList([])
+      setCurrentFiles([])
+      setTotalFiles(0)
+      return
+    }
+
     try {
-      if (selectedPath) {
-        const data = await analyzeFolder(selectedPath)
-        setRenameList(data.renameList)
-        setStructureList(data.structureList)
-        setCurrentFiles(data.currentFiles)
-        setTotalFiles(data.totalFilesCount)
-        return
-      }
-
-      const [renameData, structureData] = await Promise.all([
-        getRenameRecommendations(),
-        getStructureRecommendations(),
-      ])
-
-      setRenameList(renameData || [])
-      setStructureList(structureData.recommendations || [])
-      setCurrentFiles(structureData.currentFiles || [])
-      setTotalFiles(structureData.totalFilesCount || 0)
+      const data = await analyzeFolder(selectedPath)
+      setRenameList(data.renameList)
+      setStructureList(data.structureList)
+      setCurrentFiles(data.currentFiles)
+      setTotalFiles(data.totalFilesCount)
     } catch (error) {
       console.error('추천 데이터 로딩 에러:', error)
     }
@@ -139,8 +132,8 @@ function App() {
   }
 
   const badgeCount = renameList.length + structureList.length
-  const folderName =
-    selectedPath.split(/[\\/]/).filter(Boolean).at(-1) || DEFAULT_FOLDER_NAME
+  // 폴더를 안 골랐으면 빈 문자열 — 사이드바가 "아직 고르지 않음"을 보여 준다.
+  const folderName = selectedPath.split(/[\\/]/).filter(Boolean).at(-1) || ''
 
   return (
     <div
