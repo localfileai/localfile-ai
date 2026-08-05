@@ -28,6 +28,10 @@ from .hardware import summary as hardware_summary
 # 고를 수 있는 모델 목록. 전부 3주차에 같은 평가셋으로 실측한 것들이다
 # (docs/decisions/0002-model-selection.md). 검증하지 않은 모델은 여기 넣지 않는다 —
 # 고르게 해 놓고 성능을 보장 못 하면 선택지가 아니라 함정이다.
+#
+# `license` / `commercial`은 유료화를 검토하면서 넣었다 (ADR-0004). 모델마다
+# 조건이 다르고, 그 사실이 코드 어디에도 안 적혀 있으면 나중에 아무도 모른 채
+# 위반한다. exaone3.5는 비상업(NC) 조건이라 돈을 받는 순간 별도 계약이 필요하다.
 MODEL_CATALOG: list[dict] = [
     {
         "name": config.OLLAMA_EMBED_MODEL,
@@ -37,6 +41,8 @@ MODEL_CATALOG: list[dict] = [
         "approx_gb": 0.6,
         "purpose": "문서를 이해해 검색하고 분류합니다. 앱의 핵심이라 반드시 필요합니다.",
         "detail": "GPU가 없어도 문서 1건당 0.2초 수준으로 동작합니다.",
+        "license": "Apache-2.0",
+        "commercial": True,
     },
     {
         "name": config.OLLAMA_GENERATE_MODEL_SLIM,
@@ -46,6 +52,8 @@ MODEL_CATALOG: list[dict] = [
         "approx_gb": 1.6,
         "purpose": "추천 파일명을 만듭니다. 그래픽카드가 없는 PC를 위한 선택입니다.",
         "detail": "파일명 품질 84%. GPU 없이 파일당 약 13초.",
+        "license": "EXAONE AI Model License 1.1 (비상업)",
+        "commercial": False,
     },
     {
         "name": config.OLLAMA_GENERATE_MODEL,
@@ -55,6 +63,8 @@ MODEL_CATALOG: list[dict] = [
         "approx_gb": 4.8,
         "purpose": "추천 파일명을 만듭니다. 그래픽카드가 있으면 이쪽이 빠르고 정확합니다.",
         "detail": "GPU에서 파일당 약 4초. GPU가 없으면 파일당 80초가 넘어 권하지 않습니다.",
+        "license": "EXAONE AI Model License 1.1 (비상업)",
+        "commercial": False,
     },
 ]
 

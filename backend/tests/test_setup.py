@@ -248,6 +248,30 @@ class TestEmbedModelMustActuallyRun:
         assert result["models"] == []  # 받을 것은 없고 확인·교체만 돈다
 
 
+class TestModelLicenses:
+    """유료화를 검토하려면 어떤 모델을 상업적으로 써도 되는지가 코드에 남아야 한다.
+
+    ADR-0004 — 기본 생성 모델(exaone3.5)은 비상업(NC) 조건이다. 이 사실이
+    어디에도 안 적혀 있으면 나중에 아무도 모른 채 위반한다.
+    """
+
+    def test_모든_모델이_라이선스를_밝힌다(self):
+        for entry in provision.MODEL_CATALOG:
+            assert entry.get("license"), f"{entry['name']}에 라이선스가 없습니다"
+            assert isinstance(entry.get("commercial"), bool)
+
+    def test_검색_엔진은_상업적으로_쓸_수_있다(self):
+        from app.core import config
+
+        embed = next(e for e in provision.MODEL_CATALOG
+                     if e["name"] == config.OLLAMA_EMBED_MODEL)
+        assert embed["commercial"] is True  # Apache-2.0
+
+    def test_상태에도_라이선스가_실려_나간다(self, monkeypatch):
+        fake_tags(monkeypatch, [])
+        assert all(m.get("license") for m in provision.status()["models"])
+
+
 class TestModelPlan:
     """사양에 맞는 구성을 받되, 경량 모델은 사양과 무관하게 항상 받는다."""
 

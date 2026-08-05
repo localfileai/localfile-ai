@@ -316,6 +316,16 @@ export default function SetupGate({ children }: Props) {
                       {model.purpose}
                       <br />
                       <span className="text-gray-400 dark:text-gray-500">{model.detail}</span>
+                      {/* 모델마다 배포 조건이 다르다. 어디에도 안 적혀 있으면
+                          나중에 아무도 모른 채 위반한다 (ADR-0004). */}
+                      {model.license && (
+                        <>
+                          <br />
+                          <span className="text-gray-400 dark:text-gray-500">
+                            라이선스: {model.license}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </button>
                 );

@@ -23,6 +23,10 @@ export interface SetupModel {
   approx_gb: number;
   purpose: string;
   detail: string;
+  /** 모델 배포 라이선스 (ADR-0004) */
+  license?: string;
+  /** 상업적으로 써도 되는가. false면 유료화 시 별도 계약이 필요하다 */
+  commercial?: boolean;
 }
 
 export interface Hardware {
