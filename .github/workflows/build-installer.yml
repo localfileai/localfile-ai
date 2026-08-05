@@ -1,0 +1,75 @@
+# 설치 파일(Setup.exe)을 GitHub이 대신 빌드한다.
+#
+# 이걸 두는 이유: 설치본을 만들려면 Node·Python·PyInstaller가 모두 갖춰진
+# Windows 환경이 필요한데, 팀원 각자가 그 환경을 맞추는 건 비용이다.
+# GitHub의 Windows 러너가 매번 깨끗한 환경에서 빌드해 결과물만 올려 주면
+# **아무도 빌드 도구를 설치하지 않아도** 설치 파일을 받을 수 있다.
+#
+# 받는 법: GitHub 저장소 → Actions 탭 → 이 워크플로 실행 결과 →
+#          Artifacts의 `LocalFileAI-Setup` 다운로드 → 압축 풀고 Setup.exe 실행
+#
+# 앱 사용자는 이 파일과 무관하다 — 사용자는 Setup.exe만 있으면 된다.
+
+name: 설치 파일 빌드 (Windows)
+
+on:
+  # Actions 탭에서 버튼으로 직접 실행
+  workflow_dispatch:
+  # 코드가 바뀌면 자동으로 — 문서만 고친 커밋은 건너뛴다
+  push:
+    branches:
+      - claude/be1-week-3-tasks-peajyw
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 로컬에서 Node 16으로 겪은 빌드 실패를 원천 차단한다 (package.json engines와 동일)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # --- 백엔드를 실행 파일 하나로 (server.exe) ---
+      - name: 파이썬 의존성 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller
+
+      - name: 백엔드 테스트
+        working-directory: backend
+        run: python -m pytest tests -q
+
+      - name: server.exe 빌드
+        working-directory: backend
+        run: pyinstaller server.spec --noconfirm
+
+      # --- 프론트 + 설치본 ---
+      - name: Node 의존성 설치
+        run: npm ci
+
+      - name: 프론트 빌드
+        run: npm run build
+
+      - name: 설치본 빌드
+        run: npx electron-builder --win --publish never
+
+      - name: 설치 파일 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalFileAI-Setup
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
