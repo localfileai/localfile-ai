@@ -1,0 +1,51 @@
+# 공식 홈페이지(site/)를 GitHub Pages로 배포한다.
+#
+# 주소: https://localfileai.github.io/localfile-ai/
+# 최초 1회만 저장소 설정이 필요하다:
+#   Settings → Pages → Build and deployment → Source: **GitHub Actions**
+#
+# 나중에 도메인을 사면 Settings → Pages → Custom domain에 입력하면 된다
+# (HTTPS 인증서는 GitHub이 무료로 발급한다).
+
+name: 홈페이지 배포
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/be1-week-3-tasks-peajyw
+      - main
+    paths:
+      - 'site/**'
+      - '.github/workflows/deploy-site.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포는 하나씩만. 새 배포가 시작되면 진행 중인 것은 취소한다.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - name: 정적 파일 업로드
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: 배포
+        id: deployment
+        uses: actions/deploy-pages@v4

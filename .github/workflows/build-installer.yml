@@ -15,14 +15,21 @@ name: 설치 파일 빌드 (Windows)
 on:
   # Actions 탭에서 버튼으로 직접 실행
   workflow_dispatch:
-  # 코드가 바뀌면 자동으로 — 문서만 고친 커밋은 건너뛴다
+  # 코드가 바뀌면 자동으로 — 문서·홈페이지만 고친 커밋은 건너뛴다
   push:
     branches:
       - claude/be1-week-3-tasks-peajyw
       - main
     paths-ignore:
       - 'docs/**'
+      - 'site/**'
       - '**.md'
+    # v0.1.0 같은 태그를 밀면 릴리스로 공개한다 (홈페이지 다운로드 버튼의 대상)
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # 릴리스 생성에 필요
 
 jobs:
   build:
@@ -66,10 +73,19 @@ jobs:
       - name: 설치본 빌드
         run: npx electron-builder --win --publish never
 
-      - name: 설치 파일 업로드
+      # 팀 내부 확인용 — 로그인한 사람만 받을 수 있다
+      - name: 설치 파일 업로드 (아티팩트)
         uses: actions/upload-artifact@v4
         with:
           name: LocalFileAI-Setup
           path: release/*.exe
           if-no-files-found: error
           retention-days: 30
+
+      # 일반 사용자 배포용 — 태그를 밀었을 때만. 로그인 없이 받을 수 있는 유일한 경로다.
+      - name: 릴리스로 공개 (태그 푸시일 때만)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
+          generate_release_notes: true
