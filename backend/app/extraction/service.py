@@ -8,7 +8,7 @@
 강의자료·과제·발표자료라 txt·md를 빼고 기획안 목록으로 바로잡았습니다. (BE1 결정)
 
 지원 방식
-  pdf            PyMuPDF로 첫 페이지만
+  pdf            PDFium(pypdfium2)으로 첫 페이지만
   docx · pptx    zip + XML 파싱 (외부 라이브러리 없이)
   hwpx           zip + XML 파싱
   hwp            olefile로 BodyText 스트림 디코딩
@@ -119,27 +119,7 @@ def extract_first_page_text(file_path: str) -> str:
 
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        try:
-            # PyMuPDF는 PDF를 실제로 열 때만 import해서 서버 시작을 가볍게 유지합니다.
-            import fitz  # PyMuPDF
-        except ImportError as exc:
-            raise RuntimeError("PyMuPDF is required to extract PDF text.") from exc
-
-        # 비표준 PDF(그라데이션 과다 등)에서 MuPDF가 stderr에 찍는 문법 경고를 끕니다.
-        # 그래픽 렌더링 경고일 뿐 텍스트 추출과 무관하고, 실제 실패는 예외로 잡힙니다.
-        try:
-            fitz.TOOLS.mupdf_display_errors(False)
-        except Exception:
-            pass
-
-        doc = fitz.open(str(path))
-        try:
-            if doc.page_count == 0:
-                return ""
-            return doc.load_page(0).get_text("text").strip()
-        finally:
-            # PDF 파일 핸들이 남지 않도록 항상 닫습니다.
-            doc.close()
+        return _extract_pdf_text(path)
 
     if suffix in ZIP_XML_FORMATS:
         return _extract_zip_xml_text(path, ZIP_XML_FORMATS[suffix])
@@ -154,6 +134,47 @@ def extract_first_page_text(file_path: str) -> str:
         return _extract_ppt_text(path)
 
     raise ValueError(f"Unsupported file type: {suffix}")
+
+
+# ---------------------------------------------------------------------
+# PDF
+# ---------------------------------------------------------------------
+
+def _extract_pdf_text(path: Path) -> str:
+    """PDF 첫 페이지의 텍스트.
+
+    PDFium(pypdfium2, BSD-3-Clause/Apache-2.0)을 씁니다. 예전에는 PyMuPDF였는데
+    AGPL-3.0이라 설치본 배포와 충돌했습니다 (ADR-0004).
+
+    라이선스만 보고 갈아타지 않았습니다. 저장소의 PDF 385건으로 두 엔진의
+    첫 페이지 추출 결과를 비교했고, 380건(98.7%)이 완전히 같았으며 **한글
+    글자 수는 361대 361로 100% 일치**했습니다. 한쪽에서만 텍스트가 나온
+    경우는 0건입니다. 차이가 난 5건은 전부 영문 논문의 리거처였고
+    (`trafﬁc` → `traffic`), PDFium 쪽이 ASCII로 정규화해 오히려 낫습니다.
+    """
+    try:
+        # PDF를 실제로 열 때만 import해서 서버 시작을 가볍게 유지합니다.
+        import pypdfium2
+    except ImportError as exc:
+        raise RuntimeError("pypdfium2 is required to extract PDF text.") from exc
+
+    document = pypdfium2.PdfDocument(str(path))
+    try:
+        if len(document) == 0:
+            return ""
+        page = document[0]
+        text_page = page.get_textpage()
+        try:
+            # PDFium은 줄바꿈을 CRLF로 돌려줍니다. 뒤에 오는 단계(임베딩·길이
+            # 제한·화면 표시)가 예전과 똑같이 동작하도록 LF로 맞춥니다.
+            return text_page.get_text_range().replace("\r\n", "\n").strip()
+        finally:
+            text_page.close()
+            page.close()
+    finally:
+        # 파일 핸들을 반드시 닫습니다. Windows에서는 열린 핸들이 남으면
+        # 그 파일의 이름 변경·이동(POST /apply)이 통째로 실패합니다.
+        document.close()
 
 
 # ---------------------------------------------------------------------

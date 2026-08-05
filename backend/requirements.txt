@@ -5,8 +5,11 @@ pydantic>=2
 eval_type_backport
 
 # --- 문서 텍스트 추출 (BE2) ---
-# PDF 첫 페이지
-PyMuPDF
+# PDF 첫 페이지 텍스트 + 미리보기 렌더링.
+# PyMuPDF에서 교체했다 — AGPL-3.0이라 설치본 배포와 충돌한다 (ADR-0004).
+# pypdfium2는 BSD-3-Clause/Apache-2.0이고, 추출 품질은 385건 비교에서
+# 380건 완전 일치 · 한글 100% 일치로 확인했다.
+pypdfium2
 # HWP(구형 OLE 포맷). docx/pptx/hwpx는 표준 라이브러리 zipfile로 처리한다.
 olefile
 

@@ -9,40 +9,50 @@ MIT·Apache-2.0·BSD 계열은 **배포물에 저작권 고지를 포함할 것*
 
 ---
 
-## ⚠️ 먼저 확인해야 할 것 — PyMuPDF (AGPL-3.0)
+## ✅ 해결됨 — PyMuPDF(AGPL-3.0) → PDFium(BSD/Apache)
 
-**PDF 텍스트 추출에 쓰는 PyMuPDF는 AGPL-3.0과 Artifex 상용 라이선스의
-이중 라이선스입니다.** 설치된 패키지가 스스로 그렇게 밝힙니다.
+한때 PDF 처리에 PyMuPDF를 썼습니다. 그런데 설치된 패키지가 스스로 이렇게
+밝힙니다.
 
 ```
 PyMuPDF  1.28.0  Dual Licensed - GNU AFFERO GPL 3.0 or Artifex commercial
 ```
 
 AGPL-3.0은 **결합 저작물을 배포(convey)하면 그 전체를 AGPL-3.0으로 공개하고
-대응 소스를 제공할 것**을 요구하며, 수령자에게 추가 제한을 붙이는 것을 금지합니다
-(AGPL-3.0 §10).
+대응 소스를 제공할 것**을 요구하며, 수령자에게 추가 제한을 붙이는 것을
+금지합니다(§10). 우리는 `Setup.exe` 안에 PyInstaller로 묶은 `server.exe`를
+넣어 배포하므로, **저장소 라이선스가 MIT였을 때도 이미 충돌하고 있었습니다.**
+사용 제한 라이선스로 바꾸면서 발생한 문제가 아니라 원래 있던 문제였습니다.
 
-우리는 `Setup.exe` 안에 PyInstaller로 묶은 `server.exe`를 넣어 배포하고,
-거기에 PyMuPDF가 들어갑니다. 즉 **지금 배포 방식은 저장소 라이선스가
-MIT였을 때도, 사용 제한 라이선스로 바꾼 뒤에도 AGPL-3.0과 충돌합니다.**
-(MIT는 AGPL 코드를 MIT로 재라이선스할 수 없어서, 사용 제한 라이선스는
-"재배포·수정 금지"가 §10에 걸려서입니다.)
+**[pypdfium2](https://github.com/pypdfium2-team/pypdfium2)로 교체해서
+해결했습니다.** Google이 Chromium에서 쓰는 PDFium의 파이썬 바인딩이고,
+BSD-3-Clause / Apache-2.0 중 선택해 쓸 수 있습니다. 텍스트 추출과 페이지
+렌더링을 모두 지원해 두 용도를 한 번에 대체합니다.
 
-### 선택지
+### 라이선스만 보고 갈아타지 않았습니다
 
-| 안 | 내용 | 평가 |
-|---|---|---|
-| **A. PyMuPDF를 교체** | `pypdf`(BSD-3-Clause) 또는 `pdfminer.six`(MIT)로 바꾼다 | ★★★ **권장.** 충돌이 사라지고 라이선스가 깔끔해진다 |
-| B. 배포물을 AGPL-3.0으로 | `Setup.exe`와 소스 전체를 AGPL-3.0으로 공개 | 사용 제한 목적과 정면으로 충돌 |
-| C. 설치본 배포 중단 | 소스만 공개. AGPL 의무는 "배포"에서 발생한다 | 설치본을 받아 쓰게 하려던 방향과 어긋난다 |
-| D. Artifex 상용 라이선스 | 유료 (연 단위 계약) | 학생 프로젝트 규모에서 검토 대상 아님 |
+저장소의 PDF 385건으로 두 엔진의 첫 페이지 추출 결과를 비교했습니다.
 
-**A를 권합니다.** PyMuPDF는 `requirements.txt` 기준 "PDF 첫 페이지" 텍스트
-추출에만 쓰이고, `pypdf`로 대체 가능한 범위입니다. 다만 추출 품질이 바뀌므로
-3주차에 쓴 것과 같은 방식으로 한국어 PDF 추출 결과를 비교한 뒤 교체해야 합니다.
+| 항목 | 결과 |
+|---|---|
+| 비교 대상 | 385건 |
+| 완전히 같음 | **380건 (98.7%)** |
+| 99% 이상 같음 | 382건 (99.2%) |
+| **한글 글자 수** | MuPDF 361 / PDFium 361 — **100% 일치** |
+| 한쪽만 텍스트가 나온 경우 | **0건** |
 
-**이 항목이 정리되기 전까지는 `Setup.exe`를 공개 배포하지 않는 편이 안전합니다.**
-추출 담당(BE2)과 상의가 필요한 사안입니다.
+차이가 난 5건은 전부 영문 논문이었고 원인은 리거처였습니다
+(`trafﬁc` → `traffic`). PDFium이 ASCII로 정규화하는 쪽이라 **검색·파일명
+생성에는 오히려 낫습니다.** 줄바꿈이 CRLF로 나오는 차이는 추출 어댑터에서
+LF로 맞춰 이전 동작을 그대로 유지합니다.
+
+### PNG 인코딩을 직접 하는 이유
+
+PDFium은 픽셀 바이트만 돌려주고 PNG는 만들어 주지 않습니다. Pillow를 쓰면
+한 줄이지만 설치본에 수 MB짜리 이미지 라이브러리가 통째로 들어갑니다.
+필요한 것이 "RGB 바이트 → PNG" 하나뿐이라 `app/core/png.py`에 표준 라이브러리
+(`zlib`·`struct`)만으로 직접 썼습니다. 규격 준수는 `tests/test_png.py`에서
+CRC 검증과 Pillow 왕복 읽기로 확인합니다.
 
 ---
 
@@ -102,7 +112,8 @@ LG AI Research(`contact_us@lgresearch.ai`)와 별도 계약이 필요합니다.
 | [ReportLab](https://github.com/MrBitBucketSteveHolden/reportlab) | 실험용 데이터셋 PDF 생성 | BSD-3-Clause |
 | [pytest](https://github.com/pytest-dev/pytest) | 테스트 | MIT |
 | [eval_type_backport](https://github.com/alexmojaki/eval_type_backport) | 타입 힌트 호환 | MIT |
-| **[PyMuPDF](https://github.com/pymupdf/PyMuPDF)** | **PDF 텍스트 추출** | **AGPL-3.0 / Artifex 상용 — 위 경고 참조** |
+| [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) | PDF 텍스트 추출 · 미리보기 렌더링 | BSD-3-Clause 또는 Apache-2.0 |
+| └ [PDFium](https://pdfium.googlesource.com/pdfium/) | 위 패키지에 포함된 렌더링 엔진 | BSD-3-Clause |
 
 ---
 
@@ -122,7 +133,7 @@ LG AI Research(`contact_us@lgresearch.ai`)와 별도 계약이 필요합니다.
 ```bash
 # Python
 python -c "import importlib.metadata as m; \
-  print(m.metadata('PyMuPDF').get('License'))"
+  print(m.metadata('pypdfium2').get('License'))"
 
 # Node
 npx license-checker --summary

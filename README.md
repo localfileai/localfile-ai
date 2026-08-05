@@ -267,7 +267,3 @@ cd backend
 제3자 소프트웨어와 AI 모델은 각자의 라이선스를 따릅니다 —
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 결정 근거는 [ADR-0004](docs/decisions/0004-license-and-commercialization.md)에 있습니다.
-
-> ⚠️ **설치본 배포 전 확인이 필요합니다.** PDF 추출에 쓰는 PyMuPDF가 AGPL-3.0이라
-> `Setup.exe` 배포와 충돌합니다. `pypdf`(BSD) 교체가 정리되기 전까지는 설치본을
-> 공개 배포하지 마세요. 자세한 내용은 THIRD-PARTY-NOTICES.md 맨 위에 있습니다.

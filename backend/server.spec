@@ -16,7 +16,7 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
-for package in ("chromadb", "uvicorn", "fitz", "olefile"):
+for package in ("chromadb", "uvicorn", "pypdfium2", "olefile"):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas
     binaries += package_binaries
