@@ -450,7 +450,7 @@ LLM 출력 그대로 폴백. 테스트 60건 통과.
 # ⓓ 실제 추천 API 동작 확인 — FE 연동(FE2 3주차) 전 스모크 테스트
 #    (서버는 npm run backend:dev 로)
 curl -X POST http://127.0.0.1:8000/organize -H "Content-Type: application/json" ^
-     -d "{\"path\": \"C:/Users/IHK/Documents/테스트폴더\", \"max_files\": 3}"
+     -d "{\"path\": \"C:/Users/사용자이름/Documents/테스트폴더\", \"max_files\": 3}"
 ```
 
 ## 미해결 (이월)

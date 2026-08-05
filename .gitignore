@@ -15,6 +15,10 @@ __pycache__/
 #   chroma_db/ -> npm run index    (GPU 2분 / CPU 50분)
 backend/chroma_db/
 backend/dataset/
+# 실제 파일 경로가 담긴 작업 이력 — 실수로라도 저장소에 올라가면 안 된다
+backend/apply_history/
+backend/last_index.json
+backend/settings.json
 backend/dataset_smoke/
 backend/*.csv
 backend/*.json
