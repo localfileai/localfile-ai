@@ -102,7 +102,7 @@ class SearchQuery(Strict):
 
     query: str = Field(..., min_length=1, max_length=200,
                        description='예: "네트워크 스케줄링 발표 자료 찾아줘"')
-    top_k: int = Field(default=5, ge=1, le=20, description="반환할 최대 건수")
+    top_k: int = Field(default=20, ge=1, le=100, description="반환할 최대 건수")
 
 
 class SearchHit(Strict):
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     print("=" * 74)
     print("[테스트 1] ① 자연어 검색 스키마")
     print("=" * 74)
-    check_ok("SearchQuery 기본값 top_k=5",
+    check_ok("SearchQuery 기본값 top_k=20",
              lambda: SearchQuery(query="네트워크 스케줄링 발표 자료 찾아줘"))
     check_ok("SearchResponse 정렬 정상", lambda: SearchResponse(
         query="정규화", total_hits=2, elapsed_ms=120,
@@ -369,7 +369,7 @@ if __name__ == "__main__":
             SearchHit(file=FileRef(**SAMPLE_FILE), score=0.9, matched_text="b"),
         ]))
     check_error("빈 검색어", lambda: SearchQuery(query=""))
-    check_error("top_k 범위 초과", lambda: SearchQuery(query="정규화", top_k=99))
+    check_error("top_k 범위 초과", lambda: SearchQuery(query="정규화", top_k=999))
 
     print()
     print("=" * 74)

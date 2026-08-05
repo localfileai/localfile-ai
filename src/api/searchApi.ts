@@ -139,7 +139,7 @@ export const fetchSearchStatus = async (): Promise<SearchStatus | null> => {
  */
 export const fetchRealSearchResults = async (
   q: string,
-  topK = 5
+  topK = 30
 ): Promise<RealSearchOutcome> => {
   try {
     const params = new URLSearchParams({ q, top_k: String(topK) });

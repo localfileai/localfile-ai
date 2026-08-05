@@ -62,6 +62,10 @@ contextBridge.exposeInMainWorld('api', {
   // 드롭된 File 객체에서 로컬 실제 경로를 추출한다.
   getPathForFile: (file: File): string => resolveDroppedPath(file),
 
+  // 파일이 있는 폴더를 탐색기로 열고 그 파일을 선택해 준다.
+  revealFile: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke('shell:revealFile', filePath),
+
   // 5주차: 백엔드(server.exe)를 앱이 직접 띄우므로 그 상태를 화면에 알린다.
   backendStatus: () => ipcRenderer.invoke('backend:status'),
   onBackendState: (listener: (state: unknown) => void) => {

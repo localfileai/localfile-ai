@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import {
@@ -92,6 +92,14 @@ app.whenReady().then(() => {
       : await dialog.showOpenDialog({ properties: ['openDirectory'] })
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
+  })
+
+  // 파일이 있는 폴더를 탐색기로 열고 그 파일을 선택된 상태로 둔다.
+  // 검색 결과에서 "이게 어디 있는 파일이지"를 바로 확인할 수 있어야 한다.
+  ipcMain.handle('shell:revealFile', (_event, filePath: string) => {
+    if (typeof filePath !== 'string' || !filePath) return false
+    shell.showItemInFolder(filePath)
+    return true
   })
 
   // 백엔드 상태를 렌더러가 물어보거나(invoke) 구독할 수 있게 한다(event).

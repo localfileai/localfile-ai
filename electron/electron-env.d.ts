@@ -42,6 +42,8 @@ interface Window {
     selectFolder: () => Promise<string | null>
     /** 드롭된 File의 로컬 실제 경로 추출 */
     getPathForFile: (file: File) => string
+    /** 파일이 있는 폴더를 탐색기로 열고 그 파일을 선택한다 */
+    revealFile: (filePath: string) => Promise<boolean>
 
     /** 앱이 띄운 백엔드(server.exe)의 현재 상태 */
     backendStatus: () => Promise<BackendState>

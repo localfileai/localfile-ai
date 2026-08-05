@@ -23,7 +23,7 @@ async def search_status():
 @router.get("", response_model=SearchResponse)
 async def natural_language_search(
     q: str = Query(..., min_length=1, max_length=200, description="자연어 질의"),
-    top_k: int = Query(default=5, ge=1, le=20),
+    top_k: int = Query(default=20, ge=1, le=100),
 ):
     """자연어 질의로 색인된 문서를 관련도 순으로 찾는다."""
     try:

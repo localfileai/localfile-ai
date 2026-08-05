@@ -28,7 +28,6 @@ export default function MainView({ selectedPath }: MainViewProps) {
   const [realDocs, setRealDocs] = useState<PreviewItem[]>([]);
   const [realDocsError, setRealDocsError] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
-  const [openedDoc, setOpenedDoc] = useState<string>('');
 
   useEffect(() => {
     if (!selectedPath) {
@@ -39,7 +38,6 @@ export default function MainView({ selectedPath }: MainViewProps) {
 
     let cancelled = false;
     setIsExtracting(true);
-    setOpenedDoc('');
 
     listFolderDocuments(selectedPath).then(({ items, error }) => {
       if (cancelled) return;
@@ -136,15 +134,27 @@ export default function MainView({ selectedPath }: MainViewProps) {
   // 줄을 서서 응답이 몇 분씩 걸린다. 사용자에게는 "검색이 안 되는" 것으로 보인다.
   const isIndexing = indexProgress?.running ?? false;
 
+  // 추출과 색인은 내부적으로 다른 단계지만 사용자에게는 하나의 기다림이다.
+  // 둘 중 무엇이든 돌고 있으면 "준비 중"으로 묶어 진행 표시만 보여 준다.
+  const isPreparing = isExtracting || isIndexing;
+  const isBusy = isPreparing || isLoading;
+
+  // 이번에 고른 폴더의 색인이 끝났는가.
+  // 예전 색인이 남아 있으면 searchStatus.ready는 폴더를 고르자마자 true가 되어,
+  // 아직 읽지도 않은 폴더를 두고 "준비 완료"라고 말하게 된다.
+  const indexFinished = Boolean(indexProgress && !indexProgress.running
+                                && indexProgress.finished_at);
+  const searchReady = Boolean(searchStatus?.ready) && indexFinished && !isPreparing;
+
   // 3. 검색 실행 함수
   const executeSearch = async (query: string) => {
-    if (!query.trim() || isIndexing) return;
+    if (!query.trim() || isPreparing) return;
 
     setIsLoading(true);
     setSearchError('');
     try {
       // 질의를 임베딩해 색인에서 의미가 가까운 문서를 찾는다 (전부 이 PC 안에서).
-      const outcome = await fetchRealSearchResults(query, 5);
+      const outcome = await fetchRealSearchResults(query, 30);
       setSearchResults(outcome.results);
       setSearchError(outcome.error);
       setElapsedMs(outcome.elapsedMs);
@@ -228,33 +238,41 @@ export default function MainView({ selectedPath }: MainViewProps) {
               </div>
             </div>
 
-            {/* 준비 상태 — 사용자가 다음에 뭘 해야 하는지만 알려 준다 */}
+            {/* 준비 상태 — 추출과 색인을 하나의 진행 표시로 이어 보여 준다 */}
             <div className="mx-auto max-w-md text-[11px]">
-              {indexProgress?.running ? (
+              {isPreparing ? (
                 <div className="text-indigo-600">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="font-medium">
-                      문서를 읽고 있습니다
-                      {indexProgress.total > 0 &&
-                        ` · ${indexProgress.processed}/${indexProgress.total}건`}
+                      {isExtracting
+                        ? '폴더의 문서를 살펴보는 중입니다'
+                        : '문서를 읽고 있습니다'}
+                      {!isExtracting && (indexProgress?.total ?? 0) > 0 &&
+                        ` · ${indexProgress?.processed}/${indexProgress?.total}건`}
                     </span>
-                    <span className="text-gray-400 dark:text-gray-500">{formatEta(indexProgress.eta_sec)}</span>
+                    <span className="text-gray-400 dark:text-gray-500">
+                      {isExtracting ? '' : formatEta(indexProgress?.eta_sec ?? null)}
+                    </span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-500/25">
-                    <div
-                      className={`h-full rounded-full bg-indigo-500 transition-all duration-500${
-                        indexProgress.total ? '' : 'animate-pulse'
-                      }`}
-                      style={{
-                        width: `${
-                          indexProgress.total
-                            ? Math.min(100, (indexProgress.processed / indexProgress.total) * 100)
-                            : 8
-                        }%`,
-                      }}
-                    />
+                    {isExtracting || !(indexProgress?.total ?? 0) ? (
+                      // 아직 몇 건인지 모르는 단계 — 흐르는 막대로 진행 중임을 보여 준다
+                      <div className="h-full w-1/3 rounded-full bg-indigo-500 animate-[loading_1.2s_ease-in-out_infinite]" />
+                    ) : (
+                      <div
+                        className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            ((indexProgress?.processed ?? 0) / (indexProgress?.total || 1)) * 100,
+                          )}%`,
+                        }}
+                      />
+                    )}
                   </div>
-                  <div className="mt-1 text-gray-400 dark:text-gray-500">끝나면 바로 검색할 수 있습니다.</div>
+                  <div className="mt-1 text-gray-400 dark:text-gray-500">
+                    끝나면 바로 검색할 수 있습니다.
+                  </div>
                 </div>
               ) : indexError ? (
                 <span className="text-red-500">{indexError}</span>
@@ -264,9 +282,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 <span className="text-amber-600">
                   오른쪽 위 <b>[폴더 선택]</b>으로 정리할 폴더를 고르면 검색을 준비합니다.
                 </span>
-              ) : searchStatus?.ready ? (
+              ) : searchReady ? (
                 <span className="text-emerald-600">
-                  문서 {searchStatus.indexed_documents.toLocaleString()}건 검색 준비 완료
+                  문서 {searchStatus?.indexed_documents.toLocaleString()}건 검색 준비 완료
                 </span>
               ) : (
                 <span className="text-gray-400 dark:text-gray-500">문서를 확인하는 중입니다…</span>
@@ -283,9 +301,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
-                    disabled={isIndexing}
+                    disabled={isPreparing}
                     placeholder={
-                      isIndexing
+                      isPreparing
                         ? '문서를 읽는 중입니다. 끝나면 검색할 수 있습니다.'
                         : '예: 2025년에 진행한 프로젝트 자료를 찾아줘'
                     }
@@ -294,11 +312,11 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 </div>
                 <button
                   onClick={handleSearchClick}
-                  disabled={isLoading || isIndexing}
-                  title={isIndexing ? '문서를 읽는 중입니다. 끝나면 검색할 수 있습니다.' : ''}
+                  disabled={isLoading || isPreparing}
+                  title={isPreparing ? '문서를 읽는 중입니다. 끝나면 검색할 수 있습니다.' : ''}
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer"
                 >
-                  <div>{isIndexing ? '준비 중' : isLoading ? '검색 중...' : '검색'}</div>
+                  <div>{isPreparing ? '준비 중' : isLoading ? '검색 중...' : '검색'}</div>
                 </button>
               </div>
             </div>
@@ -319,20 +337,16 @@ export default function MainView({ selectedPath }: MainViewProps) {
             </div>
           </div>
 
-          {/* 선택한 폴더에서 실제로 읽어 낸 문서.
-              색인·검색이 도는 동안에는 감춘다 — 그때는 진행 상황만 보여야
+          {/* 폴더 안의 문서 목록.
+              추출·색인·검색이 도는 동안에는 감춘다 — 그때는 진행 상황만 보여야
               사용자가 "지금 뭘 기다리는지"를 헷갈리지 않는다. */}
-          {selectedPath && !isIndexing && !isLoading && (
+          {selectedPath && !isBusy && (
             <div className="bg-white dark:bg-[#16161e] rounded-2xl border border-emerald-200/70 dark:border-emerald-500/30 shadow-2xs overflow-hidden">
               <div className="bg-emerald-50/60 dark:bg-emerald-500/15 px-6 h-13 border-b border-emerald-100 dark:border-emerald-500/30 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">선택한 폴더의 실제 문서</div>
+                  <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">폴더 내 전체 문서</div>
                   <div className="text-[11px] text-emerald-700">
-                    {isExtracting
-                      ? '추출 중...'
-                      : realDocsError
-                      ? '실패'
-                      : `${realDocs.length}건 · PyMuPDF 실제 추출`}
+                    {realDocsError ? '읽지 못했습니다' : `${realDocs.length}건`}
                   </div>
                 </div>
                 <code
@@ -344,11 +358,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
               </div>
 
               <div className="p-6">
-                {isExtracting ? (
-                  <div className="py-6 text-center text-xs text-gray-400 dark:text-gray-500 animate-pulse">
-                    문서 텍스트를 추출하고 있습니다...
-                  </div>
-                ) : realDocsError ? (
+                {realDocsError ? (
                   <div className="py-4 text-[11px] leading-relaxed text-red-600">{realDocsError}</div>
                 ) : realDocs.length === 0 ? (
                   <div className="py-4 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
@@ -362,7 +372,8 @@ export default function MainView({ selectedPath }: MainViewProps) {
                     {realDocs.map((doc) => (
                       <div key={doc.path} className="py-3">
                         <button
-                          onClick={() => setOpenedDoc(openedDoc === doc.path ? '' : doc.path)}
+                          onClick={() => void window.api?.revealFile?.(doc.path)}
+                          title="탐색기에서 이 파일 보기"
                           className="flex w-full items-start gap-3 text-left cursor-pointer"
                         >
                           <div className="mt-0.5 w-9 h-9 shrink-0 rounded-xl border border-emerald-100 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/15 text-[10px] font-bold text-emerald-600 flex items-center justify-center">
@@ -379,15 +390,9 @@ export default function MainView({ selectedPath }: MainViewProps) {
                             </div>
                           </div>
                           <div className="shrink-0 pt-1 text-[10px] font-bold text-emerald-600">
-                            {openedDoc === doc.path ? '접기' : '원문'}
+                            폴더 열기
                           </div>
                         </button>
-
-                        {openedDoc === doc.path && !doc.error && (
-                          <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-gray-200/60 dark:border-gray-700 bg-gray-50 dark:bg-white/5 p-4 font-mono text-[11px] leading-relaxed text-gray-700 dark:text-gray-200">
-                            {doc.preview_text}
-                          </pre>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -481,7 +486,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
                   </div>
                 ) : (
                   // 결과가 많아도 페이지 전체가 길어지지 않게 목록 안에서 스크롤한다
-                  <div className="div-results max-h-[26rem] overflow-y-auto pr-1 divide-y divide-gray-100 dark:divide-gray-700/70">
+                  <div className="div-results max-h-[32rem] overflow-y-auto pr-1 divide-y divide-gray-100 dark:divide-gray-700/70">
                     {filteredResults.map((item) => (
                       <FileResultCard key={item.id} item={item} selectedPath={selectedPath} />
                     ))}
