@@ -281,7 +281,10 @@
           문서는 이 PC를 떠나지 않습니다.
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary btn-lg" href="https://github.com/localfileai/localfile-ai/releases/latest">
+          <!-- 눌렀을 때 페이지로 이동하지 않고 설치 파일이 바로 받아지는 주소.
+               GitHub이 최신 릴리스의 같은 이름 파일로 넘겨준다. -->
+          <a class="btn btn-primary btn-lg" data-download
+             href="https://github.com/localfileai/localfile-ai/releases/latest/download/LocalFileAI-Setup.exe">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
             </svg>
@@ -289,7 +292,7 @@
           </a>
           <a class="btn btn-ghost btn-lg" href="https://github.com/localfileai/localfile-ai">GitHub에서 보기</a>
         </div>
-        <p class="cta-note">Windows 10 · 11 (64비트) · 설치 후 앱 안에서 AI 엔진을 자동으로 준비합니다</p>
+        <p class="cta-note" data-download-meta>Windows 10 · 11 (64비트) · 설치 후 앱 안에서 AI 엔진을 자동으로 준비합니다</p>
       </div>
 
       <!-- 앱 화면 이미지(스타일화된 표현) -->
@@ -486,7 +489,8 @@
       <div class="reveal">
         <h2>정리, 이제 미루지 않아도 됩니다</h2>
         <p>다운로드 폴더에 쌓인 <b>최종.pdf</b>들을 열어보지 않고도 정리할 수 있습니다.</p>
-        <a class="btn btn-primary btn-lg" href="https://github.com/localfileai/localfile-ai/releases/latest">Windows용 다운로드</a>
+        <a class="btn btn-primary btn-lg" data-download
+           href="https://github.com/localfileai/localfile-ai/releases/latest/download/LocalFileAI-Setup.exe">Windows용 다운로드</a>
       </div>
     </div>
   </section>
@@ -521,6 +525,27 @@
     });
   }, { rootMargin: '0px 0px -8% 0px' });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // 최신 릴리스 정보를 읽어 버튼에 버전·용량을 채운다.
+  // 실패해도 버튼은 그대로 동작한다 — href에 이미 고정 다운로드 주소가 들어 있다.
+  fetch('https://api.github.com/repos/localfileai/localfile-ai/releases/latest')
+    .then((response) => (response.ok ? response.json() : null))
+    .then((release) => {
+      if (!release || !Array.isArray(release.assets)) return;
+      const asset = release.assets.find((a) => a.name === 'LocalFileAI-Setup.exe')
+        || release.assets.find((a) => a.name.endsWith('.exe'));
+      if (!asset) return;
+
+      // 파일 이름이 바뀐 릴리스에도 정확한 주소를 쓰게 한다
+      document.querySelectorAll('[data-download]').forEach((el) => {
+        el.href = asset.browser_download_url;
+      });
+      const size = Math.round(asset.size / 1024 / 1024);
+      document.querySelectorAll('[data-download-meta]').forEach((el) => {
+        el.textContent = `${release.tag_name} · ${size}MB · Windows 10 · 11 (64비트)`;
+      });
+    })
+    .catch(() => {});
 
   // 히어로 검색창에 질의를 한 글자씩 적는다 — 제품의 사용법을 그대로 보여 주는 장치
   const typed = document.getElementById('typed');
