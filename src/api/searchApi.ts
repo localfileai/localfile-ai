@@ -139,10 +139,13 @@ export const fetchSearchStatus = async (): Promise<SearchStatus | null> => {
  */
 export const fetchRealSearchResults = async (
   q: string,
-  topK = 30
+  topK = 30,
+  /** 지금 고른 폴더. 주면 그 폴더에서 색인한 문서만 찾는다 */
+  root = '',
 ): Promise<RealSearchOutcome> => {
   try {
     const params = new URLSearchParams({ q, top_k: String(topK) });
+    if (root) params.set('root', root);
     const response = await fetch(`${BASE_URL}/search?${params.toString()}`);
 
     if (!response.ok) {

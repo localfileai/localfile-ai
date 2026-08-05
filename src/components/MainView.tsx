@@ -11,7 +11,7 @@ import {
   startIndexing,
   type IndexProgress,
 } from '../api/indexApi';
-import { listFolderDocuments, type PreviewItem } from '../api/preprocessApi';
+import { listFolderFiles, type FolderFile } from '../api/filesApi';
 import FileResultCard from './FileResultCard';
 
 /** 기획안이 정한 지원 문서 형식 7종 (backend contracts/ai.py의 ALLOWED_EXTENSIONS와 같다). */
@@ -25,26 +25,38 @@ interface MainViewProps {
 export default function MainView({ selectedPath }: MainViewProps) {
   // 선택한 폴더에서 실제로 추출된 문서.
   // 검색 결과(Mock)와 달리 이건 진짜 파일에서 뽑은 텍스트입니다.
-  const [realDocs, setRealDocs] = useState<PreviewItem[]>([]);
+  const [realDocs, setRealDocs] = useState<FolderFile[]>([]);
+  const [realDocsTotal, setRealDocsTotal] = useState(0);
   const [realDocsError, setRealDocsError] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
 
+  // 폴더가 바뀌면 이전 폴더의 목록·검색 결과를 즉시 버린다.
+  // 남겨 두면 새 폴더를 고른 뒤에도 예전 파일이 보인다.
   useEffect(() => {
-    if (!selectedPath) {
-      setRealDocs([]);
-      setRealDocsError('');
-      return;
-    }
+    setRealDocs([]);
+    setRealDocsTotal(0);
+    setRealDocsError('');
+    setSearchResults([]);
+    setHasSearched(false);
+    setSearchError('');
+    setIndexProgress(null);
+
+    if (!selectedPath) return;
 
     let cancelled = false;
     setIsExtracting(true);
 
-    listFolderDocuments(selectedPath).then(({ items, error }) => {
-      if (cancelled) return;
-      setRealDocs(items);
-      setRealDocsError(error);
-      setIsExtracting(false);
-    });
+    listFolderFiles(selectedPath)
+      .then(({ items, total, error }) => {
+        if (cancelled) return;
+        setRealDocs(items);
+        setRealDocsTotal(total);
+        setRealDocsError(error);
+      })
+      .finally(() => {
+        // finally가 없으면 실패했을 때 로딩 표시가 영원히 남는다
+        if (!cancelled) setIsExtracting(false);
+      });
 
     return () => {
       cancelled = true;
@@ -132,7 +144,15 @@ export default function MainView({ selectedPath }: MainViewProps) {
   // 색인 중에는 검색을 막는다.
   // Ollama가 요청을 하나씩 처리하므로, 색인이 도는 동안 검색을 보내면 그 뒤에
   // 줄을 서서 응답이 몇 분씩 걸린다. 사용자에게는 "검색이 안 되는" 것으로 보인다.
-  const isIndexing = indexProgress?.running ?? false;
+  // 진행률이 **지금 고른 폴더**의 것인지 확인한다. 폴더를 바꾸면 백엔드에는
+  // 아직 이전 폴더의 완료 상태가 남아 있어, 그대로 믿으면 새 폴더를 읽지도
+  // 않고 "준비 완료"가 된다.
+  const sameFolder = (a: string, b: string) =>
+    a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase();
+  const progressIsCurrent = Boolean(
+    indexProgress && selectedPath && sameFolder(indexProgress.path, selectedPath),
+  );
+  const isIndexing = Boolean(indexProgress?.running && progressIsCurrent);
 
   // 추출과 색인은 내부적으로 다른 단계지만 사용자에게는 하나의 기다림이다.
   // 둘 중 무엇이든 돌고 있으면 "준비 중"으로 묶어 진행 표시만 보여 준다.
@@ -142,8 +162,8 @@ export default function MainView({ selectedPath }: MainViewProps) {
   // 이번에 고른 폴더의 색인이 끝났는가.
   // 예전 색인이 남아 있으면 searchStatus.ready는 폴더를 고르자마자 true가 되어,
   // 아직 읽지도 않은 폴더를 두고 "준비 완료"라고 말하게 된다.
-  const indexFinished = Boolean(indexProgress && !indexProgress.running
-                                && indexProgress.finished_at);
+  const indexFinished = Boolean(progressIsCurrent && indexProgress
+                                && !indexProgress.running && indexProgress.finished_at);
   const searchReady = Boolean(searchStatus?.ready) && indexFinished && !isPreparing;
 
   // 3. 검색 실행 함수
@@ -154,7 +174,7 @@ export default function MainView({ selectedPath }: MainViewProps) {
     setSearchError('');
     try {
       // 질의를 임베딩해 색인에서 의미가 가까운 문서를 찾는다 (전부 이 PC 안에서).
-      const outcome = await fetchRealSearchResults(query, 30);
+      const outcome = await fetchRealSearchResults(query, 30, selectedPath);
       setSearchResults(outcome.results);
       setSearchError(outcome.error);
       setElapsedMs(outcome.elapsedMs);
@@ -346,7 +366,11 @@ export default function MainView({ selectedPath }: MainViewProps) {
                 <div className="flex items-center gap-2">
                   <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">폴더 내 전체 문서</div>
                   <div className="text-[11px] text-emerald-700">
-                    {realDocsError ? '읽지 못했습니다' : `${realDocs.length}건`}
+                    {realDocsError
+                      ? '읽지 못했습니다'
+                      : realDocsTotal > realDocs.length
+                        ? `${realDocs.length}건 표시 (전체 ${realDocsTotal}건)`
+                        : `${realDocs.length}건`}
                   </div>
                 </div>
                 <code
@@ -377,16 +401,13 @@ export default function MainView({ selectedPath }: MainViewProps) {
                           className="flex w-full items-start gap-3 text-left cursor-pointer"
                         >
                           <div className="mt-0.5 w-9 h-9 shrink-0 rounded-xl border border-emerald-100 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/15 text-[10px] font-bold text-emerald-600 flex items-center justify-center">
-                            {doc.extension.replace('.', '').toUpperCase()}
+                            {doc.extension.toUpperCase()}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-xs font-bold text-gray-800 dark:text-gray-100">{doc.name}</div>
                             <div className="mt-0.5 truncate text-[11px] text-gray-500 dark:text-gray-400">
-                              {doc.error ? (
-                                <span className="text-red-500">추출 실패: {doc.error}</span>
-                              ) : (
-                                doc.preview_text.slice(0, 90)
-                              )}
+                              {doc.folder ? `${doc.folder} · ` : ''}
+                              {doc.modified_at.slice(0, 10)}
                             </div>
                           </div>
                           <div className="shrink-0 pt-1 text-[10px] font-bold text-emerald-600">

@@ -154,6 +154,9 @@ def _run(path: str, max_files: int) -> None:
                 documents.append(text)
                 metadatas.append({
                     "source": "user",
+                    # 검색을 "지금 고른 폴더"로 한정하는 기준.
+                    # 이게 없으면 예전에 색인한 다른 폴더 파일이 결과에 섞인다.
+                    "root": path,
                     "current_name": item["name"],
                     "current_path": str(file_path),
                     "extension": str(item["extension"]).lstrip("."),

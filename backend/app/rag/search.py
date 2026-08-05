@@ -234,8 +234,12 @@ def _active_collection():
     return _collection(), "dataset"
 
 
-def search(query: str, top_k: int = 5) -> SearchResponse:
-    """자연어 질의로 색인된 문서를 찾는다."""
+def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
+    """자연어 질의로 색인된 문서를 찾는다.
+
+    root를 주면 그 폴더에서 색인한 문서만 대상으로 한다. 색인 컬렉션은 하나라
+    여러 폴더를 오가며 쓰면 예전 폴더 파일이 결과에 섞이기 때문이다.
+    """
     started = time.perf_counter()
 
     ready, message = check_ollama()
@@ -251,7 +255,14 @@ def search(query: str, top_k: int = 5) -> SearchResponse:
         )
 
     # 계약 밖 확장자가 섞여 있을 수 있으니 조금 더 받아서 걸러낸다.
-    result = collection.query(query_texts=[query], n_results=min(top_k * 2, 20))
+    query_args = {"query_texts": [query], "n_results": min(top_k * 2, 100)}
+    if root:
+        query_args["where"] = {"root": root}
+    try:
+        result = collection.query(**query_args)
+    except Exception:
+        # 옛 색인에는 root 메타데이터가 없다. 필터가 통하지 않으면 전체에서 찾는다.
+        result = collection.query(query_texts=[query], n_results=min(top_k * 2, 100))
 
     metadatas = result.get("metadatas", [[]])[0]
     documents = result.get("documents", [[]])[0]

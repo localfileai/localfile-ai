@@ -24,10 +24,11 @@ async def search_status():
 async def natural_language_search(
     q: str = Query(..., min_length=1, max_length=200, description="자연어 질의"),
     top_k: int = Query(default=20, ge=1, le=100),
+    root: str = Query(default="", description="이 폴더에서 색인한 문서만 검색"),
 ):
     """자연어 질의로 색인된 문서를 관련도 순으로 찾는다."""
     try:
-        return search(q, top_k=top_k)
+        return search(q, top_k=top_k, root=root)
     except SearchUnavailable as exc:
         # 준비가 안 된 상태는 사용자가 고칠 수 있는 문제이므로 이유를 그대로 전달한다.
         raise HTTPException(status_code=503, detail=str(exc)) from exc

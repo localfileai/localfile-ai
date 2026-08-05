@@ -8,9 +8,8 @@ def create_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from .api.routes import (apply, feedback, health, indexing, mock, organize,
-                             preprocess, search, setup,
-                             thumbnail)
+    from .api.routes import (apply, feedback, files, health, indexing, mock,
+                             organize, preprocess, search, setup, thumbnail)
 
     app = FastAPI(title="Local File AI Backend")
 
@@ -52,6 +51,10 @@ def create_app():
     # 승인 후 파일 변경입니다 (기능④, 4주차). 충돌·경로·권한 검증과
     # 작업 이력·되돌리기를 포함합니다.
     app.include_router(apply.router)
+
+    # 폴더 안의 문서 목록입니다 (5주차). 텍스트 추출 없이 파일 정보만 읽어
+    # 수백 개 폴더에서도 즉시 응답합니다.
+    app.include_router(files.router)
 
     # 문서 첫 페이지 이미지 미리보기입니다 (5주차).
     app.include_router(thumbnail.router)
