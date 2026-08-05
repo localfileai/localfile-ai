@@ -1,5 +1,7 @@
 export interface RenameRecommendation {
   id: string;
+  /** 실제 파일의 절대 경로. 탐색기 열기에 쓴다 */
+  path?: string;
   currentName: string;
   recommendedName: string;
   confidence: string;
@@ -10,6 +12,8 @@ export interface RenameRecommendation {
 
 export interface StructureRecommendation {
   id: string;
+  /** 실제 파일의 절대 경로. 탐색기 열기에 쓴다 */
+  path?: string;
   fileName: string;
   currentFolder: string;
   targetFolder: string;
@@ -196,6 +200,7 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
 
   const renameList: RenameRecommendation[] = data.suggestions.map((item, index) => ({
     id: String(index + 1),
+    path: item.current.path,
     currentName: item.current.name,
     recommendedName: item.suggestion.recommended_filename,
     confidence: toConfidenceString(item.suggestion.confidence),
@@ -205,6 +210,7 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
 
   const structureList: StructureRecommendation[] = data.suggestions.map((item, index) => ({
     id: String(index + 1),
+    path: item.current.path,
     fileName: item.current.name,
     currentFolder: parentFolder(item.current.path),
     targetFolder: item.suggestion.recommended_folder,

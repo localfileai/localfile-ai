@@ -206,3 +206,31 @@ class TestApi:
             "items": [{"source_path": "a.pdf", "target_folder": "b",
                        "target_filename": "a.pdf"}]})
         assert response.status_code == 422
+
+
+class TestFolderOrganize:
+    """폴더 정리의 본질 — 고른 폴더 **안에** 갈래별 새 폴더를 만들어 옮긴다."""
+
+    def test_없던_폴더를_만들어_분류해_옮긴다(self, root, history_dir):
+        result = fileops.apply_changes(str(root), [
+            item(root / "os_lecture.pdf", "강의자료/운영체제", "os_lecture.pdf"),
+            item(root / "hw3.docx", "과제/데이터베이스", "hw3.docx"),
+        ])
+
+        assert result.moved == 2
+        # 고른 폴더 안에 새 폴더가 생겼다
+        assert (root / "강의자료" / "운영체제").is_dir()
+        assert (root / "과제" / "데이터베이스").is_dir()
+        # 파일은 그 안으로 들어갔고 원래 자리에는 없다
+        assert (root / "강의자료/운영체제/os_lecture.pdf").is_file()
+        assert (root / "과제/데이터베이스/hw3.docx").is_file()
+        assert not (root / "os_lecture.pdf").exists()
+
+    def test_되돌리면_파일이_원래_자리로_온다(self, root, history_dir):
+        fileops.apply_changes(str(root), [
+            item(root / "hw3.docx", "과제/데이터베이스", "hw3.docx")])
+
+        fileops.undo()
+
+        assert (root / "hw3.docx").is_file()
+        assert not (root / "과제/데이터베이스/hw3.docx").exists()

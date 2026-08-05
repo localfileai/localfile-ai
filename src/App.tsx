@@ -82,7 +82,8 @@ function App() {
       void loadOrganizeData()
       return
     }
-    const needsAnalysis = currentMenu === 'organize' || currentMenu === 'files'
+    const needsAnalysis = currentMenu === 'organize' || currentMenu === 'rename'
+      || currentMenu === 'files'
     if (needsAnalysis && analyzedPath !== selectedPath) void loadOrganizeData()
   }, [selectedPath, currentMenu, analyzedPath, loadOrganizeData])
 
@@ -183,8 +184,9 @@ function App() {
         <main className="flex-1 overflow-y-auto flex flex-col">
           {currentMenu === 'search' && <MainView selectedPath={selectedPath} />}
 
-          {currentMenu === 'organize' && (
+          {(currentMenu === 'organize' || currentMenu === 'rename') && (
             <OrganizeView
+              mode={currentMenu === 'rename' ? 'rename' : 'structure'}
               renameList={renameList}
               setRenameList={setRenameList}
               structureList={structureList}

@@ -23,6 +23,8 @@ interface OrganizeViewProps {
   isAnalyzing?: boolean;
   /** 계산이 실패한 이유 */
   analyzeError?: string;
+  /** 이 화면이 다루는 것. 사이드바 메뉴가 정한다 */
+  mode?: 'rename' | 'structure';
 }
 
 // 💡 백엔드 동적 트리를 위한 노드 타입
@@ -137,15 +139,17 @@ function DynamicTreeNode({
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  <span
-                    className={`text-[11px] truncate pr-2 ${
+                  <button
+                    onClick={() => void window.api?.revealFile?.(node.fileData?.path ?? '')}
+                    title="탐색기에서 이 파일 보기"
+                    className={`text-left text-[11px] truncate pr-2 cursor-pointer hover:underline ${
                       selectedMoveIds.includes(node.fileData.id)
                         ? 'text-rose-600'
-                        : 'text-gray-700'
+                        : 'text-gray-700 dark:text-gray-200'
                     }`}
                   >
                     📄 {node.name}
-                  </span>
+                  </button>
                   {selectedMoveIds.includes(node.fileData.id) && (
                     <span className="text-[9px] bg-rose-100 text-rose-600 font-bold px-1.5 py-0.5 rounded shrink-0">
                       이동 예정
@@ -157,9 +161,13 @@ function DynamicTreeNode({
               {/* [적용 후 폴더 구조 트리일 때] */}
               {isTargetTree && selectedMoveIds.includes(node.fileData.id) && (
                 <div className="flex items-center justify-between py-1.5 px-2 rounded-xl bg-emerald-50/70 border border-emerald-100/80">
-                  <span className="text-[11px] text-emerald-800 truncate pr-2">
+                  <button
+                    onClick={() => void window.api?.revealFile?.(node.fileData?.path ?? '')}
+                    title="탐색기에서 이 파일 보기"
+                    className="text-left text-[11px] text-emerald-800 dark:text-emerald-300 truncate pr-2 cursor-pointer hover:underline"
+                  >
                     📄 {node.name}
-                  </span>
+                  </button>
                   <span className="text-[9px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 font-bold px-1.5 py-0.5 rounded shrink-0">
                     새 위치
                   </span>
@@ -186,8 +194,11 @@ export default function OrganizeView({
   selectedPath = '',
   isAnalyzing = false,
   analyzeError = '',
+  mode = 'structure',
 }: OrganizeViewProps) {
-  const [activeTab, setActiveTab] = useState<'rename' | 'structure'>('structure');
+  // 예전에는 한 화면 안에서 탭으로 갈랐지만, 두 기능은 하는 일이 달라
+  // 사이드바에서 각각 고르게 바꿨다. 여기서는 받은 모드만 그린다.
+  const activeTab = mode;
 
   // --- [파일명 변경 탭 상태] ---
   const [renameList, setRenameList] = useState<RenameRecommendation[]>(initialRenameList);
@@ -425,10 +436,14 @@ export default function OrganizeView({
         <div className="flex items-center justify-between">
           <div className="space-y-1">
             <h2 className="text-xl font-black text-gray-900 dark:text-gray-50">
-              정리 전과 정리 후 구조를 한눈에 비교합니다.
+              {activeTab === 'rename'
+                ? '내용에 맞는 파일명을 제안합니다.'
+                : '선택한 폴더 안에 갈래별 폴더를 만들어 정리합니다.'}
             </h2>
             <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">
-              선택한 이동 추천만 반영해 오른쪽의 ‘적용 후 폴더 구조’를 실시간으로 다시 그립니다.
+              {activeTab === 'rename'
+                ? '추천 이름은 직접 고쳐도 됩니다. 체크한 파일만 실제로 바뀝니다.'
+                : `${selectedPath || '선택한 폴더'} 아래에 새 폴더가 생기고, 체크한 파일만 그리로 옮겨집니다.`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -450,37 +465,6 @@ export default function OrganizeView({
               선택 항목 적용
             </button>
           </div>
-        </div>
-
-        {/* 상단 모드 전환 탭 */}
-        <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700/70 pb-3">
-          <button
-            onClick={() => setActiveTab('rename')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === 'rename'
-                ? 'bg-white text-gray-900 border border-gray-200 shadow-2xs'
-                : 'text-gray-400 hover:bg-gray-50'
-            }`}
-          >
-            <span>파일명 변경</span>
-            <span className="px-2 py-0.5 text-[10px] bg-gray-50 dark:bg-white/5 text-black-600 rounded-full font-bold">
-              {renameList.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('structure')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-              activeTab === 'structure'
-                ? 'bg-white text-gray-900 border border-gray-200 shadow-2xs'
-                : 'text-gray-400 hover:bg-gray-50'
-            }`}
-          >
-            <span>폴더 구조 비교</span>
-            <span className="px-2 py-0.5 text-[10px] bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 rounded-full font-bold">
-              {structureList.length}
-            </span>
-          </button>
         </div>
 
         {/* ========================================================= */}
@@ -571,7 +555,13 @@ export default function OrganizeView({
                                   {item.fileType}
                                 </span>
                                 <div className="space-y-0.5">
-                                  <div className="font-bold text-gray-900 dark:text-gray-50 text-xs">{item.currentName}</div>
+                                  <button
+                                    onClick={() => void window.api?.revealFile?.(item.path ?? '')}
+                                    title="탐색기에서 이 파일 보기"
+                                    className="text-left font-bold text-gray-900 dark:text-gray-50 text-xs hover:text-indigo-600 hover:underline cursor-pointer"
+                                  >
+                                    {item.currentName}
+                                  </button>
                                   <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">{item.category}</div>
                                 </div>
                               </div>
@@ -581,7 +571,8 @@ export default function OrganizeView({
                                 type="text"
                                 value={item.recommendedName}
                                 onChange={(e) => handleRenameChange(item.id, e.target.value)}
-                                className="w-full bg-white dark:bg-[#16161e] border border-indigo-100 dark:border-indigo-500/30 rounded-2xl px-4 py-2.5 text-xs font-bold text-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
+                                placeholder="추천 이름을 만들지 못했습니다. 직접 입력하세요."
+                                className="w-full bg-white dark:bg-[#16161e] border border-indigo-100 dark:border-indigo-500/30 rounded-2xl px-4 py-2.5 text-xs font-bold text-indigo-600 dark:text-indigo-300 placeholder:font-medium placeholder:text-gray-300 dark:placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
                               />
                             </td>
                             <td className="py-4 px-6 text-right">
@@ -605,17 +596,39 @@ export default function OrganizeView({
 
                 <div className="p-5 flex-1 bg-white dark:bg-[#16161e] flex flex-col justify-between space-y-5">
                   <div className="space-y-4">
-                    <div className="p-4 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 text-center py-12 bg-gray-50/20">
-                      {selectedRenameIds.length === 0 ? (
+                    {selectedRenameIds.length === 0 ? (
+                      <div className="p-4 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 text-center py-12">
                         <p className="text-gray-400 dark:text-gray-500 text-[11px] leading-relaxed font-medium">
-                          왼쪽 목록에서 변경할 파일을 선택하면<br />적용 전 요약을 표시합니다.
+                          왼쪽 목록에서 변경할 파일을 선택하면
+                          <br />
+                          바뀌기 전과 후를 여기서 보여 줍니다.
                         </p>
-                      ) : (
-                        <p className="font-bold text-indigo-600 text-xs">
-                          총 {selectedRenameIds.length}개 파일의 이름 변경 준비가 완료되었습니다.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400">
+                          {selectedRenameIds.length}개 파일이 이렇게 바뀝니다
                         </p>
-                      )}
-                    </div>
+                        {renameList
+                          .filter((item) => selectedRenameIds.includes(item.id))
+                          .map((item) => (
+                            <div
+                              key={item.id}
+                              className="rounded-xl border border-gray-200 dark:border-gray-700 p-3 space-y-1"
+                            >
+                              <div className="truncate text-[11px] text-gray-400 dark:text-gray-500 line-through">
+                                {item.currentName}
+                              </div>
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-[11px] text-indigo-400">→</span>
+                                <div className="min-w-0 break-all text-[11px] font-bold text-indigo-600 dark:text-indigo-300">
+                                  {item.recommendedName || '(이름 없음)'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
 
                     <div className="space-y-2.5 pt-1">
                       <div className="flex items-center gap-2.5 text-[11px] text-gray-500 dark:text-gray-400 font-medium">

@@ -10,6 +10,10 @@ interface HeaderProps {
 
 const TITLES: Record<Menu, { title: string; description: string }> = {
   search: { title: '파일 찾기', description: '파일명 대신 내용과 날짜로 찾아보세요.' },
+  rename: {
+    title: '파일·폴더명 변경',
+    description: '문서 내용에 맞는 이름을 제안합니다.',
+  },
   organize: { title: '폴더 정리', description: '현재 구조와 변경 후 구조를 비교하세요.' },
   files: { title: '전체 보유 파일', description: '분석이 끝난 파일 목록입니다.' },
 };
