@@ -63,7 +63,7 @@ npm run doctor
 
 | | 버전 | 필수 여부 |
 |---|---|---|
-| Node.js | 20 이상 | **필수** |
+| Node.js | 20 이상 | **필수** — 16에서는 빌드가 실패합니다(아래 참고) |
 | Python | 3.11 이상 | **필수** |
 | [Ollama](https://ollama.com) | — | 선택 — 없어도 앱은 돌아갑니다 |
 
@@ -229,7 +229,7 @@ cd backend
 | `npm run backend:dev` | FastAPI 서버 |
 | `npm run dataset` | 정답 데이터셋 1,000쌍 재생성 (약 2분) |
 | `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
-| `npm run backend:test` | 백엔드 단위 테스트 81건 (Ollama 불필요) |
+| `npm run backend:test` | 백엔드 단위 테스트 94건 (Ollama 불필요) |
 | `npm run backend:build-exe` | server 실행 파일 빌드 — Windows에서 실행 (4주차) |
 | `npm run dist:win` | **배포용 Setup.exe 생성** — 백엔드 exe + 프론트 + 설치본 (5주차) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
@@ -238,7 +238,8 @@ cd backend
 
 | 문제 | 상태 |
 |---|---|
-| **경로에 한글이 있으면** ChromaDB가 절대경로로 색인을 못 엶 | 상대경로로 우회. `npm run backend:dev`로 실행할 것 |
+| **Node 16에서 빌드 실패** — `Cannot find native binding`(@tailwindcss/oxide) | Node 20+ 설치 후 `node_modules`·`package-lock.json` 지우고 `npm install`. npm 8의 optional dependency 버그로 네이티브 바이너리가 빠진다 |
+| **경로에 한글이 있으면** ChromaDB가 절대경로로 색인을 못 엶 | 상대경로로 우회. `npm run backend:dev`로 실행할 것 (배포본은 `run.py`가 자동 처리) |
 | **Drag & Drop** 동작 미확인 | 실패 시 앱에 빨간 배너 표시. 콘솔의 `[preload]` 로그 확인 필요 |
 | Ollama는 요청을 **직렬 처리** | 색인 중 검색은 수십 초 대기. 2주차에 큐 분리 필요 |
 

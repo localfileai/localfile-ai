@@ -1,7 +1,9 @@
 {
   "name": "local-file-ai-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "내 PC의 문서를 로컬에서 검색하고 정리하는 데스크톱 앱",
+  "author": "LocalFile AI Team",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -76,5 +78,8 @@
       "createDesktopShortcut": true,
       "shortcutName": "LocalFile AI"
     }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
