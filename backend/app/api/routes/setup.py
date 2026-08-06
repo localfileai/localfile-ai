@@ -24,8 +24,16 @@ class SelectRequest(BaseModel):
 
 @router.get("/status")
 async def setup_status():
-    """사양·모델 목록·추천·진행률. FE 준비 화면이 이걸 폴링한다."""
-    return provision.status()
+    """사양·모델 목록·추천·진행률. FE 준비 화면이 이걸 폴링한다.
+
+    무슨 일이 있어도 200과 형태 맞는 본문을 돌려준다 — 이 조회가 500을 내면
+    화면은 "준비 상황을 확인하는 중"에 영영 멈추고, 준비 자동 진행도 그
+    상태를 기다리느라 시작조차 못 한다.
+    """
+    try:
+        return provision.status()
+    except Exception as exc:
+        return provision.fallback_status(exc)
 
 
 @router.post("/models", status_code=202)

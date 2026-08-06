@@ -285,6 +285,32 @@ def status() -> dict:
     }
 
 
+def fallback_status(exc: Exception) -> dict:
+    """status()가 어떤 이유로든 죽었을 때의 최소 응답.
+
+    화면은 '500'과 '응답 없음'을 구분하지 못한다 — 어느 쪽이든 "준비 상황을
+    확인하는 중"이 영영 남는다. 그러니 사고가 나도 형태가 맞는 답을 주고,
+    이유를 embed.detail에 실어 사람이 화면에서 볼 수 있게 한다.
+    """
+    detail = f"준비 상태 확인 중 오류가 났습니다: {type(exc).__name__}: {exc}"[:300]
+    return {
+        "ollama": {"running": False, "binary_found": False,
+                   "base_url": config.OLLAMA_BASE_URL, "version": ""},
+        "hardware": {"summary": ""},
+        "recommendation": {"generate_model": config.OLLAMA_GENERATE_MODEL_SLIM,
+                           "reason": "", "plan": [], "pending": []},
+        "selected_model": "",
+        "active_embed_model": "",
+        "embed": {"usable": False, "detail": detail, "model": "", "kind": ""},
+        "models": [],
+        "missing_required": [],
+        "ready": False,
+        "download": _progress.snapshot(),
+        "index": {"ready": False},
+        "status_error": detail,
+    }
+
+
 def _pull_one(name: str, index: int, total_models: int) -> None:
     """모델 1개를 받는다. Ollama가 진행률을 스트리밍으로 준다."""
     with _progress.lock:

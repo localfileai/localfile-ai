@@ -283,6 +283,28 @@ class TestStatusRespondsFast:
         assert state["ollama"]["version"] == ""
         assert asked == []
 
+    def test_상태_계산이_죽어도_화면은_답을_받는다(self, monkeypatch):
+        """이 조회가 500을 내면 화면은 '확인하는 중'에 영영 멈춘다.
+
+        어떤 사고가 나도 200과 형태 맞는 본문이 나가고, 이유가 embed.detail로
+        보여야 한다.
+        """
+        from fastapi.testclient import TestClient
+
+        from app import create_app
+
+        monkeypatch.setattr(provision, "status",
+                            lambda: (_ for _ in ()).throw(RuntimeError("설정 파일 손상")))
+        client = TestClient(create_app())
+
+        response = client.get("/setup/status")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ready"] is False
+        assert "설정 파일 손상" in body["embed"]["detail"]
+        assert isinstance(body["models"], list) and isinstance(body["download"], dict)
+
     def test_사양_감지는_한_번만_실행된다(self, monkeypatch):
         # nvidia-smi는 외부 프로세스라 매 조회마다 띄우면 그 자체가 지연이다.
         from app.setup import hardware
