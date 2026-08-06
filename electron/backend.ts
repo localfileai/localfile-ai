@@ -112,6 +112,13 @@ export async function startBackend(): Promise<void> {
   })
 
   child.stderr?.on('data', (chunk) => console.log('[backend]', String(chunk).trimEnd()))
+  child.on('error', (error) => {
+    child = null
+    setState({
+      status: 'failed',
+      detail: `앱 구성 요소를 시작하지 못했습니다 (${error.message}). 앱을 다시 실행해 주세요.`,
+    })
+  })
   child.on('exit', (code) => {
     child = null
     if (state.status !== 'failed') {
@@ -119,10 +126,25 @@ export async function startBackend(): Promise<void> {
     }
   })
 
-  if (await waitUntilReady()) {
-    setState({ status: 'ready', detail: '' })
-  } else {
-    setState({ status: 'failed', detail: '앱 시작이 늦어지고 있습니다. 앱을 다시 실행해 주세요.' })
+  // 첫 기동은 오래 걸릴 수 있다 — onefile 압축 해제와 초기화가 느린 PC에서는
+  // 몇 분 단위다. 예전에는 90초가 지나면 실패로 **영구히** 굳혔는데, 그 뒤에
+  // 멀쩡히 올라와도 화면은 빨간 X였고 자동 설치도 그 상태에 막혀 시작되지
+  // 않았다 (실제 PC에서 겪었다). 프로세스가 살아 있는 한 계속 기다린다 —
+  // 실패 판정은 프로세스가 죽었을 때(exit/error 핸들러)만 한다.
+  const startedAt = Date.now()
+  while (child) {
+    if (await ping()) {
+      setState({ status: 'ready', detail: '' })
+      return
+    }
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
+    if (elapsedSec >= 20) {
+      setState({
+        status: 'starting',
+        detail: `처음 실행이라 준비에 시간이 걸립니다… (${elapsedSec}초 경과)`,
+      })
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
   }
 }
 

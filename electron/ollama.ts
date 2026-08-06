@@ -24,8 +24,8 @@
  */
 import { shell, app } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { createWriteStream, existsSync } from 'node:fs'
-import { mkdir, unlink } from 'node:fs/promises'
+import { createWriteStream, existsSync, readdirSync } from 'node:fs'
+import { mkdir, open, readdir, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -164,14 +164,61 @@ async function downloadFromAnySource(
   throw lastError
 }
 
+/** 받은 파일이 기대한 형식인지 첫 바이트로 확인한다. 프록시·차단 페이지가
+ *  200으로 HTML을 돌려주는 경우가 있는데, 그걸 실행·해제하려다 죽는 것보다
+ *  여기서 "형식이 아니다"라고 말하는 편이 진단이 빠르다. */
+async function assertMagic(target: string, magic: string, label: string): Promise<void> {
+  const handle = await open(target, 'r')
+  try {
+    const { buffer } = await handle.read(Buffer.alloc(magic.length), 0, magic.length, 0)
+    if (buffer.toString('latin1') !== magic) {
+      throw new Error(`${label}이 올바른 형식이 아닙니다 (네트워크 차단 페이지일 수 있습니다)`)
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+const SILENT_ARGS = ['/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES']
+
 /** 설치 프로그램을 무인 모드로 실행한다. */
-async function runInstaller(target: string): Promise<void> {
-  // Ollama 설치본은 Inno Setup 계열이라 /VERYSILENT를 받는다. 배포 방식이
-  // 바뀌어 이 옵션을 모르면 창이 뜨는데, 그때는 사용자가 [다음]만 누르면 되고
-  // 대기 로직이 완료를 알아서 감지한다.
-  await new Promise<void>((resolve) => {
-    execFile(target, ['/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES'], () => resolve())
-  })
+async function runInstaller(
+  target: string,
+  onProgress: (progress: InstallProgress) => void,
+): Promise<void> {
+  // 1차: 직접 실행. Ollama 설치본은 Inno Setup 계열이라 /VERYSILENT를 받는다.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execFile(target, SILENT_ARGS, (error) => (error ? reject(error) : resolve()))
+    })
+    return
+  } catch (directError) {
+    // 직접 실행은 관리자 권한이 필요한 설치본에서 ERROR_ELEVATION_REQUIRED로
+    // 죽는다 (Node가 "spawn UNKNOWN"으로 보여 준다 — 실제 PC에서 겪었다).
+    // ShellExecute(Start-Process)로 넘기면 Windows가 권한 확인 창(UAC)을
+    // 띄워 주고, 사용자는 [예] 한 번이면 된다.
+    onProgress({
+      phase: 'installing',
+      percent: 100,
+      detail: '권한 확인 창이 뜨면 [예]를 눌러 주세요…',
+    })
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        'powershell.exe',
+        [
+          '-NoProfile', '-NonInteractive', '-Command',
+          `$p = Start-Process -FilePath '${target}' ` +
+          `-ArgumentList '${SILENT_ARGS.join("','")}' -Wait -PassThru; exit $p.ExitCode`,
+        ],
+        { windowsHide: true },
+        (shellError) => (shellError
+          ? reject(new Error(
+              `설치를 실행하지 못했습니다 ` +
+              `(직접: ${(directError as Error).message} / 권한 상승: ${shellError.message})`))
+          : resolve()),
+      )
+    })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -183,24 +230,45 @@ function portableDir(): string {
   return path.join(app.getPath('userData'), 'ollama-portable')
 }
 
-function portableExe(): string {
-  return path.join(portableDir(), 'ollama.exe')
+/** 풀어 놓은 폴더에서 ollama.exe를 찾는다. 압축 도구나 배포 방식에 따라
+ *  최상위가 아니라 하위 폴더에 풀릴 수 있어 몇 단계 내려가며 찾는다. */
+function findPortableExe(dir = portableDir(), depth = 3): string | null {
+  if (!existsSync(dir)) return null
+  const direct = path.join(dir, 'ollama.exe')
+  if (existsSync(direct)) return direct
+  if (depth <= 0) return null
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const found = findPortableExe(path.join(dir, entry.name), depth - 1)
+      if (found) return found
+    }
+  } catch {
+    // 읽기 실패는 "없음"과 같다
+  }
+  return null
 }
 
 let managedServe: ChildProcess | null = null
 
 /** 무설치 Ollama의 serve를 띄운다. 이미 떠 있으면 아무것도 안 한다. */
 async function spawnPortableServe(): Promise<boolean> {
-  if (!existsSync(portableExe())) return false
+  const exe = findPortableExe()
+  if (!exe) return false
   if (await ollamaAlive()) return true
 
   // 이전에 우리가 띄운 것이 좀비로 남았으면 정리한다.
   if (managedServe && !managedServe.killed) managedServe.kill()
 
-  managedServe = spawn(portableExe(), ['serve'], {
+  managedServe = spawn(exe, ['serve'], {
+    // 실행기가 lib/를 자기 위치 기준으로 찾으므로 작업 폴더를 맞춰 준다.
+    cwd: path.dirname(exe),
     stdio: 'ignore',
     windowsHide: true,
     env: { ...process.env },
+  })
+  managedServe.on('error', () => {
+    managedServe = null
   })
   managedServe.on('exit', () => {
     managedServe = null
@@ -208,22 +276,45 @@ async function spawnPortableServe(): Promise<boolean> {
   return waitUntilAlive(60_000)
 }
 
-/** zip을 앱 데이터 폴더에 푼다. Windows에는 unzip이 없어 PowerShell을 쓴다. */
+/** zip을 앱 데이터 폴더에 푼다.
+
+ *  tar.exe(Windows 10+ 내장 bsdtar)를 먼저 쓴다 — 1.4GB짜리 zip을 스트리밍으로
+ *  풀어 빠르고, 실패하면 확실하게 실패한다. PowerShell Expand-Archive는 예비인데
+ *  반드시 오류를 종결 오류로 승격시킨다($ErrorActionPreference) — 기본 설정에서는
+ *  파일 몇 개를 못 풀어도 exit 0으로 끝나서, "성공했는데 실행 파일이 없는"
+ *  상태를 실제 PC에서 만들었다.
+ */
 async function extractPortableZip(zipPath: string): Promise<void> {
   await mkdir(portableDir(), { recursive: true })
-  await new Promise<void>((resolve, reject) => {
-    execFile(
-      'powershell.exe',
-      [
+
+  const runExtractor = (file: string, args: string[]) =>
+    new Promise<void>((resolve, reject) => {
+      execFile(file, args, { windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+        (error, _stdout, stderr) => (error
+          ? reject(new Error(`${path.basename(file)}: ${String(stderr || error.message).slice(0, 200)}`))
+          : resolve()))
+    })
+
+  try {
+    await runExtractor('tar.exe', ['-xf', zipPath, '-C', portableDir()])
+  } catch (tarError) {
+    try {
+      await runExtractor('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-Command',
+        `$ErrorActionPreference = 'Stop'; ` +
         `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${portableDir()}' -Force`,
-      ],
-      { windowsHide: true },
-      (error) => (error ? reject(error) : resolve()),
-    )
-  })
-  if (!existsSync(portableExe())) {
-    throw new Error('압축은 풀렸는데 ollama.exe가 보이지 않습니다')
+      ])
+    } catch (psError) {
+      throw new Error(`압축을 풀지 못했습니다 (tar: ${(tarError as Error).message} ` +
+                      `/ powershell: ${(psError as Error).message})`)
+    }
+  }
+
+  if (!findPortableExe()) {
+    // 다음에 이 오류를 볼 때 원인을 알 수 있게, 뭐가 풀렸는지를 남긴다.
+    const entries = await readdir(portableDir()).catch(() => [] as string[])
+    throw new Error(
+      `압축은 풀렸는데 실행 파일이 보이지 않습니다 (내용: ${entries.slice(0, 10).join(', ') || '비어 있음'})`)
   }
 }
 
@@ -234,7 +325,8 @@ async function installPortable(
   const zipPath = path.join(app.getPath('temp'), 'ollama-portable.zip')
   try {
     await downloadFromAnySource([PORTABLE_ZIP_URL], zipPath, '문서 분석 도구', onProgress)
-    onProgress({ phase: 'installing', percent: 100, detail: '실행기를 준비하는 중입니다… (1~2분)' })
+    await assertMagic(zipPath, 'PK', '문서 분석 도구')
+    onProgress({ phase: 'installing', percent: 100, detail: '문서 분석 도구를 준비하는 중입니다… (1~2분)' })
     await extractPortableZip(zipPath)
     return await spawnPortableServe()
   } finally {
@@ -299,15 +391,16 @@ export async function installOllama(
   const target = path.join(app.getPath('temp'), 'OllamaSetup.exe')
   try {
     await downloadFromAnySource(INSTALLER_URLS, target, '문서 분석 도구 설치 파일', onProgress)
+    await assertMagic(target, 'MZ', '문서 분석 도구 설치 파일')
 
     onProgress({
       phase: 'installing',
       percent: 100,
       detail: options.repair
-        ? '실행기를 다시 설치하는 중입니다… (몇 분 걸릴 수 있습니다)'
-        : '실행기를 설치하는 중입니다…',
+        ? '문서 분석 도구를 다시 설치하는 중입니다… (몇 분 걸릴 수 있습니다)'
+        : '문서 분석 도구를 설치하는 중입니다…',
     })
-    await runInstaller(target)
+    await runInstaller(target, onProgress)
 
     onProgress({ phase: 'installing', percent: 100, detail: '설치를 마무리하는 중입니다…' })
     const alive = await waitUntilAlive()
@@ -321,7 +414,7 @@ export async function installOllama(
     return {
       phase: 'failed',
       percent: 100,
-      detail: '실행기가 설치됐지만 아직 응답하지 않습니다. 잠시 뒤 [다시 확인]을 눌러 주세요.',
+      detail: '문서 분석 도구가 설치됐지만 아직 응답하지 않습니다. 잠시 뒤 [다시 시도]를 눌러 주세요.',
     }
   } catch (installerError) {
     await unlink(target).catch(() => undefined)

@@ -75,30 +75,35 @@ export default function SetupGate({ children }: Props) {
     setError('');
   }), []);
 
-  // 백엔드가 아직 뜨는 중인지 폴링 실패 판정에서 알아야 한다. state를 그대로
-  // 읽으면 콜백이 옛 값을 붙잡으므로 ref로 비춰 둔다.
-  const backendUp = useRef(false);
-  backendUp.current = backend.status === 'ready' || backend.status === 'external';
+  // 폴링 실패 판정 기준: "한 번이라도 응답한 적이 있는가". 시작 중의 무응답은
+  // 정상이라(새 PC의 server.exe 첫 기동은 몇 분까지 걸린다) 세지 않는다.
+  const everResponded = useRef(false);
 
   const missedPolls = useRef(0);
   const refresh = useCallback(async () => {
     const next = await getSetupStatus();
     if (next) {
+      everResponded.current = true;
       missedPolls.current = 0;
       setBackendUnreachable(false);
       setStatus(next);
       // 첫 진입에서는 이 PC에 권장되는 모델을 미리 골라 둔다.
       setChosenModel((current) => current || next.recommendation.generate_model);
-    } else if (backendUp.current) {
-      // 백엔드가 떠 있다고 했는데 연달아 응답이 없으면 죽은 것이다. 그때는
-      // 화면이 멀쩡해 보이는 채로 굳으므로 반드시 말해 줘야 한다.
-      // (아직 시작 중일 때의 무응답은 정상이라 세지 않는다 — 새 PC에서
-      //  server.exe 첫 기동은 몇 초 이상 걸리고, 그걸 오류로 띄우면 오탐이다.)
+    } else if (everResponded.current) {
+      // 잘 응답하다가 연달아 끊기면 죽은 것이다. 그때는 화면이 멀쩡해
+      // 보이는 채로 굳으므로 반드시 말해 줘야 한다.
       missedPolls.current += 1;
       if (missedPolls.current >= 3) setBackendUnreachable(true);
     }
     return next;
   }, []);
+
+  // 백엔드가 살아 있는가의 근거는 두 가지다: Electron 메인의 판정과, 상태
+  // 조회가 실제로 응답한다는 사실. **HTTP가 응답하면 살아 있는 것이다** —
+  // 메인의 판정이 낡아서(느린 첫 기동을 실패로 굳힘) X를 띄우는 동안에도
+  // 상태 조회는 멀쩡히 되던 화면을 실제로 봤다.
+  const backendAlive = backend.status === 'ready' || backend.status === 'external'
+    || status !== null;
 
   // 준비가 끝날 때까지만 상태를 물어본다. 다운로드 중에는 더 자주 —
   // 진행 바가 멈춘 것처럼 보이지 않게.
@@ -190,13 +195,15 @@ export default function SetupGate({ children }: Props) {
   const autoSetupTried = useRef(false);
   useEffect(() => {
     if (autoSetupTried.current || busy || forced) return;
-    if (backend.status !== 'ready' && backend.status !== 'external') return;
+    // status가 왔다는 것 자체가 백엔드가 살아 있다는 증거다. Electron 메인의
+    // 판정(backend.status)을 기다리지 않는다 — 느린 첫 기동을 실패로 오판한
+    // 상태가 자동 시작 전체를 막은 적이 있다.
     if (!status || status.ready) return;
     if (status.download.running) return;   // 지난 실행이 걸어 둔 다운로드가 도는 중
 
     autoSetupTried.current = true;
     void runFullSetup();
-  }, [status, busy, forced, backend.status, runFullSetup]);
+  }, [status, busy, forced, runFullSetup]);
 
   // 이미 받아 둔 모델끼리 갈아타는 경우 — 다운로드 없이 설정만 바꾼다.
   const handleSelect = async (model: string) => {
@@ -237,7 +244,7 @@ export default function SetupGate({ children }: Props) {
 
   // 단계별 완료 여부. 진행 중인 단계 하나에 스피너를 돌린다.
   const stepDone = [
-    backend.status === 'ready' || backend.status === 'external',
+    backendAlive,
     (status?.ollama.running ?? false) && !runtimeBroken,
     (status?.missing_required.length ?? 1) === 0,
     status?.embed?.usable ?? false,
@@ -245,8 +252,10 @@ export default function SetupGate({ children }: Props) {
   const working = busy || Boolean(download?.running) || waitingForRuntime || status === null;
   const activeStep = working ? stepDone.findIndex((done) => !done) : -1;
 
-  // 실패해서 사람 손이 필요한 상태에만 버튼을 보여 준다.
-  const failed = Boolean(error || download?.error) || backend.status === 'failed';
+  // 실패해서 사람 손이 필요한 상태에만 버튼을 보여 준다. 백엔드 실패 판정은
+  // HTTP까지 침묵할 때만 믿는다 — 응답 중이면 그 판정이 낡은 것이다.
+  const failed = Boolean(error || download?.error)
+    || (backend.status === 'failed' && !backendAlive);
 
   return (
     <div className="flex h-screen items-center justify-center overflow-y-auto bg-[#F8F9FA] dark:bg-[#0d0d13] p-8">
@@ -263,8 +272,8 @@ export default function SetupGate({ children }: Props) {
             label="앱 시작"
             done={stepDone[0]}
             active={activeStep === 0}
-            failed={backend.status === 'failed'}
-            detail={backend.detail}
+            failed={backend.status === 'failed' && !backendAlive}
+            detail={backendAlive ? '' : backend.detail}
           />
           <Step
             label="문서 분석 도구 준비"
