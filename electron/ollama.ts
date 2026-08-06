@@ -244,6 +244,10 @@ function findInstalledExe(): string | null {
 }
 
 let managedServe: ChildProcess | null = null
+// 동시 스폰 방지. 앱 시작 직후에는 메인(startPortableOllamaIfPresent)과 준비
+// 화면(installOllama)이 몇 초 간격으로 같은 일을 시작한다 — 두 번째가 첫
+// 번째를 죽이고 다시 띄우는 낭비를 막고, 진행 중인 결과를 같이 기다린다.
+let spawnInFlight: Promise<boolean> | null = null
 
 /** 실행기(serve)를 앱의 자식 프로세스로 띄운다. 이미 떠 있으면 그대로 둔다.
  *
@@ -252,6 +256,17 @@ let managedServe: ChildProcess | null = null
  *  앱뿐이다.
  */
 async function spawnServeFrom(exe: string, waitMs = 20_000): Promise<boolean> {
+  if (spawnInFlight) return spawnInFlight
+  const attempt = spawnServeNow(exe, waitMs)
+  spawnInFlight = attempt
+  try {
+    return await attempt
+  } finally {
+    spawnInFlight = null
+  }
+}
+
+async function spawnServeNow(exe: string, waitMs: number): Promise<boolean> {
   if (await ollamaAlive()) return true
 
   // 이전에 우리가 띄운 것이 좀비로 남았으면 정리한다.
@@ -319,6 +334,16 @@ async function extractPortableZip(
   zipPath: string,
   onProgress: (progress: InstallProgress) => void,
 ): Promise<void> {
+  // 지난 시도가 남긴 부분 추출본의 실행기를 방금 띄워 봤을 수 있다. 실행 중인
+  // 프로세스는 자기 파일을 잠그므로, 덮어쓰기 전에 반드시 내리고 잠금이 풀릴
+  // 시간을 준다 — 안 그러면 해제가 EBUSY로 죽는다.
+  if (managedServe && !managedServe.killed) {
+    slog('stopping stale portable serve before overwrite')
+    managedServe.kill()
+    managedServe = null
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  }
+
   const count = await extractZip(zipPath, portableDir(), (percent) => {
     onProgress({
       phase: 'installing',
@@ -341,6 +366,21 @@ async function extractPortableZip(
 async function installPortable(
   onProgress: (progress: InstallProgress) => void,
 ): Promise<boolean> {
+  // 1.4GB 내려받기 + 2GB 남짓 해제 — 공간이 모자라면 중간에 알 수 없는
+  // 오류로 죽는다. 미리 확인해 사람 말로 알려 준다.
+  try {
+    const { statfs } = await import('node:fs/promises')
+    const stats = await statfs(app.getPath('userData'))
+    const freeGb = (stats.bavail * stats.bsize) / 1024 ** 3
+    slog('free disk', `${freeGb.toFixed(1)}GB`)
+    if (freeGb < 4) {
+      throw new Error(`디스크 공간이 부족합니다 (남은 공간 ${freeGb.toFixed(1)}GB, 필요 약 4GB)`)
+    }
+  } catch (error) {
+    if ((error as Error).message.includes('디스크 공간')) throw error
+    // 공간 확인 자체가 안 되는 환경이면 그냥 진행한다
+  }
+
   const zipPath = path.join(app.getPath('temp'), 'ollama-portable.zip')
   try {
     await downloadFromAnySource(PORTABLE_ZIP_URLS, zipPath, '문서 분석 도구', onProgress)

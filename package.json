@@ -68,8 +68,8 @@
       "artifactName": "LocalFileAI-Setup.${ext}",
       "extraResources": [
         {
-          "from": "backend/dist/server.exe",
-          "to": "backend/server.exe"
+          "from": "backend/dist/server",
+          "to": "backend"
         }
       ],
       "icon": "build/icon.ico"

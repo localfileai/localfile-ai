@@ -113,7 +113,13 @@ export async function startBackend(): Promise<void> {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
-  child.stderr?.on('data', (chunk) => console.log('[backend]', String(chunk).trimEnd()))
+  // 배포본에는 콘솔이 없다 — stderr를 setup.log로 보내야 남의 PC에서 죽는
+  // 이유를 알 수 있다. 마지막 몇 줄이 대개 결정적 단서다.
+  child.stderr?.on('data', (chunk) => {
+    const text = String(chunk).trimEnd()
+    console.log('[backend]', text)
+    slog('[backend]', text.slice(-500))
+  })
   child.on('error', (error) => {
     slog('backend spawn error', error.message)
     child = null

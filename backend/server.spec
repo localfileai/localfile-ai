@@ -38,16 +38,29 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# onedir로 묶는다 (onefile 아님). onefile은 실행할 때마다 수천 개 파일(~200MB)을
+# 임시 폴더에 풀고, 새로 설치된 서명 없는 실행 파일이라 Windows Defender가 그
+# 파일들을 전부 실시간 검사한다 — 빠른 PC에서도 첫 기동이 4분을 넘겨, 준비
+# 화면 전체가 "앱 시작"에서 몇 분씩 멈춰 보였다 (실제 PC에서 겪었다).
+# onedir는 압축 해제·검사가 설치 시점에 한 번만 일어나 기동이 몇 초로 준다.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="server",
     debug=False,
     strip=False,
     upx=False,           # UPX 압축은 백신 오탐이 잦아 끈다
     console=True,        # 콘솔 창에 로그 표시 — 문제 진단용. 최종 배포 때 False 검토
     disable_windowed_traceback=False,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="server",       # dist/server/ 폴더 — server.exe + _internal/
 )

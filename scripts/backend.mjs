@@ -110,7 +110,7 @@ if (task === 'install') {
   console.log('처음이면 PyInstaller 설치까지 몇 분 걸립니다.\n')
   mustSucceed(run(venvPython(), ['-m', 'pip', 'install', 'pyinstaller']))
   mustSucceed(run(venvPython(), ['-m', 'PyInstaller', 'server.spec', '--noconfirm']))
-  console.log('\n빌드 완료: backend/dist/ 안의 server 실행 파일을 확인하세요.')
+  console.log('\n빌드 완료: backend/dist/server/ 폴더(server.exe + _internal)를 확인하세요.')
   console.log('Ollama·모델은 포함되지 않습니다 — 사용자 PC에 별도 설치가 필요합니다.')
 } else {
   console.error('사용법: node scripts/backend.mjs <install|dev|dataset|index|test|build-exe>')
