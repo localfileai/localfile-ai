@@ -58,7 +58,7 @@ CRC 검증과 Pillow 왕복 읽기로 확인합니다.
 
 ## AI 모델
 
-앱이 실행 중에 Ollama를 통해 내려받습니다. 저장소나 설치본에 포함되지 않습니다.
+앱이 실행 중에 내려받습니다. 저장소나 설치본에 포함되지 않습니다.
 
 | 모델 | 용도 | 라이선스 | 상업 이용 |
 |---|---|---|---|
@@ -77,10 +77,38 @@ LG AI Research(`contact_us@lgresearch.ai`)와 별도 계약이 필요합니다.
 
 | 구성 요소 | 용도 | 라이선스 |
 |---|---|---|
-| [Ollama](https://github.com/ollama/ollama) | 모델 실행기 (사용자 PC에 별도 설치) | MIT |
+| [Ollama](https://github.com/ollama/ollama) | 모델 실행기 — **설치본에 동봉** | MIT |
 | [Electron](https://github.com/electron/electron) | 데스크톱 셸 | MIT |
 | [Node.js](https://github.com/nodejs/node) | Electron 런타임 | MIT |
 | [Chromium](https://www.chromium.org/) | Electron 렌더러 | BSD-3-Clause 외 ([전문](https://chromium.googlesource.com/chromium/src/+/main/LICENSE)) |
+
+### Ollama 저작권 고지 (동봉 배포에 따른 의무)
+
+설치본에 Ollama 실행 파일을 동봉하면서 우리는 Ollama의 **배포자**가 됐고,
+MIT 라이선스는 배포물에 아래 고지를 포함할 것을 요구합니다. 이 문서가
+설치본(resources/THIRD-PARTY-NOTICES.md)에 함께 담기는 이유입니다.
+
+> MIT License
+>
+> Copyright (c) Ollama contributors
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in
+> all copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+> FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+> IN THE SOFTWARE.
 
 ---
 

@@ -74,6 +74,10 @@
         {
           "from": "ollama-runtime",
           "to": "ollama"
+        },
+        {
+          "from": "THIRD-PARTY-NOTICES.md",
+          "to": "THIRD-PARTY-NOTICES.md"
         }
       ],
       "icon": "build/icon.ico"
