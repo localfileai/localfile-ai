@@ -91,6 +91,7 @@ class TestSearchScope:
         monkeypatch.setattr(search_module, "check_ollama", lambda *a, **k: (True, ""))
         monkeypatch.setattr(search_module, "_active_collection",
                             lambda: (FakeCollection(), "user"))
+        monkeypatch.setattr(search_module, "embed_query", lambda text, model=None: [0.0] * 8)
 
         # FE는 끝 슬래시 없이 보낸다 — 그래도 같은 폴더로 봐야 한다.
         response = search_module.search("과제", top_k=5, root=str(inside.parent))
@@ -114,6 +115,7 @@ class TestSearchScope:
         monkeypatch.setattr(search_module, "check_ollama", lambda *a, **k: (True, ""))
         monkeypatch.setattr(search_module, "_active_collection",
                             lambda: (FakeCollection(), "user"))
+        monkeypatch.setattr(search_module, "embed_query", lambda text, model=None: [0.0] * 8)
 
         search_module.search("과제", top_k=5)
 

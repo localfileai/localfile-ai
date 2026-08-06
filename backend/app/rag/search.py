@@ -2,10 +2,21 @@
 
 `scripts/embed_dataset.py`가 만든 ChromaDB 컬렉션을 읽어 질의와 가까운 문서를 찾는다.
 응답은 BE1의 팀 공용 계약 `app/contracts/ai.py`의 `SearchResponse`로 검증한다.
+
+5주차 개편 — **하이브리드 검색**. 벡터 유사도 순서를 그대로 내보내던 방식의
+실패가 실사용에서 두 가지로 드러났다.
+  - "공모전 자료"를 찾는데 파일명에 "공모전"이 없는 문서는 못 찾았다.
+    파일명 대조가 이름만 봤고, 벡터 순위만으로는 변별력이 부족했다.
+  - 관련 문서가 1~2개뿐이어도 top_k를 채우느라 무관한 파일이 딸려 나왔다.
+그래서 세 신호(키워드·벡터·최신성)를 결합하고, 키워드가 전혀 안 맞는 후보는
+벡터 유사도가 절대·상대 기준을 둘 다 넘을 때만 남긴다. 질의는 문서와 다르게
+임베딩한다(embedding.embed_query — 검색 지시문). "최근 …" 질의는 파일 수정
+시각을 실제 랭킹 요인으로 쓴다.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -16,7 +27,8 @@ import chromadb
 
 from ..contracts.ai import ALLOWED_EXTENSIONS, FileRef, SearchHit, SearchResponse
 from ..core import config, settings as embedding_settings
-from .embedding import COLLECTION_NAME, OllamaEmbeddingFunction, check_ollama
+from .embedding import (COLLECTION_NAME, OllamaEmbeddingFunction, check_ollama,
+                        embed_query)
 
 # BE1 스크립트의 기본 저장 위치(`--db ./chroma_db`)와 같아야 한다.
 # server.exe로 패키징되면 실행 파일 옆 폴더가 된다 — config.BASE_DIR 참고.
@@ -283,8 +295,74 @@ def _is_under(file_path: str, root: str) -> bool:
     return target == base or target.startswith(base + "/")
 
 
+# =========================================================================
+# 질의 해석 — 군말을 걷어내고 내용 키워드와 "최근" 의도를 뽑는다.
+# =========================================================================
+
 # 파일명을 이어 붙일 때 쓰는 구분자. 사람은 "기말_보고서"도 "기말 보고서"로 기억한다.
 _NAME_SEPARATORS = str.maketrans({c: " " for c in "_-.()[]{}·,~"})
+
+# 검색 의도만 나타내고 문서 내용과는 무관한 말. 키워드 대조에서 뺀다.
+# "공모전 자료 찾아줘"에서 문서를 가리키는 말은 "공모전"뿐이다 — "자료"와
+# "찾아줘"까지 똑같이 대조하면 아무 "자료"나 이름에 든 파일이 같이 올라온다.
+# ("파일"·"문서"·"자료"는 이 앱에서 모든 대상에 해당하는 말이라 아무것도 구분하지 못한다.)
+_STOPWORDS = frozenset({
+    "찾아줘", "찾아주라", "찾아봐", "찾아", "찾기", "찾아볼래",
+    "검색", "검색해", "검색해줘", "보여줘", "보여주라", "알려줘", "열어줘",
+    "관련", "관련된", "대한", "대해",
+    "있나", "있어", "있는", "있는지", "있을까", "없나",
+    "어디", "어디에", "어딨어", "어딨지", "뭐지", "뭐더라",
+    "이거", "그거", "저거", "요거", "나의", "해줘", "주세요",
+    "파일", "문서", "자료", "폴더", "파일들", "문서들", "자료들",
+})
+
+# "최근 것"을 찾는 시간 표현. 보이면 최신 파일을 위로 올린다. (긴 표현 먼저 지운다.)
+_TEMPORAL_WORDS = ("얼마 전", "얼마전", "지난 주", "지난주", "저번주", "이번주",
+                   "지난 달", "지난달", "저번달", "이번달",
+                   "최근", "최신", "요즘", "오늘", "어제", "그저께", "엊그제")
+
+# 토큰 끝에 붙는 흔한 조사. "공모전에서" → "공모전". 남는 부분이 2자 이상일 때만
+# 떼어낸다 — "회의"의 "의"까지 떼면 안 된다.
+_PARTICLES = ("에서", "으로", "이랑", "라는", "까지", "부터", "하고",
+              "은", "는", "이", "가", "을", "를", "의", "에", "와", "과", "도", "로", "들")
+
+
+def _strip_particle(token: str) -> str:
+    for particle in _PARTICLES:
+        if token.endswith(particle) and len(token) - len(particle) >= 2:
+            return token[: -len(particle)]
+    return token
+
+
+def parse_query(query: str) -> tuple[list[str], bool, str]:
+    """질의를 (내용 키워드, "최근" 의도, 임베딩용 문장)으로 해석한다.
+
+    시간 표현은 문서 내용이 아니라 **파일 속성(수정 시각)**에 대한 조건이므로
+    키워드·임베딩 양쪽에서 빼고, 대신 최신성 랭킹을 켠다.
+    """
+    temporal = any(word in query for word in _TEMPORAL_WORDS)
+    cleaned = query
+    if temporal:
+        for word in _TEMPORAL_WORDS:
+            cleaned = cleaned.replace(word, " ")
+    cleaned = " ".join(cleaned.split())
+
+    tokens: list[str] = []
+    for raw in cleaned.translate(_NAME_SEPARATORS).split():
+        token = raw.lower()
+        if token in _STOPWORDS:
+            continue
+        token = _strip_particle(token)
+        if len(token) < 2 or token in _STOPWORDS:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return tokens, temporal, cleaned
+
+
+# =========================================================================
+# 랭킹 — 키워드·벡터·최신성 세 신호의 결합
+# =========================================================================
 
 
 def _squash(text: str) -> str:
@@ -316,43 +394,130 @@ def _name_score(file_name: str, query: str) -> float:
     return matched / len(tokens)
 
 
-# 파일명 대조 대상 상한. 색인 기본 상한(500건)보다 넉넉히 잡되 무한정 읽지 않는다.
+# 키워드 대조 대상 상한. 색인 기본 상한(500건)보다 넉넉히 잡되 무한정 읽지 않는다.
 MAX_NAME_SCAN = 3000
 # 이 아래는 "우연히 한 글자 겹친" 수준이라 이름 매칭으로 보지 않는다.
 NAME_MATCH_THRESHOLD = 0.5
 
+# 결합 가중치 (벡터, 키워드, 최신성). 합이 1이라 결합 점수도 0~1에 머문다.
+_WEIGHTS_DEFAULT = (0.55, 0.40, 0.05)
+# "최근 …"처럼 시간 의도가 보이면 최신성이 실제 랭킹 요인이 된다.
+_WEIGHTS_TEMPORAL = (0.40, 0.32, 0.28)
+# 키워드가 하나도 안 맞은 후보(벡터 전용)를 남길 최소 유사도. 이 아래는
+# "이 색인에서 제일 덜 먼 것"일 뿐 관련 문서가 아니다.
+VECTOR_FLOOR = 0.35
+# 최고 후보 대비 상대 컷. 또렷한 관련 문서가 있으면 한참 뒤처진 후보는 버린다 —
+# 관련 문서가 1~2개뿐일 때 무관한 파일이 top_k를 채우던 문제의 방지선.
+RELATIVE_CUTOFF = 0.75
+# 본문에만 나온 키워드는 파일명에 나온 것보다 약한 신호로 본다.
+CONTENT_MATCH_WEIGHT = 0.7
+# 최신성 반감 척도: 30일 지난 파일의 최신성 신호는 절반이 된다.
+RECENCY_HALF_LIFE_DAYS = 30.0
 
-def _name_matches(collection, query: str) -> list[tuple[float, dict, str]]:
-    """파일명이 질의와 맞는 문서들. (점수, 메타데이터, 본문) 목록을 점수순으로.
 
-    컬렉션이 get()을 지원하지 않으면 조용히 빈 목록 — 벡터 검색만으로 동작한다.
-    """
+def _lexical_rows(collection) -> list[tuple[str, dict, str]]:
+    """색인에서 (id, 메타데이터, 본문)을 상한까지 읽는다. get() 미지원이면 빈 목록."""
     try:
         rows = collection.get(include=["documents", "metadatas"], limit=MAX_NAME_SCAN)
     except Exception:
         return []
 
+    ids = rows.get("ids") or []
     metadatas = rows.get("metadatas") or []
     documents = rows.get("documents") or []
 
-    scored: list[tuple[float, dict, str]] = []
-    for position, metadata in enumerate(metadatas):
-        metadata = dict(metadata or {})
-        name = str(metadata.get("current_name", ""))
-        if not name:
-            continue
-        score = _name_score(name, query)
-        if score < NAME_MATCH_THRESHOLD:
-            continue
-        document = documents[position] if position < len(documents) else ""
-        scored.append((score, metadata, str(document or "")))
+    merged: list[tuple[str, dict, str]] = []
+    for position, id_ in enumerate(ids):
+        metadata = dict(metadatas[position] or {}) if position < len(metadatas) else {}
+        document = str(documents[position] or "") if position < len(documents) else ""
+        merged.append((str(id_), metadata, document))
+    return merged
 
-    scored.sort(key=lambda row: row[0], reverse=True)
-    return scored
+
+def _token_weights(rows: list[tuple[str, dict, str]],
+                   tokens: list[str]) -> dict[str, float]:
+    """토큰별 가중치(idf). 드문 토큰이 강한 신호다.
+
+    "공모전 발표"에서 "발표"는 절반의 파일에 있지만 "공모전"은 몇 개뿐이다.
+    토큰을 똑같이 세면 "발표"만 잔뜩 걸린 파일이 진짜 "공모전" 파일을 밀어낸다.
+    """
+    total = len(rows)
+    weights: dict[str, float] = {}
+    for token in tokens:
+        appearances = 0
+        for _, metadata, document in rows:
+            name = _squash(str(metadata.get("current_name", "")))
+            if token in name or token in document.lower():
+                appearances += 1
+        weights[token] = math.log((total + 1) / (appearances + 1)) + 1.0
+    return weights
+
+
+def _keyword_score(metadata: dict, document: str, tokens: list[str],
+                   weights: dict[str, float], query: str) -> float:
+    """이 문서가 질의 키워드를 얼마나 담고 있는가 (0~1).
+
+    파일명 일치가 본문 일치보다 강하다 — 파일명은 사용자가 붙인 요약이라
+    신호가 진하다. 파일명 통째 붙여넣기(_name_score)는 그대로 최상 신호로 남긴다.
+    """
+    name = str(metadata.get("current_name", ""))
+    flat_name = _squash(name)
+    lowered = document.lower()
+
+    weight_sum = sum(weights.values())
+    matched = 0.0
+    for token in tokens:
+        if token in flat_name:
+            matched += weights[token]
+        elif token in lowered:
+            matched += weights[token] * CONTENT_MATCH_WEIGHT
+    token_score = matched / weight_sum if weight_sum else 0.0
+
+    paste = _name_score(name, query)
+    if paste < NAME_MATCH_THRESHOLD:
+        paste = 0.0
+    return min(1.0, max(token_score, paste))
+
+
+def _recency_score(metadata: dict, file_ref: FileRef, now: datetime) -> float:
+    """최신성(0~1). 30일에 절반으로 줄어든다.
+
+    파일이 그 자리에 있으면 실제 mtime(FileRef.modified_at)을, 없으면 색인 당시
+    기록한 mtime_us를 쓴다 — 어느 쪽도 재색인을 요구하지 않는다.
+    """
+    modified = file_ref.modified_at
+    if modified is None:
+        mtime_us = metadata.get("mtime_us")
+        if isinstance(mtime_us, (int, float)) and mtime_us > 0:
+            try:
+                modified = datetime.fromtimestamp(mtime_us / 1_000_000)
+            except (OverflowError, OSError, ValueError):
+                modified = None
+    if modified is None:
+        return 0.0
+    age_days = max(0.0, (now - modified).total_seconds() / 86_400)
+    return 1.0 / (1.0 + age_days / RECENCY_HALF_LIFE_DAYS)
+
+
+def _excerpt(document: str, tokens: list[str]) -> str:
+    """결과에 보여 줄 발췌. 키워드가 처음 나온 자리 주변을 자른다.
+
+    앞 500자만 자르면 키워드가 문서 뒤쪽에 있을 때 "왜 이게 걸렸는지"가
+    화면에 안 보인다 — 일치한 대목이 보여야 결과를 신뢰할 수 있다.
+    """
+    text = document.strip()
+    lowered = text.lower()
+    start = 0
+    for token in tokens:
+        index = lowered.find(token)
+        if index >= 0:
+            start = max(0, index - 60)
+            break
+    return text[start:start + MAX_MATCHED_TEXT].strip()
 
 
 def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
-    """자연어 질의로 색인된 문서를 찾는다.
+    """자연어 질의로 색인된 문서를 찾는다. (키워드 + 벡터 + 최신성 하이브리드)
 
     root를 주면 그 폴더에서 색인한 문서만 대상으로 한다. 색인 컬렉션은 하나라
     여러 폴더를 오가며 쓰면 예전 폴더 파일이 결과에 섞이기 때문이다.
@@ -371,56 +536,96 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
             "문서를 읽어 검색을 준비합니다."
         )
 
-    # 계약 밖 확장자와 다른 폴더 문서가 섞일 수 있으니 넉넉히 받아서 걸러낸다.
-    result = collection.query(query_texts=[query],
-                              n_results=min(max(top_k * 3, 30), 200))
+    tokens, temporal, cleaned = parse_query(query)
 
-    metadatas = result.get("metadatas", [[]])[0]
-    documents = result.get("documents", [[]])[0]
-    distances = result.get("distances", [[]])[0]
+    # ① 키워드 후보 — 파일명뿐 아니라 **본문**도 대조한다. 이름에 "공모전"이
+    #    없어도 본문에 있으면 찾아야 한다.
+    rows = _lexical_rows(collection)
+    row_map: dict[str, tuple[dict, str]] = {
+        id_: (metadata, document) for id_, metadata, document in rows}
 
-    # 두 경로로 후보를 모은다.
-    #   ① 파일명 대조 — 기억하는 이름을 넣었을 때 확실히 잡는다.
-    #   ② 벡터 유사도 — 이름을 몰라도 내용으로 찾는다.
-    # ①을 먼저 넣어 같은 파일이 겹치면 이름 점수가 살아남게 한다.
-    candidates: list[tuple[dict, str, float]] = [
-        (metadata, document, score)
-        for score, metadata, document in _name_matches(collection, query)
-    ]
-    candidates += [
-        (dict(metadata or {}), document or "", _to_score(distance))
-        for metadata, document, distance in zip(metadatas, documents, distances)
-    ]
+    # ② 벡터 후보 — 질의는 문서와 다르게 임베딩한다(검색 지시문, embed_query).
+    #    임베딩이 안 되는 순간(모델 교체 직후 등)에도 키워드 검색은 살아 있어야
+    #    하므로, 여기의 실패는 "벡터 신호 없음"으로만 취급하고 계속 간다.
+    vector: dict[str, float] = {}
+    try:
+        query_vector = embed_query(cleaned or query, model=_embed_model_of(collection))
+        result = collection.query(query_embeddings=[query_vector],
+                                  n_results=min(max(top_k * 5, 50), 200))
+    except Exception:
+        result = {}
 
-    hits: list[SearchHit] = []
-    seen: set[str] = set()
-    for metadata, document, score in candidates:
-        file_ref = _to_file_ref(metadata)
-        if file_ref is None or file_ref.path in seen:
+    ids = (result.get("ids") or [[]])[0]
+    result_metadatas = (result.get("metadatas") or [[]])[0]
+    result_documents = (result.get("documents") or [[]])[0]
+    result_distances = (result.get("distances") or [[]])[0]
+    for position, metadata in enumerate(result_metadatas):
+        metadata = dict(metadata or {})
+        # id를 안 주는 컬렉션 구현(테스트 대역 등)은 경로로 대신한다.
+        id_ = (str(ids[position]) if position < len(ids)
+               else str(metadata.get("current_path") or f"#{position}"))
+        document = (str(result_documents[position] or "")
+                    if position < len(result_documents) else "")
+        distance = (float(result_distances[position])
+                    if position < len(result_distances) else 1.0)
+        vector[id_] = max(vector.get(id_, 0.0), _to_score(distance))
+        row_map.setdefault(id_, (metadata, document))
+
+    all_rows = [(id_, metadata, document)
+                for id_, (metadata, document) in row_map.items()]
+    weights = _token_weights(all_rows, tokens)
+
+    keyword: dict[str, float] = {}
+    for id_, metadata, document in all_rows:
+        score = _keyword_score(metadata, document, tokens, weights, query)
+        if score > 0:
+            keyword[id_] = score
+
+    best_vector = max(vector.values(), default=0.0)
+    weight_vector, weight_keyword, weight_recency = (
+        _WEIGHTS_TEMPORAL if temporal else _WEIGHTS_DEFAULT)
+    now = datetime.now()
+
+    # 경로 기준으로 최고 점수만 남긴다 (사용자 색인은 id=경로라 사실상 1:1).
+    ranked: dict[str, tuple[float, FileRef, str]] = {}
+    for id_ in set(keyword) | set(vector):
+        metadata, document = row_map[id_]
+        keyword_part = keyword.get(id_, 0.0)
+        vector_part = vector.get(id_, 0.0)
+
+        # 키워드가 전혀 안 맞는 후보는 벡터 유사도가 절대·상대 기준을 둘 다
+        # 넘을 때만 관련 문서로 본다. top_k를 채우려고 무관한 파일을 끼워 넣지
+        # 않는다 — 결과가 적으면 적은 대로 보여 주는 쪽이 신뢰를 지킨다.
+        if keyword_part <= 0.0 and (vector_part < VECTOR_FLOOR
+                                    or vector_part < best_vector * RELATIVE_CUTOFF):
             continue
 
-        # 지금 고른 폴더 안의 파일만 남긴다.
-        #
-        # 예전에는 메타데이터 root의 **문자열 완전 일치**로 걸렀는데, 경로 표기가
-        # 조금만 달라도(대소문자·구분자·끝 슬래시) 하나도 안 맞아 검색이 통째로
-        # 빈 결과가 됐다. 실제 파일 경로가 그 폴더 아래인지로 판단한다 —
-        # 표기에 흔들리지 않고, root를 저장하지 않은 옛 색인에도 통한다.
+        file_ref = _to_file_ref(metadata)
+        if file_ref is None:
+            continue
+        # 지금 고른 폴더 안의 파일만 남긴다. 문자열 완전 일치가 아니라 실제
+        # 경로 포함 관계로 판단한다 — 표기 차이(끝 슬래시·구분자)에 흔들리지 않는다.
         if root and not _is_under(file_ref.path, root):
             continue
 
-        matched_text = document.strip()[:MAX_MATCHED_TEXT]
-        if not matched_text:
-            # 계약이 빈 문자열을 거부한다. 본문이 없으면 파일명이라도 넣는다.
-            matched_text = file_ref.name
+        recency = _recency_score(metadata, file_ref, now)
+        combined = (weight_vector * vector_part + weight_keyword * keyword_part
+                    + weight_recency * recency)
+        # 파일명을 통째로 붙여넣었으면 이건 추정이 아니라 확인이다 — 만점.
+        if _name_score(file_ref.name, query) >= 1.0:
+            combined = 1.0
 
-        seen.add(file_ref.path)
-        hits.append(SearchHit(file=file_ref, score=score, matched_text=matched_text))
-        if len(hits) >= top_k:
-            break
+        known = ranked.get(file_ref.path)
+        if known is None or combined > known[0]:
+            ranked[file_ref.path] = (combined, file_ref, document)
 
-    # 계약이 관련도 내림차순을 강제한다. Chroma는 거리 오름차순으로 주므로 이미 맞지만
-    # 필터링 뒤 순서를 확실히 보장한다.
-    hits.sort(key=lambda hit: hit.score, reverse=True)
+    ordered = sorted(ranked.values(), key=lambda row: row[0], reverse=True)[:top_k]
+
+    hits: list[SearchHit] = []
+    for combined, file_ref, document in ordered:
+        matched_text = _excerpt(document, tokens) or file_ref.name
+        hits.append(SearchHit(file=file_ref, score=min(1.0, combined),
+                              matched_text=matched_text))
 
     return SearchResponse(
         query=query,

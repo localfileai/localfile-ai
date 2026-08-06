@@ -32,9 +32,10 @@ class FakeUserCollection:
     def count(self):
         return len(self.rows)
 
-    def query(self, query_texts, n_results):
+    def query(self, query_texts=None, query_embeddings=None, n_results=10):
         picked = list(self.rows.items())[:n_results]
         return {
+            "ids": [[id_ for id_, _ in picked]],
             "metadatas": [[meta for _, (_, meta) in picked]],
             "documents": [[doc for _, (doc, _) in picked]],
             "distances": [[0.2 for _ in picked]],
@@ -48,6 +49,12 @@ def fake_collection(monkeypatch):
     monkeypatch.setattr(search_module, "user_collection", lambda create=False: collection)
     # 색인은 시작 전에 임베딩이 실제로 되는지 확인한다. 테스트에는 Ollama가 없다.
     monkeypatch.setattr(indexer, "ensure_usable_model", lambda: "test-embed")
+
+    # 질의 임베딩도 Ollama가 필요하다. 실패를 그대로 흘려 **키워드 검색만으로**
+    # 동작하는 경로(임베딩이 죽어도 검색은 살아 있어야 한다)를 함께 검증한다.
+    def no_embedding(text, model=None):
+        raise RuntimeError("테스트에는 임베딩 서버가 없다")
+    monkeypatch.setattr(search_module, "embed_query", no_embedding)
     return collection
 
 

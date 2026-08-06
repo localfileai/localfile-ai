@@ -193,6 +193,27 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         return _embed(self._model, list(input), self._timeout)
 
 
+# qwen3-embedding은 질의↔문서 **비대칭** 검색용으로 학습된 모델이다. 모델 카드의
+# 권장 형식대로 **질의에만** 아래 지시문을 붙이고, 문서는 그대로 임베딩한다.
+# 문서 쪽 형식은 그대로이므로 기존 색인과 호환된다 — 재색인이 필요 없다.
+_QUERY_INSTRUCT = ("Instruct: Given a web search query, retrieve relevant "
+                   "passages that answer the query\nQuery: ")
+
+
+def embed_query(text: str, model: str | None = None) -> list[float]:
+    """검색 질의 1건을 임베딩한다. 문서 임베딩과 달리 검색 지시문을 붙인다.
+
+    질의를 문서처럼 맨몸으로 임베딩하면 관련 문서와 무관 문서의 유사도가
+    한 덩어리로 붙어 구분력이 떨어진다 — "관련 없는 파일이 검색 결과를 채우는"
+    원인 중 하나였다. 분류·추천(RAG)의 문서↔문서 유사도 조회는 대칭이 맞으므로
+    이 지시문을 쓰지 않는다 (OllamaEmbeddingFunction 그대로).
+    """
+    model = model or resolve_model()
+    if "qwen3-embedding" in model:
+        text = _QUERY_INSTRUCT + text
+    return _embed(model, [text], config.EMBED_TIMEOUT_SEC)[0]
+
+
 def ollama_version() -> str:
     """설치된 Ollama 버전. 확인할 수 없으면 빈 문자열."""
     try:
