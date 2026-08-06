@@ -52,8 +52,10 @@ export default function SetupGate({ children }: Props) {
   // 실행 환경(모델 실행기)이 올라오기를 기다리는 중. 자동 설치가 창을 띄웠거나
   // 서비스가 아직 안 뜬 상태다. 올라오는 순간 아래 효과가 다음 단계로 잇는다.
   const [waitingForRuntime, setWaitingForRuntime] = useState(false);
-  // 백엔드(server.exe)가 죽어 상태를 못 읽는 상태.
+  // 백엔드(server.exe) 상태 조회가 잠깐 끊긴 상태 — 자동 회복을 기다린다.
   const [backendUnreachable, setBackendUnreachable] = useState(false);
+  // 오래 끊긴 상태 — 이때만 재실행을 권한다.
+  const [backendLost, setBackendLost] = useState(false);
 
   // Electron 메인이 알려 주는 백엔드 상태. 브라우저에서 열면 api가 없으므로
   // 곧바로 통과시키고 아래 상태 폴링이 실제 준비 여부를 판단한다.
@@ -92,14 +94,19 @@ export default function SetupGate({ children }: Props) {
       everResponded.current = true;
       missedPolls.current = 0;
       setBackendUnreachable(false);
+      setBackendLost(false);
       setStatus(next);
       // 첫 진입에서는 이 PC에 권장되는 모델을 미리 골라 둔다.
       setChosenModel((current) => current || next.recommendation.generate_model);
     } else if (everResponded.current) {
-      // 잘 응답하다가 연달아 끊기면 죽은 것이다. 그때는 화면이 멀쩡해
-      // 보이는 채로 굳으므로 반드시 말해 줘야 한다.
+      // 잘 응답하다가 연달아 끊기면 알려야 한다 — 화면이 멀쩡해 보이는 채로
+      // 굳으면 안 된다. 다만 모델 다운로드로 시스템이 바쁠 때의 일시적
+      // 지연에 "껐다 켜라"를 띄우면 다운로드를 끊게 만든다. 실제 PC에서
+      // 다운로드 33% 진행 중에 그 배너가 떠서 사용자를 불안하게 했다.
+      // 잠깐 끊김(3회)과 오래 끊김(12회)을 나눠 말한다.
       missedPolls.current += 1;
       if (missedPolls.current >= 3) setBackendUnreachable(true);
+      if (missedPolls.current >= 12) setBackendLost(true);
     }
     return next;
   }, []);
@@ -453,13 +460,20 @@ export default function SetupGate({ children }: Props) {
           />
         )}
 
-        {/* 백엔드가 죽으면 화면은 멀쩡해 보이는 채로 굳는다. 반드시 말해 준다. */}
-        {backendUnreachable && (
+        {/* 백엔드 조회가 끊기면 화면은 멀쩡해 보이는 채로 굳는다. 말은 하되,
+            잠깐 끊김에 "껐다 켜라"를 띄우면 진행 중인 다운로드를 사용자가
+            끊게 만든다 — 오래 끊겼을 때만 재실행을 권한다. */}
+        {backendLost ? (
           <div className="mt-4 rounded-lg bg-red-50 dark:bg-red-500/15 px-3 py-2 text-[11px] leading-relaxed text-red-600">
-            앱 내부 연결이 끊어졌습니다. 화면에 보이는 정보가 최신이 아닐 수
-            있습니다. 앱을 껐다 다시 열어 주세요.
+            앱 내부 연결이 오래 끊겨 있습니다. 화면 정보가 최신이 아닐 수
+            있습니다. 몇 분째 그대로라면 앱을 껐다 다시 열어 주세요.
           </div>
-        )}
+        ) : backendUnreachable ? (
+          <div className="mt-4 rounded-lg bg-amber-50 dark:bg-amber-500/15 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+            앱 내부 연결이 잠시 고르지 않습니다 — 자동으로 다시 연결하는
+            중입니다. 진행 중인 다운로드에는 영향이 없습니다.
+          </div>
+        ) : null}
 
         {(installNote || failureText) && (
           <div
