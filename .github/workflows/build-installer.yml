@@ -67,6 +67,24 @@ jobs:
         working-directory: backend
         run: pyinstaller server.spec --noconfirm
 
+      # --- 문서 분석 도구(실행기) 동봉 ---
+      # 사용자 PC에서 첫 실행 때 1.4GB를 내려받게 했더니, 어떤 네트워크에서는
+      # 다운로드가 반복적으로 깨졌다(중간 장비의 개입으로 추정 — 같은 PC에서
+      # 서로 다른 지점의 손상이 두 번). 사용자 네트워크는 우리가 통제할 수
+      # 없는 변수다. GitHub 러너의 안정된 네트워크에서 받아 설치본에 동봉하면
+      # 첫 실행에 실행기 다운로드가 아예 없어진다 — 이 실패 계급 전체가
+      # 사라진다. 설치본이 커지는 것(±700MB)은 그 대가로 받아들인다.
+      - name: 문서 분석 도구(실행기) 동봉 준비
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile ollama.zip -MaximumRetryCount 3 -RetryIntervalSec 10
+          New-Item -ItemType Directory -Force ollama-runtime | Out-Null
+          tar -xf ollama.zip -C ollama-runtime
+          Remove-Item ollama.zip
+          if (!(Test-Path "ollama-runtime/ollama.exe")) { throw "ollama.exe가 없습니다 — zip 구조가 바뀌었는지 확인 필요" }
+          Get-ChildItem ollama-runtime | Select-Object Name, Length
+
       # --- 프론트 + 설치본 ---
       - name: Node 의존성 설치
         run: npm ci

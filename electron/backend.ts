@@ -25,6 +25,12 @@ export type BackendState = {
 let child: ChildProcess | null = null
 let state: BackendState = { status: 'starting', detail: '' }
 const listeners = new Set<(next: BackendState) => void>()
+// 앱 종료로 우리가 내린 것과 저절로 죽은 것을 구분한다.
+let stopping = false
+// 저절로 죽었을 때의 자동 재시작 횟수 제한 — 시작하자마자 반복해서 죽는
+// 상태에서 무한 재시작하지 않게 한다.
+let restarts = 0
+const MAX_RESTARTS = 2
 
 function setState(next: BackendState) {
   state = next
@@ -131,9 +137,19 @@ export async function startBackend(): Promise<void> {
   child.on('exit', (code) => {
     slog('backend exit', code)
     child = null
-    if (state.status !== 'failed') {
-      setState({ status: 'failed', detail: `앱 구성 요소가 예기치 않게 종료됐습니다 (코드 ${code}). 앱을 다시 실행해 주세요.` })
+    if (stopping || state.status === 'failed') return
+
+    // 저절로 죽었다 — 사용자에게 "껐다 켜라"를 시키기 전에 앱이 먼저 해 본다.
+    // 실제 PC에서 "앱 내부 연결이 끊어졌습니다"가 떴는데, 그 해법이 재실행뿐
+    // 이라면 그건 앱이 스스로 할 수 있는 일이다.
+    if (restarts < MAX_RESTARTS) {
+      restarts += 1
+      slog('backend auto-restart', `${restarts}/${MAX_RESTARTS}`)
+      setState({ status: 'starting', detail: '앱 구성 요소를 다시 시작하는 중입니다…' })
+      setTimeout(() => { void startBackend() }, 2000)
+      return
     }
+    setState({ status: 'failed', detail: `앱 구성 요소가 반복해서 종료됩니다 (코드 ${code}). 앱을 다시 실행해 주세요.` })
   })
 
   // 첫 기동은 오래 걸릴 수 있다 — onefile 압축 해제와 초기화가 느린 PC에서는
@@ -167,6 +183,7 @@ export async function startBackend(): Promise<void> {
  * `taskkill /T`로 프로세스 트리를 통째로 정리해야 한다.
  */
 export function stopBackend(): void {
+  stopping = true
   const target = child
   if (!target?.pid) return
   child = null

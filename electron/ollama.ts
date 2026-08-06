@@ -228,6 +228,18 @@ function findPortableExe(dir = portableDir(), depth = 3): string | null {
   return null
 }
 
+/** 설치본(Setup.exe)에 동봉된 실행기. **기본 경로다** — 여기 있으면 다운로드도
+ *  설치도 필요 없다. 사용자 PC에서 첫 실행 때 1.4GB를 받게 했더니 어떤
+ *  네트워크에서는 다운로드가 반복적으로 깨졌다(같은 PC에서 서로 다른 지점의
+ *  손상이 두 번 — 중간 장비의 개입으로 추정). 사용자 네트워크는 통제할 수
+ *  없는 변수라, CI의 안정된 네트워크에서 받아 설치본에 담는 것으로 이 실패
+ *  계급 전체를 없앴다. */
+function findBundledExe(): string | null {
+  if (!app.isPackaged) return null
+  const candidate = path.join(process.resourcesPath, 'ollama', 'ollama.exe')
+  return existsSync(candidate) ? candidate : null
+}
+
 /** 설치본이 실행기를 깔아 두는 곳들. 사용자별 설치가 기본이고, 관리자 권한으로
  *  깔린 시스템 전체 설치가 그다음이다. */
 function findInstalledExe(): string | null {
@@ -289,6 +301,14 @@ async function spawnServeNow(exe: string, waitMs: number): Promise<boolean> {
     managedServe = null
   })
   return waitUntilAlive(waitMs)
+}
+
+/** 동봉된 실행기를 띄운다. 동봉본이 없으면(개발 모드 등) false. */
+async function spawnBundledServe(): Promise<boolean> {
+  const exe = findBundledExe()
+  slog('bundled exe', exe ?? 'none')
+  if (!exe) return false
+  return spawnServeFrom(exe)
 }
 
 /** 무설치 실행기를 띄운다. 무설치본이 없으면 false. */
@@ -494,6 +514,7 @@ export async function startPortableOllamaIfPresent(): Promise<void> {
   if (process.platform !== 'win32') return
   try {
     if (await ollamaAlive()) return
+    if (await spawnBundledServe()) return
     if (await spawnInstalledServe()) return
     await spawnPortableServe()
   } catch (error) {
@@ -538,6 +559,10 @@ export async function installOllama(
       slog('already alive')
       return ready('문서 분석 도구가 이미 준비돼 있습니다.')
     }
+    // 동봉본이 있으면 다운로드·설치 자체가 필요 없다 — 그냥 띄운다.
+    if (await spawnBundledServe().catch(() => false)) {
+      return ready('문서 분석 도구를 시작했습니다.')
+    }
     // 깔려 있는데 안 떠 있을 뿐인 PC — 받을 것 없이 띄우기만 하면 된다.
     if (await spawnInstalledServe().catch(() => false)) {
       return ready('문서 분석 도구를 시작했습니다.')
@@ -546,7 +571,15 @@ export async function installOllama(
       return ready('문서 분석 도구를 시작했습니다.')
     }
   } else {
-    // 복구: 깨진 시스템 설치가 포트를 잡고 있다 — 덮어쓰는 것이 우선이다.
+    // 복구: 깨진 시스템 실행기가 포트를 잡고 있다. 동봉본이 있으면 시스템
+    // 실행기를 내리고 동봉본으로 갈아타는 것이 가장 빠르고 확실하다 —
+    // 다운로드도 설치 프로그램도 없다.
+    if (findBundledExe()) {
+      await killSystemOllama()
+      if (await spawnBundledServe().catch(() => false)) {
+        return ready('문서 분석 도구를 복구했습니다.')
+      }
+    }
     try {
       return await installViaInstaller(onProgress, true)
     } catch (error) {

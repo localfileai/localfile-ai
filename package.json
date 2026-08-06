@@ -9,7 +9,7 @@
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit",
     "build": "tsc && vite build",
-    "dist": "npm run build && electron-builder",
+    "dist": "node -e \"require('fs').mkdirSync('ollama-runtime',{recursive:true})\" && npm run build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "setup": "node scripts/setup.mjs",
@@ -20,7 +20,7 @@
     "index": "node scripts/backend.mjs index",
     "backend:test": "node scripts/backend.mjs test",
     "backend:build-exe": "node scripts/backend.mjs build-exe",
-    "dist:win": "node scripts/backend.mjs build-exe && npm run build && electron-builder --win"
+    "dist:win": "node -e \"require('fs').mkdirSync('ollama-runtime',{recursive:true})\" && node scripts/backend.mjs build-exe && npm run build && electron-builder --win"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -70,6 +70,10 @@
         {
           "from": "backend/dist/server",
           "to": "backend"
+        },
+        {
+          "from": "ollama-runtime",
+          "to": "ollama"
         }
       ],
       "icon": "build/icon.ico"

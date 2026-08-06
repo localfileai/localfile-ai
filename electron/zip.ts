@@ -25,6 +25,21 @@ import path from 'node:path'
 import { createInflateRaw } from 'node:zlib'
 import { pipeline } from 'node:stream/promises'
 
+/** 요청한 크기를 다 읽을 때까지 반복한다. FileHandle.read는 한 번에 다
+ *  주지 않을 수 있고, 모자란 채 파싱하면 "손상"으로 오진하게 된다. */
+async function readExact(
+  handle: Awaited<ReturnType<typeof open>>,
+  buffer: Buffer,
+  position: number,
+): Promise<void> {
+  let done = 0
+  while (done < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, done, buffer.length - done, position + done)
+    if (bytesRead === 0) throw new Error('파일이 예상보다 짧습니다')
+    done += bytesRead
+  }
+}
+
 const EOCD_SIG = 0x06054b50
 const EOCD64_LOCATOR_SIG = 0x07064b50
 const EOCD64_SIG = 0x06064b50
@@ -76,7 +91,7 @@ async function locateCentralDirectory(
   let tail: Buffer
   try {
     tail = Buffer.alloc(tailSize)
-    await handle.read(tail, 0, tailSize, fileSize - tailSize)
+    await readExact(handle, tail, fileSize - tailSize)
   } finally {
     await handle.close()
   }
@@ -105,7 +120,7 @@ async function locateCentralDirectory(
     const record = Buffer.alloc(56)
     const handle64 = await open(zipPath, 'r')
     try {
-      await handle64.read(record, 0, 56, eocd64Offset)
+      await readExact(handle64, record, eocd64Offset)
     } finally {
       await handle64.close()
     }
@@ -126,7 +141,7 @@ async function readEntries(zipPath: string): Promise<Entry[]> {
   const directory = Buffer.alloc(size)
   const handle = await open(zipPath, 'r')
   try {
-    await handle.read(directory, 0, size, offset)
+    await readExact(handle, directory, offset)
   } finally {
     await handle.close()
   }
@@ -210,7 +225,7 @@ async function extractOne(
   const header = Buffer.alloc(30)
   const handle = await open(zipPath, 'r')
   try {
-    await handle.read(header, 0, 30, entry.localHeaderOffset)
+    await readExact(handle, header, entry.localHeaderOffset)
   } finally {
     await handle.close()
   }
