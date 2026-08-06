@@ -100,7 +100,12 @@ export interface SetupStatus {
 /** 준비 상태 조회. 백엔드가 아직 안 떴으면 null(=아직 모름)을 돌려준다. */
 export const getSetupStatus = async (): Promise<SetupStatus | null> => {
   try {
-    const response = await fetch(`${BASE_URL}/setup/status`);
+    // 시간 제한이 없으면 요청 하나가 매달렸을 때 이걸 기다리는 흐름
+    // (준비 자동 진행)이 통째로 굳는다 — 실패 화면에 버튼이 안 나타나던
+    // 원인 후보였다. 못 받으면 null로 끝내고 다음 폴링이 다시 묻는다.
+    const response = await fetch(`${BASE_URL}/setup/status`, {
+      signal: AbortSignal.timeout(8000),
+    });
     if (!response.ok) return null;
     return await response.json();
   } catch {

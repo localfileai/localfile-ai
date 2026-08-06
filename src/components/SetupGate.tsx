@@ -480,8 +480,11 @@ export default function SetupGate({ children }: Props) {
           </div>
         )}
 
-        {/* 버튼은 사람 손이 필요할 때만 나온다 — 실패했거나, 설정에서 수동으로 연 경우. */}
-        {((failed && !busy) || forced) && !download?.running && (
+        {/* 버튼은 사람 손이 필요할 때만 나온다 — 실패했거나, 설정에서 수동으로 연 경우.
+            busy를 조건에 넣지 않는다: 진행 중이던 것이 어딘가에 매달려 busy가
+            안 풀리면 실패 화면에 버튼이 아예 사라진다 — 실제로 그런 화면이
+            나왔다. 진행 중이면 버튼을 숨기는 게 아니라 잠근다(disabled). */}
+        {(failed || forced) && !download?.running && (
           <div className="mt-6 flex gap-2">
             <button
               onClick={() => void runFullSetup()}

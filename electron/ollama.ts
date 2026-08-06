@@ -30,11 +30,12 @@
 import { shell, app } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { createWriteStream, existsSync, readdirSync } from 'node:fs'
-import { mkdir, open, readdir, unlink } from 'node:fs/promises'
+import { open, readdir, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { slog } from './log'
+import { extractZip } from './zip'
 
 const DOWNLOAD_PAGE = 'https://ollama.com/download'
 
@@ -138,6 +139,13 @@ async function downloadFile(
 
     armStallTimer()
     await pipeline(source, createWriteStream(target), { signal: controller.signal })
+
+    // 서버가 연결을 조용히 끊으면 스트림은 오류 없이 "끝"난다. 그 잘린 파일이
+    // 압축 해제 단계까지 흘러가 "ZIP decompression failed" 같은 엉뚱한 오류로
+    // 나타났다 — 실제 PC에서 겪었다. 크기가 맞는지 여기서 확인해야 한다.
+    if (total && received !== total) {
+      throw new Error(`${label} 내려받기가 불완전합니다 (${received}/${total} 바이트)`)
+    }
     slog('download ok', url, `${received} bytes`)
   } catch (error) {
     if (controller.signal.aborted) {
@@ -301,40 +309,24 @@ async function killSystemOllama(): Promise<void> {
 
 /** zip을 앱 데이터 폴더에 푼다.
  *
- *  tar.exe(Windows 10+ 내장 bsdtar)를 먼저 쓴다 — 1.4GB짜리 zip을 스트리밍으로
- *  풀어 빠르고, 실패하면 확실하게 실패한다. PowerShell Expand-Archive는 예비인데
- *  반드시 오류를 종결 오류로 승격시킨다 — 기본 설정에서는 파일 몇 개를 못
- *  풀어도 exit 0으로 끝나서, "성공했는데 실행 파일이 없는" 상태를 실제 PC에서
- *  만들었다.
+ *  자체 해제기(zip.ts)를 쓴다. 외부 도구는 실제 PC에서 두 번 우리를 속였다 —
+ *  Expand-Archive는 부분 실패를 exit 0으로 감췄고(오류를 내도 콘솔 인코딩
+ *  때문에 읽을 수 없었다), tar.exe는 원인 없는 실패를 냈다. 자체 해제기는
+ *  항목마다 크기·CRC를 대조해 손상을 **파일 이름과 함께** 정확히 보고하고,
+ *  진행률도 준다.
  */
-async function extractPortableZip(zipPath: string): Promise<void> {
-  await mkdir(portableDir(), { recursive: true })
-
-  const runExtractor = (file: string, args: string[]) =>
-    new Promise<void>((resolve, reject) => {
-      execFile(file, args, { windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
-        (error, _stdout, stderr) => (error
-          ? reject(new Error(`${path.basename(file)}: ${String(stderr || error.message).slice(0, 200)}`))
-          : resolve()))
+async function extractPortableZip(
+  zipPath: string,
+  onProgress: (progress: InstallProgress) => void,
+): Promise<void> {
+  const count = await extractZip(zipPath, portableDir(), (percent) => {
+    onProgress({
+      phase: 'installing',
+      percent: 100,
+      detail: `문서 분석 도구를 준비하는 중입니다… (${percent.toFixed(0)}%)`,
     })
-
-  try {
-    await runExtractor('tar.exe', ['-xf', zipPath, '-C', portableDir()])
-    slog('extracted with tar')
-  } catch (tarError) {
-    slog('tar failed', (tarError as Error).message)
-    try {
-      await runExtractor('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-Command',
-        `$ErrorActionPreference = 'Stop'; ` +
-        `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${portableDir()}' -Force`,
-      ])
-      slog('extracted with Expand-Archive')
-    } catch (psError) {
-      throw new Error(`압축을 풀지 못했습니다 (tar: ${(tarError as Error).message} ` +
-                      `/ powershell: ${(psError as Error).message})`)
-    }
-  }
+  })
+  slog('extracted', count, 'entries')
 
   if (!findPortableExe()) {
     // 다음에 이 오류를 볼 때 원인을 알 수 있게, 뭐가 풀렸는지를 남긴다.
@@ -353,8 +345,7 @@ async function installPortable(
   try {
     await downloadFromAnySource(PORTABLE_ZIP_URLS, zipPath, '문서 분석 도구', onProgress)
     await assertMagic(zipPath, 'PK', '문서 분석 도구')
-    onProgress({ phase: 'installing', percent: 100, detail: '문서 분석 도구를 준비하는 중입니다… (1~2분)' })
-    await extractPortableZip(zipPath)
+    await extractPortableZip(zipPath, onProgress)
     onProgress({ phase: 'installing', percent: 100, detail: '문서 분석 도구를 시작하는 중입니다…' })
     return await spawnPortableServe()
   } finally {
@@ -397,6 +388,8 @@ async function runInstaller(
         'powershell.exe',
         [
           '-NoProfile', '-NonInteractive', '-Command',
+          // 오류 문구가 CP949로 나와 깨진 채 도착한 적이 있다 — UTF-8로 강제한다.
+          `[Console]::OutputEncoding = [Text.Encoding]::UTF8; ` +
           `$p = Start-Process -FilePath '${target}' ` +
           `-ArgumentList '${SILENT_ARGS.join("','")}' -Wait -PassThru; exit $p.ExitCode`,
         ],
