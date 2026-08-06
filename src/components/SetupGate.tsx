@@ -17,8 +17,10 @@ import { onOpenSetupScreen } from '../setupWindow';
  * 모델 실행 파일이 빠져 있어 무엇을 눌러도 아무 일이 없었고, 화면이 사용자에게
  * 준 것은 "ollama.com에서 직접 받으세요"라는 안내뿐이었다. 그래서 바꾼 것:
  *
- *   - 버튼을 **하나로** 합쳤다. 그 하나가 Ollama 설치 → (깨졌으면) 재설치 →
+ *   - 흐름을 **하나로** 합쳤다. Ollama 설치 → (깨졌으면) 재설치 →
  *     모델 다운로드까지 끝까지 이어서 한다.
+ *   - 준비가 안 된 채 앱이 뜨면 그 흐름이 **버튼 없이 자동으로** 시작된다.
+ *     버튼은 자동 시도가 실패했을 때의 재시도 수단이다.
  *   - 실패해도 링크를 띄우고 끝내지 않는다. 다시 시도할 수 있는 버튼이 남는다.
  *   - 준비가 끝난 뒤에도 설정에서 이 화면을 다시 열 수 있다.
  */
@@ -183,18 +185,24 @@ export default function SetupGate({ children }: Props) {
     void runFullSetup();
   }, [waitingForOllama, busy, status?.ollama.running, runFullSetup]);
 
-  // Ollama가 PC에 아예 없으면 버튼을 기다리지 않고 바로 설치를 시작한다.
-  // "설치 파일 하나 받아 실행하면 나머지는 알아서"가 이 앱의 약속이다.
-  // 모델은 자동으로 받지 않는다 — 수 GB라 사용자가 보고 시작해야 한다.
-  const autoInstallTried = useRef(false);
+  // 준비가 안 된 채 앱이 뜨면 **버튼을 기다리지 않고** 전 과정을 바로 시작한다 —
+  // Ollama 설치부터 모델 다운로드까지. "설치 파일 하나 받아 실행하면 나머지는
+  // 알아서"가 이 앱의 약속이다. 예전에는 Ollama가 아예 없을 때만 자동이었고
+  // 모델 다운로드는 파란 버튼을 눌러야 시작됐는데, 새 PC 사용자는 그 버튼을
+  // 눌러야 하는지조차 모른 채 멈춘 화면을 봤다.
+  //
+  // 실행당 한 번만 자동 시도한다. 실패가 반복되는 PC에서 무한히 재시도하며
+  // 트래픽을 태우지 않기 위해서다 — 그 뒤로는 화면의 버튼이 같은 일을 한다.
+  const autoSetupTried = useRef(false);
   useEffect(() => {
-    if (autoInstallTried.current || busy) return;
-    if (!status || status.ollama.running || status.ollama.binary_found) return;
-    if (!window.api?.installOllama) return;
+    if (autoSetupTried.current || busy || forced) return;
+    if (backend.status !== 'ready' && backend.status !== 'external') return;
+    if (!status || status.ready) return;
+    if (status.download.running) return;   // 지난 실행이 걸어 둔 다운로드가 도는 중
 
-    autoInstallTried.current = true;
+    autoSetupTried.current = true;
     void runFullSetup();
-  }, [status, busy, runFullSetup]);
+  }, [status, busy, forced, backend.status, runFullSetup]);
 
   // 이미 받아 둔 모델끼리 갈아타는 경우 — 다운로드 없이 설정만 바꾼다.
   const handleSelect = async (model: string) => {
@@ -248,8 +256,9 @@ export default function SetupGate({ children }: Props) {
       <div className="my-auto w-[34rem] rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#16161e] p-8 shadow-sm">
         <div className="text-lg font-bold text-gray-800 dark:text-gray-100">LocalFile AI 준비</div>
         <p className="mt-1 text-[12px] leading-relaxed text-gray-500 dark:text-gray-400">
-          처음 한 번만 필요한 과정입니다. 버튼 하나로 필요한 것을 전부 설치합니다.
-          모든 처리는 이 PC 안에서만 이뤄지며, 문서 내용이 밖으로 나가지 않습니다.
+          처음 한 번만 필요한 과정이고, 필요한 것은 앱이 알아서 설치합니다 —
+          그냥 기다리시면 됩니다. 모든 처리는 이 PC 안에서만 이뤄지며,
+          문서 내용이 밖으로 나가지 않습니다.
         </p>
 
         <div className="mt-6 space-y-3">
@@ -404,13 +413,12 @@ export default function SetupGate({ children }: Props) {
           <div className="mt-6 rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-500/10 px-3 py-3">
             <div className="flex items-center gap-2 text-[12px] font-bold text-indigo-700 dark:text-indigo-300">
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-              Ollama 설치를 기다리는 중입니다
+              AI 엔진 실행기가 준비되기를 기다리는 중입니다
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-indigo-700/80 dark:text-indigo-300/80">
-              열린 설치 창에서 Ollama 설치를 마쳐 주세요.
-              <strong className="font-bold"> 설치가 끝나면 모델 다운로드가 자동으로 시작됩니다.</strong>
-              {' '}이 화면을 닫지 마세요. 설치를 이미 마쳤는데도 몇 분째 그대로라면
-              아래 버튼을 눌러 주세요.
+              설치 창이 열려 있다면 그 창에서 설치를 마쳐 주세요.
+              <strong className="font-bold"> 준비가 확인되는 즉시 모델 다운로드가 자동으로 시작됩니다.</strong>
+              {' '}이 화면을 닫지 마세요. 몇 분째 그대로라면 아래 버튼으로 다시 시도해 주세요.
             </p>
           </div>
         )}

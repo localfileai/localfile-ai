@@ -7,7 +7,11 @@ import {
   startBackend,
   stopBackend,
 } from './backend'
-import { installOllama } from './ollama'
+import {
+  installOllama,
+  startPortableOllamaIfPresent,
+  stopPortableOllama,
+} from './ollama'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -72,8 +76,15 @@ app.on('window-all-closed', () => {
 
 // 앱이 꺼질 때 백엔드도 반드시 함께 정리한다.
 // 남으면 포트를 붙잡아 다음 실행이 "이미 떠 있는 서버"에 붙어 버린다.
-app.on('before-quit', stopBackend)
-app.on('will-quit', stopBackend)
+// 무설치 Ollama를 쓰는 PC에서는 우리가 띄운 serve도 같이 정리한다.
+app.on('before-quit', () => {
+  stopBackend()
+  stopPortableOllama()
+})
+app.on('will-quit', () => {
+  stopBackend()
+  stopPortableOllama()
+})
 
 app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
@@ -120,4 +131,8 @@ app.whenReady().then(() => {
   // 창을 먼저 띄우고 백엔드를 붙인다 — 사용자는 검은 화면 대신
   // "AI 엔진을 시작하는 중" 안내를 보게 된다.
   void startBackend()
+
+  // 무설치 Ollama로 준비된 PC에서는 시스템 서비스가 없다.
+  // serve를 앱이 매번 직접 띄워야 검색·추천이 산다.
+  void startPortableOllamaIfPresent()
 })
