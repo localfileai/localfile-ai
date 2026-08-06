@@ -135,9 +135,12 @@ export default function SetupGate({ children }: Props) {
         setInstallNote(result.detail);
         current = (await refresh()) ?? current;
 
-        // 아직 안 보이면 기다린다 — 설치 창이 떠 있거나 서비스가 뜨는 중이다.
-        // 폴링이 발견하는 순간 아래 효과가 다음 단계로 잇는다.
         if (!current?.ollama.running) {
+          // 설치가 실패로 끝났으면 반드시 실패로 보여 준다 — 예전에는 안내문이
+          // "[다시 시도]를 눌러 주세요"라면서 버튼은 없는 화면이 나왔다.
+          if (result.phase === 'failed') setError(result.detail);
+          // 실패했든 기다리는 중이든, 실행 환경이 올라오는 순간 폴링이
+          // 발견해 자동으로 이어 간다.
           setWaitingForRuntime(true);
           return;
         }
@@ -151,6 +154,7 @@ export default function SetupGate({ children }: Props) {
         setInstallNote('실행 환경이 손상돼 다시 설치합니다…');
         const result = await window.api.installOllama({ repair: true });
         setInstallNote(result.detail);
+        if (result.phase === 'failed') setError(result.detail);
         current = (await refresh()) ?? current;
       }
 

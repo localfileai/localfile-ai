@@ -67,11 +67,16 @@ async function ollamaAlive(): Promise<boolean> {
   }
 }
 
-/** 설치가 끝나 서비스가 뜰 때까지 기다린다. */
-async function waitUntilAlive(timeoutMs = 120_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
+/** 설치가 끝나 서비스가 뜰 때까지 기다린다. onTick으로 경과를 알려
+ *  화면이 멈춘 것처럼 보이지 않게 한다. */
+async function waitUntilAlive(
+  timeoutMs = 120_000,
+  onTick?: (elapsedSec: number) => void,
+): Promise<boolean> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
     if (await ollamaAlive()) return true
+    onTick?.(Math.round((Date.now() - startedAt) / 1000))
     await new Promise((resolve) => setTimeout(resolve, 2000))
   }
   return false
@@ -249,12 +254,31 @@ function findPortableExe(dir = portableDir(), depth = 3): string | null {
   return null
 }
 
+/** 설치본이 실행기를 깔아 두는 곳들. 사용자별 설치가 기본이고, 시스템 전체
+ *  설치(관리자 권한으로 깐 경우)가 그 다음이다. */
+function findInstalledExe(): string | null {
+  const candidates = [
+    process.env.LOCALAPPDATA
+      && path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe'),
+    'C:\\Program Files\\Ollama\\ollama.exe',
+    'C:\\Program Files (x86)\\Ollama\\ollama.exe',
+  ]
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) return candidate
+  }
+  return null
+}
+
 let managedServe: ChildProcess | null = null
 
-/** 무설치 Ollama의 serve를 띄운다. 이미 떠 있으면 아무것도 안 한다. */
-async function spawnPortableServe(): Promise<boolean> {
-  const exe = findPortableExe()
-  if (!exe) return false
+/** 실행기(serve)를 앱의 자식 프로세스로 띄운다. 이미 떠 있으면 그대로 둔다.
+ *
+ *  왜 앱이 직접 띄우는가: 무인 설치(/VERYSILENT)는 파일만 깔고 실행기를
+ *  **시작하지 않는다** — 일반 설치에서 마지막 "실행" 체크박스가 하던 일이
+ *  무인 모드에서는 건너뛰어진다. 실제 PC에서 "설치됐지만 응답하지 않습니다"로
+ *  2분을 기다리다 멈춘 원인이 이것이었다.
+ */
+async function spawnServeFrom(exe: string): Promise<boolean> {
   if (await ollamaAlive()) return true
 
   // 이전에 우리가 띄운 것이 좀비로 남았으면 정리한다.
@@ -274,6 +298,20 @@ async function spawnPortableServe(): Promise<boolean> {
     managedServe = null
   })
   return waitUntilAlive(60_000)
+}
+
+/** 무설치 Ollama의 serve를 띄운다. 무설치본이 없으면 false. */
+async function spawnPortableServe(): Promise<boolean> {
+  const exe = findPortableExe()
+  if (!exe) return false
+  return spawnServeFrom(exe)
+}
+
+/** 설치된 Ollama의 serve를 띄운다. 설치돼 있지 않으면 false. */
+async function spawnInstalledServe(): Promise<boolean> {
+  const exe = findInstalledExe()
+  if (!exe) return false
+  return spawnServeFrom(exe)
 }
 
 /** zip을 앱 데이터 폴더에 푼다.
@@ -335,13 +373,16 @@ async function installPortable(
 }
 
 /**
- * 앱 시작 시 부른다(main.ts) — 무설치 Ollama를 쓰는 PC에서는 시스템 서비스가
- * 없으므로, serve를 앱이 매번 직접 띄워야 한다. 무설치본이 없는 PC에서는
- * 아무 일도 하지 않는다.
+ * 앱 시작 시 부른다(main.ts) — 실행기가 깔려 있는데 안 떠 있으면 앱이 직접
+ * 띄운다. 무인 설치 직후나 무설치본을 쓰는 PC에서는 시스템이 실행기를
+ * 자동으로 시작해 주지 않기 때문이다. 아무것도 안 깔려 있으면 조용히
+ * 넘어간다 — 준비 화면의 installOllama가 설치부터 맡는다.
  */
 export async function startPortableOllamaIfPresent(): Promise<void> {
   if (process.platform !== 'win32') return
   try {
+    if (await ollamaAlive()) return
+    if (await spawnInstalledServe()) return
     await spawnPortableServe()
   } catch {
     // 준비 화면의 installOllama 경로가 다시 시도한다.
@@ -381,7 +422,10 @@ export async function installOllama(
     if (await ollamaAlive()) {
       return { phase: 'ready', percent: 100, detail: '문서 분석 도구가 이미 준비돼 있습니다.' }
     }
-    // 지난번에 무설치본으로 깔아 둔 PC — 받을 것 없이 띄우기만 하면 된다.
+    // 깔려 있는데 안 떠 있을 뿐인 PC — 받을 것 없이 띄우기만 하면 된다.
+    if (await spawnInstalledServe().catch(() => false)) {
+      return { phase: 'ready', percent: 100, detail: '문서 분석 도구를 시작했습니다.' }
+    }
     if (await spawnPortableServe().catch(() => false)) {
       return { phase: 'ready', percent: 100, detail: '문서 분석 도구를 시작했습니다.' }
     }
@@ -402,19 +446,33 @@ export async function installOllama(
     })
     await runInstaller(target, onProgress)
 
+    // 무인 설치는 파일만 깔고 실행기를 시작하지 않는다 — 잠깐 기다려 보고
+    // 안 뜨면 우리가 직접 띄운다. "설치됐지만 응답하지 않습니다"로 2분을
+    // 기다리다 멈춘 PC가 실제로 있었다.
     onProgress({ phase: 'installing', percent: 100, detail: '설치를 마무리하는 중입니다…' })
-    const alive = await waitUntilAlive()
+    let alive = await waitUntilAlive(10_000)
+    if (!alive) {
+      onProgress({ phase: 'installing', percent: 100, detail: '문서 분석 도구를 시작하는 중입니다…' })
+      alive = await spawnInstalledServe().catch(() => false)
+    }
+    if (!alive) {
+      alive = await waitUntilAlive(60_000, (sec) => onProgress({
+        phase: 'installing',
+        percent: 100,
+        detail: `문서 분석 도구가 시작되기를 기다리는 중입니다… (${sec}초)`,
+      }))
+    }
     await unlink(target).catch(() => undefined)
 
     if (alive) {
       return { phase: 'ready', percent: 100, detail: '문서 분석 도구 준비가 끝났습니다.' }
     }
-    // 설치는 됐다는데 안 뜬다 — 무설치본으로 넘어가지 말고 여기서 알린다.
-    // (같은 포트를 두 실행기가 다투는 상태를 만들 수 있다.)
+    // 설치도 했고 직접 띄워도 봤는데 안 뜬다 — 무설치본으로 넘어가지 말고
+    // 여기서 알린다. (같은 포트를 두 실행기가 다투는 상태를 만들 수 있다.)
     return {
       phase: 'failed',
       percent: 100,
-      detail: '문서 분석 도구가 설치됐지만 아직 응답하지 않습니다. 잠시 뒤 [다시 시도]를 눌러 주세요.',
+      detail: '문서 분석 도구가 설치됐지만 시작되지 않습니다. [다시 시도]를 눌러 주세요.',
     }
   } catch (installerError) {
     await unlink(target).catch(() => undefined)
