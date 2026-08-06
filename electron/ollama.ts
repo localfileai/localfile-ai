@@ -64,29 +64,61 @@ async function waitUntilAlive(timeoutMs = 120_000): Promise<boolean> {
   return false
 }
 
+/** 연결이 안 되면 이만큼 기다리고 포기한다. */
+const CONNECT_TIMEOUT_MS = 30_000
+/**
+ * 데이터가 이만큼 끊기면 죽은 연결로 본다.
+ *
+ * 전체 시간에 상한을 두면 안 된다 — 700MB짜리라 느린 회선에서는 정상적으로도
+ * 10분 넘게 걸린다. 대신 "흐르고 있는가"만 본다. 이 감시가 없으면 연결이
+ * 조용히 끊겼을 때 promise가 영영 안 끝나고, 화면은 버튼이 잠긴 채로 굳는다.
+ */
+const STALL_TIMEOUT_MS = 60_000
+
 async function downloadInstaller(
   target: string,
   onProgress: (progress: InstallProgress) => void,
 ): Promise<void> {
-  const response = await fetch(WINDOWS_INSTALLER)
-  if (!response.ok || !response.body) {
-    throw new Error(`설치본을 받을 수 없습니다 (HTTP ${response.status})`)
+  const controller = new AbortController()
+  let stallTimer: NodeJS.Timeout | undefined
+  const armStallTimer = () => {
+    clearTimeout(stallTimer)
+    stallTimer = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS)
   }
 
-  const total = Number(response.headers.get('content-length') || 0)
-  let received = 0
+  const connectTimer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS)
+  try {
+    const response = await fetch(WINDOWS_INSTALLER, { signal: controller.signal })
+    clearTimeout(connectTimer)
+    if (!response.ok || !response.body) {
+      throw new Error(`설치본을 받을 수 없습니다 (HTTP ${response.status})`)
+    }
 
-  const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
-  source.on('data', (chunk: Buffer) => {
-    received += chunk.length
-    onProgress({
-      phase: 'downloading',
-      percent: total ? (received / total) * 100 : 0,
-      detail: 'Ollama 설치본을 내려받는 중입니다…',
+    const total = Number(response.headers.get('content-length') || 0)
+    let received = 0
+
+    const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
+    source.on('data', (chunk: Buffer) => {
+      received += chunk.length
+      armStallTimer()
+      onProgress({
+        phase: 'downloading',
+        percent: total ? (received / total) * 100 : 0,
+        detail: 'Ollama 설치본을 내려받는 중입니다…',
+      })
     })
-  })
 
-  await pipeline(source, createWriteStream(target))
+    armStallTimer()
+    await pipeline(source, createWriteStream(target), { signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('내려받기가 중간에 끊겼습니다 (응답 없음)')
+    }
+    throw error
+  } finally {
+    clearTimeout(connectTimer)
+    clearTimeout(stallTimer)
+  }
 }
 
 /** 몇 번 다시 시도한다. 마지막 실패는 그대로 올려 호출부가 판단하게 한다. */

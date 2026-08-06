@@ -43,6 +43,11 @@ export default function SetupGate({ children }: Props) {
   const [bypassed, setBypassed] = useState(false);
   // 설정에서 "AI 준비 다시 하기"로 연 경우. 준비가 끝나 있어도 화면을 유지한다.
   const [forced, setForced] = useState(false);
+  // 사용자가 Ollama를 **직접** 설치하는 중. 자동 설치가 막혀 다운로드 페이지를
+  // 열었을 때 켜진다. Ollama가 올라오면 아래 효과가 알아서 다음 단계로 잇는다.
+  const [waitingForOllama, setWaitingForOllama] = useState(false);
+  // 백엔드(server.exe)가 죽어 상태를 못 읽는 상태.
+  const [backendUnreachable, setBackendUnreachable] = useState(false);
 
   // Electron 메인이 알려 주는 백엔드 상태. 브라우저에서 열면 api가 없으므로
   // 곧바로 통과시키고 아래 상태 폴링이 실제 준비 여부를 판단한다.
@@ -69,12 +74,20 @@ export default function SetupGate({ children }: Props) {
     setError('');
   }), []);
 
+  const missedPolls = useRef(0);
   const refresh = useCallback(async () => {
     const next = await getSetupStatus();
     if (next) {
+      missedPolls.current = 0;
+      setBackendUnreachable(false);
       setStatus(next);
       // 첫 진입에서는 이 PC에 권장되는 모델을 미리 골라 둔다.
       setChosenModel((current) => current || next.recommendation.generate_model);
+    } else {
+      // 한 번 놓친 것은 흔한 일이다. 연달아 놓치면 백엔드가 죽은 것이고,
+      // 그때는 화면이 멀쩡해 보이는 채로 굳으므로 반드시 말해 줘야 한다.
+      missedPolls.current += 1;
+      if (missedPolls.current >= 3) setBackendUnreachable(true);
     }
     return next;
   }, []);
@@ -97,15 +110,29 @@ export default function SetupGate({ children }: Props) {
    */
   const runFullSetup = useCallback(async () => {
     setError('');
+    setInstallPercent(0);   // 지난 시도의 진행률이 남아 잘못 보이지 않게
     setBusy(true);
     try {
+      // refresh()는 백엔드가 잠깐 응답을 안 하면 null을 준다. 그걸 그대로
+      // 받아 넣으면 이후 `current?.…`가 전부 거짓이 되어, 오류도 진행도 없이
+      // 조용히 끝난다. 예전에 "이미 실행 중입니다"만 뜨고 멈춘 원인이다.
       let current = status ?? (await refresh());
 
       // 1) Ollama가 아예 없거나 꺼져 있으면 설치부터.
       if (window.api?.installOllama && !current?.ollama.running) {
         const result = await window.api.installOllama();
         setInstallNote(result.detail);
-        current = await refresh();
+        current = (await refresh()) ?? current;
+
+        // 여기서 Ollama가 아직 안 보이는 경우가 둘이다.
+        //   - 자동 설치가 막혀 다운로드 페이지를 열었고, 사용자가 지금 직접 깔고 있다
+        //   - 설치는 끝났지만 서비스가 아직 안 올라왔다
+        // 둘 다 "기다리면 되는" 상태다. 예전에는 여기서 그냥 함수가 끝나서,
+        // 사용자가 설치를 마쳐도 아무 일도 일어나지 않았다.
+        if (!current?.ollama.running) {
+          setWaitingForOllama(true);
+          return;
+        }
       }
 
       // 2) 응답은 하는데 모델을 못 돌리는 상태 — 설치가 깨졌거나 낡았다.
@@ -116,7 +143,7 @@ export default function SetupGate({ children }: Props) {
         setInstallNote('Ollama 설치가 손상돼 다시 설치합니다…');
         const result = await window.api.installOllama({ repair: true });
         setInstallNote(result.detail);
-        current = await refresh();
+        current = (await refresh()) ?? current;
       }
 
       // 3) 이 PC 구성대로 모델을 받는다. 고른 모델이 있으면 함께 받는다.
@@ -125,8 +152,15 @@ export default function SetupGate({ children }: Props) {
         const note = await startModelDownload(chosenModel ? [chosenModel] : []);
         if (note) setInstallNote(note);
         await refresh();
-      } else if (!window.api?.installOllama) {
-        setError('Ollama가 실행 중이 아닙니다. Ollama를 실행한 뒤 [다시 확인]을 눌러 주세요.');
+        return;
+      }
+      if (current?.download.running) return;   // 이미 받는 중 — 정상
+
+      // 여기까지 왔다는 것은 아무 일도 못 했다는 뜻이다. 말없이 끝내지 않는다.
+      if (!current) {
+        setError('AI 엔진(백엔드)에 연결할 수 없습니다. 앱을 껐다 다시 열어 주세요.');
+      } else {
+        setWaitingForOllama(true);
       }
     } catch (exception) {
       setError((exception as Error).message);
@@ -134,6 +168,20 @@ export default function SetupGate({ children }: Props) {
       setBusy(false);
     }
   }, [status, chosenModel, refresh]);
+
+  // Ollama가 올라오면 기다리던 준비를 이어서 한다.
+  //
+  // 사용자가 Ollama를 직접 설치하는 경우가 실제로 생긴다(자동 설치가 막힌 PC).
+  // 그때 "설치하세요"라고만 하고 끝내면, 사용자는 설치를 마치고 돌아와서
+  // 아무 버튼도 반응하지 않는 화면을 보게 된다. 폴링이 Ollama를 발견하는
+  // 순간 여기서 이어 간다.
+  useEffect(() => {
+    if (!waitingForOllama || busy) return;
+    if (!status?.ollama.running) return;
+
+    setWaitingForOllama(false);
+    void runFullSetup();
+  }, [waitingForOllama, busy, status?.ollama.running, runFullSetup]);
 
   // Ollama가 PC에 아예 없으면 버튼을 기다리지 않고 바로 설치를 시작한다.
   // "설치 파일 하나 받아 실행하면 나머지는 알아서"가 이 앱의 약속이다.
@@ -187,11 +235,13 @@ export default function SetupGate({ children }: Props) {
 
   const actionLabel = runtimeBroken
     ? 'Ollama 다시 설치하고 이어서 준비하기'
-    : !status?.ollama.running
-      ? 'Ollama부터 설치하고 이어서 준비하기'
-      : pendingGb > 0
-        ? `한 번에 모두 설치 (약 ${pendingGb.toFixed(1)}GB)`
-        : '준비 다시 하기';
+    : waitingForOllama
+      ? 'Ollama 설치를 마쳤다면 눌러서 계속하기'
+      : !status?.ollama.running
+        ? 'Ollama부터 설치하고 이어서 준비하기'
+        : pendingGb > 0
+          ? `한 번에 모두 설치 (약 ${pendingGb.toFixed(1)}GB)`
+          : '준비 다시 하기';
 
   return (
     <div className="flex h-screen items-center justify-center overflow-y-auto bg-[#F8F9FA] dark:bg-[#0d0d13] p-8">
@@ -225,7 +275,9 @@ export default function SetupGate({ children }: Props) {
                     ? `실행 중${status.ollama.version ? ` (v${status.ollama.version})` : ''}`
                     : status.ollama.binary_found
                       ? '설치돼 있지만 실행되지 않았습니다.'
-                      : '설치가 필요합니다.'
+                      : waitingForOllama
+                        ? 'Ollama 설치를 기다리는 중입니다. 설치를 마치면 자동으로 이어집니다.'
+                        : '설치가 필요합니다.'
             }
           />
           <Step
@@ -347,6 +399,30 @@ export default function SetupGate({ children }: Props) {
           <ProgressBar label="Ollama 설치본" percent={installPercent} />
         )}
 
+        {/* 사용자가 Ollama를 직접 설치하는 중. 여기가 비어 있으면 "멈췄나?"가 된다. */}
+        {waitingForOllama && !download?.running && (
+          <div className="mt-6 rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-500/10 px-3 py-3">
+            <div className="flex items-center gap-2 text-[12px] font-bold text-indigo-700 dark:text-indigo-300">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+              Ollama 설치를 기다리는 중입니다
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-indigo-700/80 dark:text-indigo-300/80">
+              열린 설치 창에서 Ollama 설치를 마쳐 주세요.
+              <strong className="font-bold"> 설치가 끝나면 모델 다운로드가 자동으로 시작됩니다.</strong>
+              {' '}이 화면을 닫지 마세요. 설치를 이미 마쳤는데도 몇 분째 그대로라면
+              아래 버튼을 눌러 주세요.
+            </p>
+          </div>
+        )}
+
+        {/* 백엔드가 죽으면 화면은 멀쩡해 보이는 채로 굳는다. 반드시 말해 준다. */}
+        {backendUnreachable && (
+          <div className="mt-4 rounded-lg bg-red-50 dark:bg-red-500/15 px-3 py-2 text-[11px] leading-relaxed text-red-600">
+            AI 엔진(백엔드)이 응답하지 않습니다. 화면에 보이는 정보가 최신이 아닐 수
+            있습니다. 앱을 껐다 다시 열어 주세요.
+          </div>
+        )}
+
         {/* 모델 다운로드 진행 바 */}
         {download?.running && (
           <>
@@ -383,10 +459,12 @@ export default function SetupGate({ children }: Props) {
             </button>
           )}
 
+          {/* 이 버튼은 절대로 비활성화하지 않는다. 다른 것이 다 막혔을 때
+              사용자에게 남는 유일한 손잡이다 — 예전에는 busy가 걸리면 이것까지
+              같이 잠겨서, 화면이 통째로 반응하지 않는 것처럼 보였다. */}
           <button
             onClick={() => void refresh()}
-            disabled={busy}
-            className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-[12px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-[12px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
           >
             다시 확인
           </button>
