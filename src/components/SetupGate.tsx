@@ -8,21 +8,19 @@ import {
 import { onOpenSetupScreen } from '../setupWindow';
 
 /**
- * 첫 실행 준비 화면 (5주차 배포본, 6주차 개편).
+ * 첫 실행 준비 화면 (5주차 배포본, 6주차 전면 개편).
  *
- * 설치 파일을 받아 실행한 사용자는 터미널을 열지 않는다. 예전에 명령어로
- * 하던 두 가지 — Ollama 설치와 모델 다운로드 — 를 이 화면이 대신한다.
+ * 원칙 하나로 정리된다: **처음 사용자는 이 앱의 구조를 모른다.**
  *
- * 6주차 개편의 이유는 남의 PC에서 본 화면 하나다. Ollama는 떠 있는데(v0.32.5)
- * 모델 실행 파일이 빠져 있어 무엇을 눌러도 아무 일이 없었고, 화면이 사용자에게
- * 준 것은 "ollama.com에서 직접 받으세요"라는 안내뿐이었다. 그래서 바꾼 것:
- *
- *   - 흐름을 **하나로** 합쳤다. Ollama 설치 → (깨졌으면) 재설치 →
- *     모델 다운로드까지 끝까지 이어서 한다.
- *   - 준비가 안 된 채 앱이 뜨면 그 흐름이 **버튼 없이 자동으로** 시작된다.
- *     버튼은 자동 시도가 실패했을 때의 재시도 수단이다.
- *   - 실패해도 링크를 띄우고 끝내지 않는다. 다시 시도할 수 있는 버튼이 남는다.
- *   - 준비가 끝난 뒤에도 설정에서 이 화면을 다시 열 수 있다.
+ *   - 사용자가 누를 버튼이 없다. 준비가 안 된 채 앱이 뜨면 전 과정(실행 환경
+ *     설치 → 모델 다운로드 → 동작 확인)이 알아서 순서대로 돈다. 화면은
+ *     단계 목록(진행 중인 단계는 스피너)과 진행 바만 보여 준다.
+ *   - 버튼은 실패했을 때의 [다시 시도] 하나뿐이다.
+ *   - 내부 구성 요소의 이름(Ollama 같은 것)을 화면에 쓰지 않는다. 어떤 스택을
+ *     썼는지는 사용자가 알 필요 없는 정보다. 화면에는 "무엇을 하고 있는지"만
+ *     사용자의 말로 적는다.
+ *   - 모델 선택 카드는 설정에서 이 화면을 다시 열었을 때만 보인다. 첫 설치는
+ *     PC 사양에 맞는 구성이 자동으로 선택된다.
  */
 
 type Props = { children: ReactNode };
@@ -43,11 +41,12 @@ export default function SetupGate({ children }: Props) {
   // 준비 없이 화면만 둘러보는 통로. 팀원의 UI 작업과 데모용 —
   // 이 상태에서는 실제 검색·추천이 503으로 실패한다.
   const [bypassed, setBypassed] = useState(false);
-  // 설정에서 "AI 준비 다시 하기"로 연 경우. 준비가 끝나 있어도 화면을 유지한다.
+  // 설정에서 "AI 준비 다시 하기"로 연 경우. 준비가 끝나 있어도 화면을 유지하고,
+  // 이때만 모델 선택 카드와 수동 버튼이 보인다.
   const [forced, setForced] = useState(false);
-  // 사용자가 Ollama를 **직접** 설치하는 중. 자동 설치가 막혀 다운로드 페이지를
-  // 열었을 때 켜진다. Ollama가 올라오면 아래 효과가 알아서 다음 단계로 잇는다.
-  const [waitingForOllama, setWaitingForOllama] = useState(false);
+  // 실행 환경(모델 실행기)이 올라오기를 기다리는 중. 자동 설치가 창을 띄웠거나
+  // 서비스가 아직 안 뜬 상태다. 올라오는 순간 아래 효과가 다음 단계로 잇는다.
+  const [waitingForRuntime, setWaitingForRuntime] = useState(false);
   // 백엔드(server.exe)가 죽어 상태를 못 읽는 상태.
   const [backendUnreachable, setBackendUnreachable] = useState(false);
 
@@ -76,6 +75,11 @@ export default function SetupGate({ children }: Props) {
     setError('');
   }), []);
 
+  // 백엔드가 아직 뜨는 중인지 폴링 실패 판정에서 알아야 한다. state를 그대로
+  // 읽으면 콜백이 옛 값을 붙잡으므로 ref로 비춰 둔다.
+  const backendUp = useRef(false);
+  backendUp.current = backend.status === 'ready' || backend.status === 'external';
+
   const missedPolls = useRef(0);
   const refresh = useCallback(async () => {
     const next = await getSetupStatus();
@@ -85,9 +89,11 @@ export default function SetupGate({ children }: Props) {
       setStatus(next);
       // 첫 진입에서는 이 PC에 권장되는 모델을 미리 골라 둔다.
       setChosenModel((current) => current || next.recommendation.generate_model);
-    } else {
-      // 한 번 놓친 것은 흔한 일이다. 연달아 놓치면 백엔드가 죽은 것이고,
-      // 그때는 화면이 멀쩡해 보이는 채로 굳으므로 반드시 말해 줘야 한다.
+    } else if (backendUp.current) {
+      // 백엔드가 떠 있다고 했는데 연달아 응답이 없으면 죽은 것이다. 그때는
+      // 화면이 멀쩡해 보이는 채로 굳으므로 반드시 말해 줘야 한다.
+      // (아직 시작 중일 때의 무응답은 정상이라 세지 않는다 — 새 PC에서
+      //  server.exe 첫 기동은 몇 초 이상 걸리고, 그걸 오류로 띄우면 오탐이다.)
       missedPolls.current += 1;
       if (missedPolls.current >= 3) setBackendUnreachable(true);
     }
@@ -105,10 +111,8 @@ export default function SetupGate({ children }: Props) {
   }, [refresh, status?.ready, status?.download.running, forced]);
 
   /**
-   * 버튼 하나로 끝까지 — Ollama 설치 → 깨졌으면 재설치 → 모델 전부 받기.
-   *
-   * 예전에는 이 셋이 각각 다른 버튼이었고, 어느 단계에서 막혔는지 사용자가
-   * 스스로 판단해야 했다. 그럴 수 있는 사용자였다면 애초에 터미널을 열었을 것이다.
+   * 전 과정을 순서대로 — 실행 환경 설치 → 깨졌으면 재설치 → 모델 전부 받기.
+   * 사용자가 부르는 것이 아니라 앱이 스스로 부른다. 버튼은 실패 후 재시도용이다.
    */
   const runFullSetup = useCallback(async () => {
     setError('');
@@ -117,22 +121,19 @@ export default function SetupGate({ children }: Props) {
     try {
       // refresh()는 백엔드가 잠깐 응답을 안 하면 null을 준다. 그걸 그대로
       // 받아 넣으면 이후 `current?.…`가 전부 거짓이 되어, 오류도 진행도 없이
-      // 조용히 끝난다. 예전에 "이미 실행 중입니다"만 뜨고 멈춘 원인이다.
+      // 조용히 끝난다. 실제로 그렇게 굳은 화면을 배포에서 겪었다.
       let current = status ?? (await refresh());
 
-      // 1) Ollama가 아예 없거나 꺼져 있으면 설치부터.
+      // 1) 실행 환경이 아예 없거나 꺼져 있으면 설치부터.
       if (window.api?.installOllama && !current?.ollama.running) {
         const result = await window.api.installOllama();
         setInstallNote(result.detail);
         current = (await refresh()) ?? current;
 
-        // 여기서 Ollama가 아직 안 보이는 경우가 둘이다.
-        //   - 자동 설치가 막혀 다운로드 페이지를 열었고, 사용자가 지금 직접 깔고 있다
-        //   - 설치는 끝났지만 서비스가 아직 안 올라왔다
-        // 둘 다 "기다리면 되는" 상태다. 예전에는 여기서 그냥 함수가 끝나서,
-        // 사용자가 설치를 마쳐도 아무 일도 일어나지 않았다.
+        // 아직 안 보이면 기다린다 — 설치 창이 떠 있거나 서비스가 뜨는 중이다.
+        // 폴링이 발견하는 순간 아래 효과가 다음 단계로 잇는다.
         if (!current?.ollama.running) {
-          setWaitingForOllama(true);
+          setWaitingForRuntime(true);
           return;
         }
       }
@@ -142,7 +143,7 @@ export default function SetupGate({ children }: Props) {
       const broken = current?.embed?.kind === 'runtime'
         || current?.download.error_kind === 'runtime';
       if (window.api?.installOllama && broken) {
-        setInstallNote('Ollama 설치가 손상돼 다시 설치합니다…');
+        setInstallNote('실행 환경이 손상돼 다시 설치합니다…');
         const result = await window.api.installOllama({ repair: true });
         setInstallNote(result.detail);
         current = (await refresh()) ?? current;
@@ -160,9 +161,9 @@ export default function SetupGate({ children }: Props) {
 
       // 여기까지 왔다는 것은 아무 일도 못 했다는 뜻이다. 말없이 끝내지 않는다.
       if (!current) {
-        setError('AI 엔진(백엔드)에 연결할 수 없습니다. 앱을 껐다 다시 열어 주세요.');
+        setError('앱 내부 구성 요소에 연결할 수 없습니다. 앱을 껐다 다시 열어 주세요.');
       } else {
-        setWaitingForOllama(true);
+        setWaitingForRuntime(true);
       }
     } catch (exception) {
       setError((exception as Error).message);
@@ -171,28 +172,21 @@ export default function SetupGate({ children }: Props) {
     }
   }, [status, chosenModel, refresh]);
 
-  // Ollama가 올라오면 기다리던 준비를 이어서 한다.
-  //
-  // 사용자가 Ollama를 직접 설치하는 경우가 실제로 생긴다(자동 설치가 막힌 PC).
-  // 그때 "설치하세요"라고만 하고 끝내면, 사용자는 설치를 마치고 돌아와서
-  // 아무 버튼도 반응하지 않는 화면을 보게 된다. 폴링이 Ollama를 발견하는
-  // 순간 여기서 이어 간다.
+  // 실행 환경이 올라오면 기다리던 준비를 이어서 한다. 어떤 경로로 설치됐든
+  // (무인 설치·무설치본·사용자 직접) 폴링이 발견하는 순간 다음 단계로 넘어간다.
   useEffect(() => {
-    if (!waitingForOllama || busy) return;
+    if (!waitingForRuntime || busy) return;
     if (!status?.ollama.running) return;
 
-    setWaitingForOllama(false);
+    setWaitingForRuntime(false);
     void runFullSetup();
-  }, [waitingForOllama, busy, status?.ollama.running, runFullSetup]);
+  }, [waitingForRuntime, busy, status?.ollama.running, runFullSetup]);
 
-  // 준비가 안 된 채 앱이 뜨면 **버튼을 기다리지 않고** 전 과정을 바로 시작한다 —
-  // Ollama 설치부터 모델 다운로드까지. "설치 파일 하나 받아 실행하면 나머지는
-  // 알아서"가 이 앱의 약속이다. 예전에는 Ollama가 아예 없을 때만 자동이었고
-  // 모델 다운로드는 파란 버튼을 눌러야 시작됐는데, 새 PC 사용자는 그 버튼을
-  // 눌러야 하는지조차 모른 채 멈춘 화면을 봤다.
+  // 준비가 안 된 채 앱이 뜨면 **버튼 없이** 전 과정을 바로 시작한다.
+  // "설치 파일 하나 받아 실행하면 나머지는 알아서"가 이 앱의 약속이다.
   //
   // 실행당 한 번만 자동 시도한다. 실패가 반복되는 PC에서 무한히 재시도하며
-  // 트래픽을 태우지 않기 위해서다 — 그 뒤로는 화면의 버튼이 같은 일을 한다.
+  // 트래픽을 태우지 않기 위해서다 — 그 뒤로는 [다시 시도]가 같은 일을 한다.
   const autoSetupTried = useRef(false);
   useEffect(() => {
     if (autoSetupTried.current || busy || forced) return;
@@ -222,10 +216,10 @@ export default function SetupGate({ children }: Props) {
 
   const download = status?.download;
   const installing = busy && installPercent > 0 && installPercent < 100;
-  // Ollama가 모델을 못 돌리는 상태. 모델을 더 받는 것으로는 해결되지 않는다.
+  // 실행 환경이 모델을 못 돌리는 상태. 모델을 더 받는 것으로는 해결되지 않는다.
   const runtimeBroken = status?.embed?.kind === 'runtime'
     || download?.error_kind === 'runtime';
-  // 모델은 다 받았는데 검색 모델이 안 도는 상태.
+  // 모델은 다 받았는데 검색이 안 도는 상태.
   const embedBlocked = Boolean(
     status?.ollama.running && status.missing_required.length === 0 && !status.embed?.usable,
   );
@@ -241,88 +235,89 @@ export default function SetupGate({ children }: Props) {
     .filter((model) => pendingNames.has(model.name))
     .reduce((sum, model) => sum + model.approx_gb, 0);
 
-  const actionLabel = runtimeBroken
-    ? 'Ollama 다시 설치하고 이어서 준비하기'
-    : waitingForOllama
-      ? 'Ollama 설치를 마쳤다면 눌러서 계속하기'
-      : !status?.ollama.running
-        ? 'Ollama부터 설치하고 이어서 준비하기'
-        : pendingGb > 0
-          ? `한 번에 모두 설치 (약 ${pendingGb.toFixed(1)}GB)`
-          : '준비 다시 하기';
+  // 단계별 완료 여부. 진행 중인 단계 하나에 스피너를 돌린다.
+  const stepDone = [
+    backend.status === 'ready' || backend.status === 'external',
+    (status?.ollama.running ?? false) && !runtimeBroken,
+    (status?.missing_required.length ?? 1) === 0,
+    status?.embed?.usable ?? false,
+  ];
+  const working = busy || Boolean(download?.running) || waitingForRuntime || status === null;
+  const activeStep = working ? stepDone.findIndex((done) => !done) : -1;
+
+  // 실패해서 사람 손이 필요한 상태에만 버튼을 보여 준다.
+  const failed = Boolean(error || download?.error) || backend.status === 'failed';
 
   return (
     <div className="flex h-screen items-center justify-center overflow-y-auto bg-[#F8F9FA] dark:bg-[#0d0d13] p-8">
       <div className="my-auto w-[34rem] rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#16161e] p-8 shadow-sm">
         <div className="text-lg font-bold text-gray-800 dark:text-gray-100">LocalFile AI 준비</div>
         <p className="mt-1 text-[12px] leading-relaxed text-gray-500 dark:text-gray-400">
-          처음 한 번만 필요한 과정이고, 필요한 것은 앱이 알아서 설치합니다 —
-          그냥 기다리시면 됩니다. 모든 처리는 이 PC 안에서만 이뤄지며,
-          문서 내용이 밖으로 나가지 않습니다.
+          처음 한 번만 필요한 과정이고, 전부 자동으로 진행됩니다 — 그냥
+          기다리시면 됩니다. 모든 처리는 이 PC 안에서만 이뤄지며, 문서 내용이
+          밖으로 나가지 않습니다.
         </p>
 
         <div className="mt-6 space-y-3">
           <Step
-            label="AI 엔진 시작"
-            done={backend.status === 'ready' || backend.status === 'external'}
+            label="앱 시작"
+            done={stepDone[0]}
+            active={activeStep === 0}
             failed={backend.status === 'failed'}
-            detail={backend.status === 'failed' ? backend.detail : backend.detail || ''}
+            detail={backend.detail}
           />
           <Step
-            label="Ollama (모델 실행기)"
-            done={(status?.ollama.running ?? false) && !runtimeBroken}
+            label="문서 분석 도구 준비"
+            done={stepDone[1]}
+            active={activeStep === 1}
             failed={runtimeBroken}
             detail={
               status === null
-                ? '확인 중…'
+                ? ''
                 : runtimeBroken
                   // 떠 있는 것과 멀쩡한 것은 다르다. 실행 파일이 빠진 설치가 실제로 있었다.
-                  ? `실행 중이지만 모델을 돌리지 못합니다${
-                      status.ollama.version ? ` (v${status.ollama.version})` : ''
-                    } — 설치가 손상됐습니다. 아래 버튼으로 다시 설치합니다.`
+                  ? '설치가 손상돼 있어 자동으로 다시 설치합니다.'
                   : status.ollama.running
-                    ? `실행 중${status.ollama.version ? ` (v${status.ollama.version})` : ''}`
-                    : status.ollama.binary_found
-                      ? '설치돼 있지만 실행되지 않았습니다.'
-                      : waitingForOllama
-                        ? 'Ollama 설치를 기다리는 중입니다. 설치를 마치면 자동으로 이어집니다.'
-                        : '설치가 필요합니다.'
+                    ? '준비 완료'
+                    : waitingForRuntime || busy
+                      ? '문서를 분석하는 데 필요한 도구를 설치하는 중입니다…'
+                      : '자동으로 설치합니다.'
             }
           />
           <Step
-            label="AI 모델"
-            done={(status?.missing_required.length ?? 1) === 0}
+            label="AI 모델 내려받기"
+            done={stepDone[2]}
+            active={activeStep === 2}
             detail={
               status === null
-                ? '확인 중…'
+                ? ''
                 : status.missing_required.length === 0
-                  ? pendingGb > 0
-                    ? `필수 모델은 준비 완료 (추가로 약 ${pendingGb.toFixed(1)}GB 더 받습니다)`
-                    : '준비 완료'
-                  : `${status.missing_required.length}개 필요 (약 ${pendingGb.toFixed(1)}GB)`
+                  ? '준비 완료'
+                  : `문서를 이해하는 모델 ${status.missing_required.length}개를 받습니다 (약 ${pendingGb.toFixed(1)}GB)`
             }
           />
-          {/* 모델을 받았다고 그 PC에서 도는 것은 아니다.
-              실제로 한 건 임베딩해 보고 그 결과를 여기 보여 준다 — 예전에는
-              이 확인이 없어서, 검색이 죽은 상태로 준비 완료를 통과했다. */}
+          {/* 모델을 받았다고 그 PC에서 도는 것은 아니다. 실제로 한 건 처리해
+              보고 그 결과를 보여 준다 — 이 확인이 없던 시절, 검색이 죽은 채로
+              준비 완료를 통과한 PC가 실제로 있었다. */}
           <Step
-            label="검색 모델 동작 확인"
-            done={status?.embed?.usable ?? false}
+            label="검색 기능 확인"
+            done={stepDone[3]}
+            active={activeStep === 3}
             failed={Boolean(status?.embed && !status.embed.usable && status.embed.detail)}
             detail={
               status === null
-                ? '확인 중…'
+                ? ''
                 : embedBlocked
                   ? status.embed.detail
                   : status.embed?.usable
-                    ? `${status.active_embed_model ?? status.embed.model} 정상`
-                    : '모델을 받은 뒤 확인합니다.'
+                    ? '정상 동작합니다'
+                    : '모델을 받은 뒤 실제로 검색해 봅니다.'
             }
           />
         </div>
 
-        {/* 모델 선택 — 어떤 것을 왜 권하는지 보여 주고 사용자가 고른다 */}
-        {status && !download?.running && (
+        {/* 모델 선택 — 설정에서 다시 열었을 때만. 첫 설치는 사양에 맞춰 자동이다. */}
+        {forced && status && !download?.running && (
           <div className="mt-6">
             <div className="flex items-baseline justify-between">
               <div className="text-[12px] font-bold text-gray-700 dark:text-gray-200">파일명 추천 모델</div>
@@ -396,52 +391,46 @@ export default function SetupGate({ children }: Props) {
             {embedModel && (
               <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
                 {embedModel.present
-                  ? `검색·분류 엔진(${embedModel.approx_gb}GB)은 준비돼 있습니다.`
-                  : `검색·분류 엔진(${embedModel.approx_gb}GB)은 선택과 무관하게 함께 받습니다.`}
+                  ? `검색·분류 모델(${embedModel.approx_gb}GB)은 준비돼 있습니다.`
+                  : `검색·분류 모델(${embedModel.approx_gb}GB)은 선택과 무관하게 함께 받습니다.`}
               </p>
             )}
           </div>
         )}
 
-        {/* Ollama 설치본 내려받기 진행 바 — 700MB 남짓이라 그냥 두면 멈춘 줄 안다 */}
+        {/* 버튼 자리에는 진행 상황이 온다. 순서대로: 설치 파일 내려받기(측정 가능)
+            → 모델 다운로드(측정 가능) → 그 밖의 작업(측정 불가, 흐르는 바). */}
         {installing && (
-          <ProgressBar label="Ollama 설치본" percent={installPercent} />
+          <ProgressBar label="설치 파일 내려받는 중" percent={installPercent} />
         )}
 
-        {/* 사용자가 Ollama를 직접 설치하는 중. 여기가 비어 있으면 "멈췄나?"가 된다. */}
-        {waitingForOllama && !download?.running && (
-          <div className="mt-6 rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-500/10 px-3 py-3">
-            <div className="flex items-center gap-2 text-[12px] font-bold text-indigo-700 dark:text-indigo-300">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-              AI 엔진 실행기가 준비되기를 기다리는 중입니다
-            </div>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-indigo-700/80 dark:text-indigo-300/80">
-              설치 창이 열려 있다면 그 창에서 설치를 마쳐 주세요.
-              <strong className="font-bold"> 준비가 확인되는 즉시 모델 다운로드가 자동으로 시작됩니다.</strong>
-              {' '}이 화면을 닫지 마세요. 몇 분째 그대로라면 아래 버튼으로 다시 시도해 주세요.
+        {download?.running && (
+          <>
+            <ProgressBar label="AI 모델 내려받는 중" percent={download.overall} />
+            <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+              네트워크 속도에 따라 몇 분에서 수십 분이 걸립니다. 창을 닫지 마세요.
             </p>
-          </div>
+          </>
+        )}
+
+        {!installing && !download?.running && !failed && (working || !status) && (
+          <IndeterminateBar
+            label={
+              status === null
+                ? '준비 상황을 확인하는 중입니다…'
+                : waitingForRuntime
+                  ? '문서 분석 도구가 준비되기를 기다리는 중입니다… (끝나면 자동으로 이어집니다)'
+                  : '준비를 진행하는 중입니다…'
+            }
+          />
         )}
 
         {/* 백엔드가 죽으면 화면은 멀쩡해 보이는 채로 굳는다. 반드시 말해 준다. */}
         {backendUnreachable && (
           <div className="mt-4 rounded-lg bg-red-50 dark:bg-red-500/15 px-3 py-2 text-[11px] leading-relaxed text-red-600">
-            AI 엔진(백엔드)이 응답하지 않습니다. 화면에 보이는 정보가 최신이 아닐 수
+            앱 내부 연결이 끊어졌습니다. 화면에 보이는 정보가 최신이 아닐 수
             있습니다. 앱을 껐다 다시 열어 주세요.
           </div>
-        )}
-
-        {/* 모델 다운로드 진행 바 */}
-        {download?.running && (
-          <>
-            <ProgressBar
-              label={`${download.model} — ${download.phase}`}
-              percent={download.overall}
-            />
-            <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-              네트워크 속도에 따라 몇 분에서 수십 분이 걸립니다. 창을 닫지 마세요.
-            </p>
-          </>
         )}
 
         {(installNote || error || download?.error) && (
@@ -456,27 +445,24 @@ export default function SetupGate({ children }: Props) {
           </div>
         )}
 
-        <div className="mt-6 flex gap-2">
-          {!download?.running && (
+        {/* 버튼은 사람 손이 필요할 때만 나온다 — 실패했거나, 설정에서 수동으로 연 경우. */}
+        {((failed && !busy) || forced) && !download?.running && (
+          <div className="mt-6 flex gap-2">
             <button
               onClick={() => void runFullSetup()}
               disabled={busy}
               className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-[12px] font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {busy ? '준비하는 중…' : actionLabel}
+              {busy
+                ? '준비하는 중…'
+                : forced && !failed
+                  ? pendingGb > 0
+                    ? `선택한 구성으로 받기 (약 ${pendingGb.toFixed(1)}GB)`
+                    : '준비 다시 하기'
+                  : '다시 시도'}
             </button>
-          )}
-
-          {/* 이 버튼은 절대로 비활성화하지 않는다. 다른 것이 다 막혔을 때
-              사용자에게 남는 유일한 손잡이다 — 예전에는 busy가 걸리면 이것까지
-              같이 잠겨서, 화면이 통째로 반응하지 않는 것처럼 보였다. */}
-          <button
-            onClick={() => void refresh()}
-            className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-[12px] font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
-          >
-            다시 확인
-          </button>
-        </div>
+          </div>
+        )}
 
         {!download?.running && (
           <button
@@ -510,31 +496,53 @@ function ProgressBar({ label, percent }: { label: string; percent: number }) {
   );
 }
 
+/** 진행률을 잴 수 없는 작업용 — 멈춘 게 아니라는 것만 보여 주면 된다. */
+function IndeterminateBar({ label }: { label: string }) {
+  return (
+    <div className="mt-6">
+      <div className="text-[11px] text-gray-500 dark:text-gray-400">{label}</div>
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
+        <div className="h-full w-1/3 animate-[slide_1.2s_ease-in-out_infinite] rounded-full bg-indigo-400" />
+      </div>
+      {/* tailwind 설정을 건드리지 않고 keyframes를 정의한다 */}
+      <style>{`@keyframes slide { 0% { margin-left: -33%; } 100% { margin-left: 100%; } }`}</style>
+    </div>
+  );
+}
+
 function Step({
   label,
   done,
+  active = false,
   failed = false,
   detail,
 }: {
   label: string;
   done: boolean;
+  /** 지금 이 단계를 진행하는 중 — 왼쪽 동그라미가 돈다 */
+  active?: boolean;
   failed?: boolean;
   detail: string;
 }) {
-  const mark = failed ? '✕' : done ? '✓' : '…';
-  const tone = failed
-    ? 'bg-red-100 text-red-600'
-    : done
-      ? 'bg-green-100 text-green-600'
-      : 'bg-gray-100 text-gray-400';
-
   return (
     <div className="flex items-start gap-3">
-      <div
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${tone}`}
-      >
-        {mark}
-      </div>
+      {failed ? (
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-[11px] font-bold text-red-600">
+          ✕
+        </div>
+      ) : done ? (
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-[11px] font-bold text-green-600">
+          ✓
+        </div>
+      ) : active ? (
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+        </div>
+      ) : (
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+          <span className="h-2 w-2 rounded-full bg-gray-300 dark:bg-gray-600" />
+        </div>
+      )}
       <div className="min-w-0">
         <div className="text-[12px] font-bold text-gray-700 dark:text-gray-200">{label}</div>
         {detail && <div className="text-[11px] text-gray-500 dark:text-gray-400">{detail}</div>}

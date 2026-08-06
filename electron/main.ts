@@ -129,7 +129,7 @@ app.whenReady().then(() => {
   createWindow()
 
   // 창을 먼저 띄우고 백엔드를 붙인다 — 사용자는 검은 화면 대신
-  // "AI 엔진을 시작하는 중" 안내를 보게 된다.
+  // "앱을 시작하는 중" 안내를 보게 된다.
   void startBackend()
 
   // 무설치 Ollama로 준비된 PC에서는 시스템 서비스가 없다.

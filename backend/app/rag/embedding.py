@@ -113,14 +113,14 @@ def _describe_error(response: requests.Response, model: str) -> tuple[str, str]:
     kind = classify(detail)
     if kind == FAILURE_MEMORY:
         return (f"이 PC의 메모리가 부족해 검색 모델({model})을 올리지 못했습니다. "
-                f"다른 프로그램을 닫고 다시 시도해 주세요. (Ollama: {detail})"), kind
+                f"다른 프로그램을 닫고 다시 시도해 주세요. (원문: {detail})"), kind
     if kind == FAILURE_RUNTIME:
-        return (f"Ollama가 이 PC에서 모델을 실행하지 못합니다 — 설치가 손상됐거나 "
-                f"버전이 낡았습니다. 앱이 Ollama를 다시 설치하면 해결됩니다. "
-                f"(Ollama: {detail})"), kind
+        return (f"문서 분석 도구가 이 PC에서 동작하지 않습니다 — 설치가 손상됐거나 "
+                f"버전이 낡았습니다. 앱이 자동으로 다시 설치합니다. "
+                f"(원문: {detail})"), kind
     if kind == FAILURE_MISSING:
         return (f"검색 모델({model})이 설치되어 있지 않습니다. "
-                f"설정에서 모델을 다시 받아 주세요. (Ollama: {detail})"), kind
+                f"설정에서 모델을 다시 받아 주세요. (원문: {detail})"), kind
     return (f"검색 모델({model})로 문서를 읽지 못했습니다 "
             f"(HTTP {response.status_code}: {detail or '이유 없음'})"), kind
 
@@ -140,7 +140,7 @@ def _embed(model: str, inputs: list[str], timeout: int) -> list[list[float]]:
         )
     except requests.exceptions.RequestException as exc:
         raise EmbeddingUnavailable(
-            f"Ollama 서버에 연결할 수 없습니다 ({OLLAMA_BASE_URL}): {exc}",
+            f"문서 분석 도구에 연결할 수 없습니다: {exc}",
             FAILURE_OFFLINE) from exc
 
     # 오래된 Ollama에는 묶음 엔드포인트(/api/embed)가 없다. 한 건씩 도는
@@ -154,8 +154,8 @@ def _embed(model: str, inputs: list[str], timeout: int) -> list[list[float]]:
     vectors = (response.json() or {}).get("embeddings")
     if not vectors:
         raise EmbeddingUnavailable(
-            f"검색 모델({model})이 빈 응답을 돌려줬습니다. Ollama 설치가 손상됐거나 "
-            f"버전이 낡았을 수 있습니다 — 앱이 Ollama를 다시 설치하면 해결됩니다.",
+            f"검색 모델({model})이 빈 응답을 돌려줬습니다. 문서 분석 도구가 "
+            f"손상됐을 수 있습니다 — 앱이 자동으로 다시 설치합니다.",
             FAILURE_RUNTIME)
     return vectors
 
@@ -318,12 +318,12 @@ def check_ollama(model: str | None = None) -> tuple[bool, str]:
         response.raise_for_status()
     except requests.exceptions.RequestException:
         return False, (
-            f"Ollama 서버에 연결할 수 없습니다 ({OLLAMA_BASE_URL}). "
-            "`ollama serve` 로 서버를 띄우세요."
+            "문서 분석 도구가 실행되지 않았습니다. 앱을 껐다 다시 열면 "
+            "자동으로 시작됩니다."
         )
 
     installed = {m["name"].split(":")[0] for m in response.json().get("models", [])}
     if model.split(":")[0] not in installed:
-        return False, f"임베딩 모델이 없습니다: {model}. `ollama pull {model}` 로 받으세요."
+        return False, f"검색 모델({model})이 아직 설치되지 않았습니다. 설정에서 준비 화면을 열어 주세요."
 
     return True, ""

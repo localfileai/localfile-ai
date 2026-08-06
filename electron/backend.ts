@@ -101,7 +101,7 @@ export async function startBackend(): Promise<void> {
     return
   }
 
-  setState({ status: 'starting', detail: 'AI 엔진을 시작하는 중입니다…' })
+  setState({ status: 'starting', detail: '앱을 시작하는 중입니다…' })
 
   child = spawn(executable, [], {
     // 색인·작업 이력을 사용자 데이터 폴더에 저장하게 한다.
@@ -115,14 +115,14 @@ export async function startBackend(): Promise<void> {
   child.on('exit', (code) => {
     child = null
     if (state.status !== 'failed') {
-      setState({ status: 'failed', detail: `AI 엔진이 종료됐습니다 (코드 ${code}).` })
+      setState({ status: 'failed', detail: `앱 구성 요소가 예기치 않게 종료됐습니다 (코드 ${code}). 앱을 다시 실행해 주세요.` })
     }
   })
 
   if (await waitUntilReady()) {
     setState({ status: 'ready', detail: '' })
   } else {
-    setState({ status: 'failed', detail: 'AI 엔진이 응답하지 않습니다. 앱을 다시 실행해 주세요.' })
+    setState({ status: 'failed', detail: '앱 시작이 늦어지고 있습니다. 앱을 다시 실행해 주세요.' })
   }
 }
 

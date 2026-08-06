@@ -377,7 +377,7 @@ def _download_worker(names: list[str]) -> None:
         _verify_embed_model()
     except requests.exceptions.RequestException as exc:
         with _progress.lock:
-            _progress.error = f"Ollama에 연결할 수 없습니다: {exc}"
+            _progress.error = f"문서 분석 도구에 연결할 수 없습니다: {exc}"
             _progress.error_kind = "offline"
     except Exception as exc:
         with _progress.lock:
@@ -412,7 +412,7 @@ def start_download(include_full: bool = False, models: list[str] | None = None) 
     running, installed = _ollama_models()
     if not running:
         raise RuntimeError(
-            "Ollama가 실행 중이 아닙니다. Ollama를 설치·실행한 뒤 다시 시도하세요.")
+            "문서 분석 도구가 아직 실행되지 않았습니다. 잠시 뒤 다시 시도해 주세요.")
 
     catalog = {entry["name"]: entry for entry in MODEL_CATALOG}
     hardware = detect_hardware()

@@ -233,7 +233,7 @@ async function installPortable(
 ): Promise<boolean> {
   const zipPath = path.join(app.getPath('temp'), 'ollama-portable.zip')
   try {
-    await downloadFromAnySource([PORTABLE_ZIP_URL], zipPath, 'AI 엔진 실행기', onProgress)
+    await downloadFromAnySource([PORTABLE_ZIP_URL], zipPath, '문서 분석 도구', onProgress)
     onProgress({ phase: 'installing', percent: 100, detail: '실행기를 준비하는 중입니다… (1~2분)' })
     await extractPortableZip(zipPath)
     return await spawnPortableServe()
@@ -287,18 +287,18 @@ export async function installOllama(
 
   if (!options.repair) {
     if (await ollamaAlive()) {
-      return { phase: 'ready', percent: 100, detail: 'AI 엔진 실행기가 이미 준비돼 있습니다.' }
+      return { phase: 'ready', percent: 100, detail: '문서 분석 도구가 이미 준비돼 있습니다.' }
     }
     // 지난번에 무설치본으로 깔아 둔 PC — 받을 것 없이 띄우기만 하면 된다.
     if (await spawnPortableServe().catch(() => false)) {
-      return { phase: 'ready', percent: 100, detail: 'AI 엔진 실행기를 시작했습니다.' }
+      return { phase: 'ready', percent: 100, detail: '문서 분석 도구를 시작했습니다.' }
     }
   }
 
   // 1·2차: 공식 설치본 무인 설치 (ollama.com → GitHub 순서)
   const target = path.join(app.getPath('temp'), 'OllamaSetup.exe')
   try {
-    await downloadFromAnySource(INSTALLER_URLS, target, 'AI 엔진 실행기 설치본', onProgress)
+    await downloadFromAnySource(INSTALLER_URLS, target, '문서 분석 도구 설치 파일', onProgress)
 
     onProgress({
       phase: 'installing',
@@ -314,7 +314,7 @@ export async function installOllama(
     await unlink(target).catch(() => undefined)
 
     if (alive) {
-      return { phase: 'ready', percent: 100, detail: 'AI 엔진 실행기 준비가 끝났습니다.' }
+      return { phase: 'ready', percent: 100, detail: '문서 분석 도구 준비가 끝났습니다.' }
     }
     // 설치는 됐다는데 안 뜬다 — 무설치본으로 넘어가지 말고 여기서 알린다.
     // (같은 포트를 두 실행기가 다투는 상태를 만들 수 있다.)
@@ -334,7 +334,7 @@ export async function installOllama(
         detail: '설치본이 막혀 있어 무설치 버전으로 전환합니다…',
       })
       if (await installPortable(onProgress)) {
-        return { phase: 'ready', percent: 100, detail: 'AI 엔진 실행기 준비가 끝났습니다.' }
+        return { phase: 'ready', percent: 100, detail: '문서 분석 도구 준비가 끝났습니다.' }
       }
       return {
         phase: 'failed',
