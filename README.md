@@ -234,6 +234,25 @@ cd backend
 | `npm run dist:win` | **배포용 Setup.exe 생성** — 백엔드 exe + 프론트 + 설치본 (5주차) |
 | `npm run typecheck` · `lint` · `build` | 검사·빌드 |
 
+## 처음 상태로 되돌리기 (테스트용)
+
+첫 설치 흐름을 고친 뒤에는 "새 PC"가 필요하다. 내 PC를 새 PC처럼 만드는
+스크립트를 쓴다 (Windows).
+
+```powershell
+# 색인·설정만 초기화 (모델 유지 — 몇 초)
+powershell -ExecutionPolicy Bypass -File scripts\reset-windows.ps1 -Scope app
+
+# 모델만 전부 삭제 (Ollama 유지 — 모델 다운로드 단계부터 다시)
+powershell -ExecutionPolicy Bypass -File scripts\reset-windows.ps1 -Scope models
+
+# 진짜 새 PC 상태 (Ollama 제거 + 모델 + 앱 데이터 + 앱 제거)
+powershell -ExecutionPolicy Bypass -File scripts\reset-windows.ps1 -Scope all -RemoveApp
+```
+
+⚠️ `models`/`all`은 **이 PC의 Ollama 모델을 전부** 지운다 — 다른 프로젝트에서
+받아 둔 모델도 함께다. `ollama list`로 먼저 확인할 것.
+
 ## 알려진 문제
 
 | 문제 | 상태 |
