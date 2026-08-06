@@ -33,7 +33,12 @@ export default function SetupGate({ children }: Props) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [installNote, setInstallNote] = useState('');
   const [installPercent, setInstallPercent] = useState(0);
+  // 실행 환경 설치의 마지막 단계(phase). 'failed'면 실패다 — 실패 판정을
+  // 문자열 상태 하나에만 걸었다가, 실패 안내는 뜨는데 [다시 시도] 버튼은
+  // 없는 모순된 화면이 실제로 나왔다. 데이터로 판정한다.
+  const [installPhase, setInstallPhase] = useState('');
   const [error, setError] = useState('');
+  const [logPath, setLogPath] = useState('');
   const [busy, setBusy] = useState(false);
   // 사용자가 고른 파일명 추천 모델. 비어 있으면 아직 안 골랐다는 뜻이라
   // 상태를 읽은 뒤 추천 모델로 채운다.
@@ -65,6 +70,7 @@ export default function SetupGate({ children }: Props) {
     if (!window.api?.onOllamaProgress) return;
     return window.api.onOllamaProgress((progress) => {
       setInstallNote(progress.detail);
+      setInstallPhase(progress.phase);
       setInstallPercent(progress.phase === 'downloading' ? progress.percent : 100);
     });
   }, []);
@@ -121,6 +127,7 @@ export default function SetupGate({ children }: Props) {
    */
   const runFullSetup = useCallback(async () => {
     setError('');
+    setInstallPhase('');
     setInstallPercent(0);   // 지난 시도의 진행률이 남아 잘못 보이지 않게
     setBusy(true);
     try {
@@ -133,14 +140,12 @@ export default function SetupGate({ children }: Props) {
       if (window.api?.installOllama && !current?.ollama.running) {
         const result = await window.api.installOllama();
         setInstallNote(result.detail);
+        setInstallPhase(result.phase);
         current = (await refresh()) ?? current;
 
         if (!current?.ollama.running) {
-          // 설치가 실패로 끝났으면 반드시 실패로 보여 준다 — 예전에는 안내문이
-          // "[다시 시도]를 눌러 주세요"라면서 버튼은 없는 화면이 나왔다.
-          if (result.phase === 'failed') setError(result.detail);
           // 실패했든 기다리는 중이든, 실행 환경이 올라오는 순간 폴링이
-          // 발견해 자동으로 이어 간다.
+          // 발견해 자동으로 이어 간다. 실패 표시는 installPhase가 맡는다.
           setWaitingForRuntime(true);
           return;
         }
@@ -154,7 +159,7 @@ export default function SetupGate({ children }: Props) {
         setInstallNote('실행 환경이 손상돼 다시 설치합니다…');
         const result = await window.api.installOllama({ repair: true });
         setInstallNote(result.detail);
-        if (result.phase === 'failed') setError(result.detail);
+        setInstallPhase(result.phase);
         current = (await refresh()) ?? current;
       }
 
@@ -209,6 +214,13 @@ export default function SetupGate({ children }: Props) {
     void runFullSetup();
   }, [status, busy, forced, runFullSetup]);
 
+  // 실패했을 때 진단 기록 파일의 위치를 가져와 보여 준다.
+  useEffect(() => {
+    if (!logPath && window.api?.setupLogPath) {
+      window.api.setupLogPath().then(setLogPath).catch(() => undefined);
+    }
+  }, [logPath]);
+
   // 이미 받아 둔 모델끼리 갈아타는 경우 — 다운로드 없이 설정만 바꾼다.
   const handleSelect = async (model: string) => {
     setChosenModel(model);
@@ -258,7 +270,10 @@ export default function SetupGate({ children }: Props) {
 
   // 실패해서 사람 손이 필요한 상태에만 버튼을 보여 준다. 백엔드 실패 판정은
   // HTTP까지 침묵할 때만 믿는다 — 응답 중이면 그 판정이 낡은 것이다.
-  const failed = Boolean(error || download?.error)
+  // 설치 실패는 phase(데이터)로 판정한다. 그때의 안내문이 실패 사유다.
+  const failureText = error || download?.error
+    || (installPhase === 'failed' ? installNote : '');
+  const failed = Boolean(failureText)
     || (backend.status === 'failed' && !backendAlive);
 
   return (
@@ -446,15 +461,22 @@ export default function SetupGate({ children }: Props) {
           </div>
         )}
 
-        {(installNote || error || download?.error) && (
+        {(installNote || failureText) && (
           <div
             className={`mt-4 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${
-              error || download?.error
+              failureText
                 ? 'bg-red-50 dark:bg-red-500/15 text-red-600'
                 : 'bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300'
             }`}
           >
-            {error || download?.error || installNote}
+            {failureText || installNote}
+            {/* 실패했을 때는 진단 기록의 위치를 알려 준다 — 남의 PC의 문제는
+                이 파일 내용이 유일한 단서다. */}
+            {failureText && logPath && (
+              <div className="mt-1 text-[10px] text-red-400 dark:text-red-300/70">
+                자세한 기록: {logPath}
+              </div>
+            )}
           </div>
         )}
 

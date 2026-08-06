@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld('api', {
   // 모델 실행 파일이 빠져 있는 설치를 되돌리는 유일한 방법이다.
   installOllama: (options?: { repair?: boolean }) =>
     ipcRenderer.invoke('setup:installOllama', options),
+  // 준비 실패 시 화면에 보여 줄 진단 기록 파일 경로.
+  setupLogPath: (): Promise<string> => ipcRenderer.invoke('setup:logPath'),
   onOllamaProgress: (listener: (progress: unknown) => void) => {
     const handler = (_event: unknown, progress: unknown) => listener(progress)
     ipcRenderer.on('setup:ollamaProgress', handler)

@@ -11,6 +11,7 @@
 import { app } from 'electron'
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { slog } from './log'
 import path from 'node:path'
 
 export const BACKEND_ORIGIN = 'http://127.0.0.1:8000'
@@ -103,6 +104,7 @@ export async function startBackend(): Promise<void> {
 
   setState({ status: 'starting', detail: '앱을 시작하는 중입니다…' })
 
+  slog('backend spawn', executable)
   child = spawn(executable, [], {
     // 색인·작업 이력을 사용자 데이터 폴더에 저장하게 한다.
     // (Program Files 아래는 쓰기 권한이 없다 — backend/app/core/config.py 참고)
@@ -113,6 +115,7 @@ export async function startBackend(): Promise<void> {
 
   child.stderr?.on('data', (chunk) => console.log('[backend]', String(chunk).trimEnd()))
   child.on('error', (error) => {
+    slog('backend spawn error', error.message)
     child = null
     setState({
       status: 'failed',
@@ -120,6 +123,7 @@ export async function startBackend(): Promise<void> {
     })
   })
   child.on('exit', (code) => {
+    slog('backend exit', code)
     child = null
     if (state.status !== 'failed') {
       setState({ status: 'failed', detail: `앱 구성 요소가 예기치 않게 종료됐습니다 (코드 ${code}). 앱을 다시 실행해 주세요.` })
@@ -134,6 +138,7 @@ export async function startBackend(): Promise<void> {
   const startedAt = Date.now()
   while (child) {
     if (await ping()) {
+      slog('backend ready', `${Math.round((Date.now() - startedAt) / 1000)}s`)
       setState({ status: 'ready', detail: '' })
       return
     }

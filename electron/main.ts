@@ -12,6 +12,7 @@ import {
   startPortableOllamaIfPresent,
   stopPortableOllama,
 } from './ollama'
+import { setupLogPath } from './log'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -125,6 +126,9 @@ app.whenReady().then(() => {
       options ?? {},
     )
   })
+
+  // 준비가 실패했을 때 화면이 진단 기록 파일의 위치를 보여 줄 수 있게 한다.
+  ipcMain.handle('setup:logPath', () => setupLogPath())
 
   createWindow()
 

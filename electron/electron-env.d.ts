@@ -58,5 +58,7 @@ interface Window {
     installOllama: (options?: { repair?: boolean }) => Promise<OllamaInstallProgress>
     /** Ollama 설치 진행률 구독. 반환값을 호출하면 구독 해제 */
     onOllamaProgress: (listener: (progress: OllamaInstallProgress) => void) => () => void
+    /** 준비 실패 시 보여 줄 진단 기록 파일(setup.log) 경로 */
+    setupLogPath: () => Promise<string>
   }
 }
