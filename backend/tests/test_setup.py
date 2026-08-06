@@ -248,6 +248,55 @@ class TestEmbedModelMustActuallyRun:
         assert result["models"] == []  # 받을 것은 없고 확인·교체만 돈다
 
 
+class TestStatusRespondsFast:
+    """상태 조회는 어떤 PC에서도 빨리 끝나야 한다.
+
+    화면이 2초마다 이걸 물어서 준비를 진행한다. 실행기 포트의 연결을 방화벽이
+    조용히 버리는(drop) PC에서 확인 하나가 5초씩 걸리자, 조회 전체가 화면의
+    제한시간을 넘겨 **모든 질문이 답 직전에 끊기는** 무한 루프가 됐다 —
+    준비 화면이 영영 "확인하는 중"에 멈춘 실제 사고다.
+    """
+
+    def test_실행기_확인은_짧은_제한시간을_쓴다(self, monkeypatch):
+        captured = {}
+
+        def failing_get(url, timeout=None, **kwargs):
+            captured["timeout"] = timeout
+            raise provision.requests.exceptions.ConnectionError("연결 안 됨")
+
+        monkeypatch.setattr(provision.requests, "get", failing_get)
+        provision._ollama_models()
+
+        assert captured["timeout"] is not None and captured["timeout"] <= 2
+
+    def test_실행기가_죽어_있으면_버전을_묻지_않는다(self, monkeypatch):
+        # 안 오는 응답을 기다리는 시간만 쌓인다 — 죽어 있으면 건너뛴다.
+        from app.rag import embedding
+
+        ollama_down(monkeypatch)
+        asked = []
+        monkeypatch.setattr(embedding, "ollama_version",
+                            lambda: asked.append(1) or "0.0.0")
+
+        state = provision.status()
+
+        assert state["ollama"]["version"] == ""
+        assert asked == []
+
+    def test_사양_감지는_한_번만_실행된다(self, monkeypatch):
+        # nvidia-smi는 외부 프로세스라 매 조회마다 띄우면 그 자체가 지연이다.
+        from app.setup import hardware
+
+        monkeypatch.setattr(hardware, "_cached", None)
+        ran = []
+        monkeypatch.setattr(hardware, "_gpu", lambda: ran.append(1) or ("", 0.0))
+
+        hardware.detect()
+        hardware.detect()
+
+        assert len(ran) == 1
+
+
 class TestModelLicenses:
     """유료화를 검토하려면 어떤 모델을 상업적으로 써도 되는지가 코드에 남아야 한다.
 

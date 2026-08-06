@@ -196,7 +196,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
 def ollama_version() -> str:
     """설치된 Ollama 버전. 확인할 수 없으면 빈 문자열."""
     try:
-        response = _session.get(f"{OLLAMA_BASE_URL}/api/version", timeout=5)
+        response = _session.get(f"{OLLAMA_BASE_URL}/api/version", timeout=1.5)
         response.raise_for_status()
         return str((response.json() or {}).get("version", ""))
     except (requests.exceptions.RequestException, ValueError):
@@ -206,7 +206,7 @@ def ollama_version() -> str:
 def installed_models() -> set[str]:
     """설치된 모델 이름 집합. 태그 있는 이름과 없는 이름을 모두 담는다."""
     try:
-        response = _session.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        response = _session.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=1.5)
         response.raise_for_status()
     except (requests.exceptions.RequestException, ValueError):
         return set()
@@ -314,7 +314,7 @@ def check_ollama(model: str | None = None) -> tuple[bool, str]:
     """Ollama 서버와 모델이 준비됐는지 확인한다. (준비됨, 안내문)"""
     model = model or resolve_model()
     try:
-        response = _session.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        response = _session.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=1.5)
         response.raise_for_status()
     except requests.exceptions.RequestException:
         return False, (

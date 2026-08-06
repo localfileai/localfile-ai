@@ -153,7 +153,10 @@ _progress = _Progress()
 def _ollama_models() -> tuple[bool, set[str]]:
     """(Ollama 응답 여부, 설치된 모델 이름 집합)."""
     try:
-        response = requests.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=5)
+        # localhost 확인에 5초는 과하다. 방화벽이 이 포트의 연결을 조용히
+        # 버리는(drop) PC에서는 이 5초가 그대로 응답 지연이 되고, 상태 조회
+        # 전체가 화면의 제한시간을 넘겨 준비 화면이 영영 멈춘 것처럼 보였다.
+        response = requests.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=1.5)
         response.raise_for_status()
     except requests.exceptions.RequestException:
         return False, set()
@@ -252,7 +255,8 @@ def status() -> dict:
             "base_url": config.OLLAMA_BASE_URL,
             # 낡은 Ollama는 최신 모델을 받아도 실행하지 못한다 — 문의가 들어왔을 때
             # 제일 먼저 봐야 하는 값이라 상태에 넣어 둔다.
-            "version": embedding.ollama_version(),
+            # 죽어 있으면 묻지 않는다 — 안 오는 응답을 기다리는 시간만 쌓인다.
+            "version": embedding.ollama_version() if running else "",
         },
         "hardware": {**hardware, "summary": hardware_summary(hardware)},
         "recommendation": {

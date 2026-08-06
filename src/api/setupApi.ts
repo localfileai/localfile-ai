@@ -103,8 +103,13 @@ export const getSetupStatus = async (): Promise<SetupStatus | null> => {
     // 시간 제한이 없으면 요청 하나가 매달렸을 때 이걸 기다리는 흐름
     // (준비 자동 진행)이 통째로 굳는다 — 실패 화면에 버튼이 안 나타나던
     // 원인 후보였다. 못 받으면 null로 끝내고 다음 폴링이 다시 묻는다.
+    //
+    // 제한은 백엔드의 최악 응답 시간보다 길어야 한다. 8초로 잡았다가 백엔드
+    // 최악(옛 구조에서 15초)이 더 길어서 모든 질문이 답 직전에 끊기는 사고가
+    // 났다. 지금은 백엔드 쪽 확인들을 1.5초 제한으로 줄여 최악 ~4초고,
+    // 여기는 그 4배 여유를 둔다.
     const response = await fetch(`${BASE_URL}/setup/status`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) return null;
     return await response.json();

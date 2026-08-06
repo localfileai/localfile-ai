@@ -73,8 +73,22 @@ def _gpu() -> tuple[str, float]:
         return name.strip(), 0.0
 
 
+# 사양은 실행 중에 바뀌지 않는다. 상태 조회는 2초마다 오는데 nvidia-smi
+# (외부 프로세스, 최대 5초)를 매번 띄우면 그 자체가 응답 지연이 된다 —
+# 준비 화면이 멈춘 것처럼 보인 원인 중 하나였다. 한 번 재서 재사용한다.
+_cached: dict | None = None
+
+
 def detect() -> dict:
-    """이 PC의 사양 요약. 실패한 항목은 0이나 빈 문자열로 남는다."""
+    """이 PC의 사양 요약 (캐시됨). 실패한 항목은 0이나 빈 문자열로 남는다."""
+    global _cached
+    if _cached is not None:
+        return dict(_cached)
+    _cached = _detect_now()
+    return dict(_cached)
+
+
+def _detect_now() -> dict:
     gpu_name, vram_gb = _gpu()
     return {
         "os": f"{platform.system()} {platform.release()}".strip(),
