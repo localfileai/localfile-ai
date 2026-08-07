@@ -1,0 +1,100 @@
+{
+  "name": "local-file-ai-app",
+  "private": true,
+  "version": "0.1.1",
+  "description": "내 PC의 문서를 로컬에서 검색하고 정리하는 데스크톱 앱",
+  "author": "LocalFile AI Team",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && vite build",
+    "dist": "node -e \"require('fs').mkdirSync('ollama-runtime',{recursive:true})\" && npm run build && electron-builder",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "backend:dev": "node scripts/backend.mjs dev",
+    "backend:install": "node scripts/backend.mjs install",
+    "dataset": "node scripts/backend.mjs dataset",
+    "index": "node scripts/backend.mjs index",
+    "backend:test": "node scripts/backend.mjs test",
+    "backend:build-exe": "node scripts/backend.mjs build-exe",
+    "dist:win": "node -e \"require('fs').mkdirSync('ollama-runtime',{recursive:true})\" && node scripts/backend.mjs build-exe && npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@typescript-eslint/eslint-plugin": "^7.1.1",
+    "@typescript-eslint/parser": "^7.1.1",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.6",
+    "vite-plugin-electron": "^0.28.6",
+    "vite-plugin-electron-renderer": "^0.14.5"
+  },
+  "main": "dist-electron/main.js",
+  "build": {
+    "appId": "com.localfileai.desktop",
+    "productName": "LocalFile AI",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "LocalFileAI-Setup.${ext}",
+      "extraResources": [
+        {
+          "from": "backend/dist/server",
+          "to": "backend"
+        },
+        {
+          "from": "ollama-runtime",
+          "to": "ollama"
+        },
+        {
+          "from": "THIRD-PARTY-NOTICES.md",
+          "to": "THIRD-PARTY-NOTICES.md"
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "LocalFile AI",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LocalFile AI — 내 PC 안에서 파일 검색·정리</title>
+<meta name="description" content="이름은 기억 안 나도 내용은 기억나니까. 문서를 외부로 보내지 않고 내 PC 안에서 찾고 정리하는 데스크톱 앱." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="LocalFile AI" />
+<meta property="og:description" content="문서를 외부로 보내지 않고, 내 PC 안에서 찾고 정리합니다." />
+<meta name="theme-color" content="#5B5BF5" />
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+
+<style>
+  :root {
+    --brand: #5B5BF5;
+    --brand-strong: #4646E0;
+    --brand-soft: #EEEEFE;
+    --bg: #FAFAFC;
+    --surface: #FFFFFF;
+    --line: #E8E8EF;
+    --text: #16161D;
+    --muted: #6B6B7B;
+    --radius: 18px;
+    --shadow: 0 1px 2px rgba(22, 22, 29, .04), 0 12px 32px -12px rgba(22, 22, 29, .12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand: #7C7CFF;
+      --brand-strong: #6A6AF5;
+      --brand-soft: #1C1C33;
+      --bg: #0D0D13;
+      --surface: #16161E;
+      --line: #26262F;
+      --text: #F3F3F7;
+      --muted: #9A9AAB;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px -12px rgba(0, 0, 0, .6);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+      'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    word-break: keep-all;
+  }
+
+  a { color: inherit; }
+
+  .wrap { width: min(1120px, 100% - 3rem); margin-inline: auto; }
+
+  /* ---------- 헤더 ---------- */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid transparent;
+    transition: border-color .2s;
+  }
+  header.scrolled { border-bottom-color: var(--line); }
+
+  .nav { display: flex; align-items: center; gap: 1rem; height: 68px; }
+  .brand { display: flex; align-items: center; gap: .6rem; font-weight: 700; letter-spacing: -.02em; }
+  .brand svg { width: 30px; height: 30px; border-radius: 9px; }
+  .nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.6rem; font-size: .875rem; }
+  /* .btn을 빼지 않으면 이 규칙이 .btn-primary의 흰 글자색을 덮어써
+     파란 배경에 회색 글자가 된다 (선택자 우선순위: 클래스+요소 > 클래스). */
+  .nav-links a:not(.btn) { color: var(--muted); text-decoration: none; transition: color .15s; }
+  .nav-links a:not(.btn):hover { color: var(--text); }
+  @media (max-width: 720px) { .nav-links a:not(.btn) { display: none; } }
+
+  /* ---------- 버튼 ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .55rem;
+    padding: .7rem 1.25rem; border-radius: 12px;
+    font-weight: 600; font-size: .9rem; text-decoration: none;
+    border: 1px solid transparent; cursor: pointer;
+    transition: transform .12s ease, background .15s, box-shadow .15s;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--brand); color: #fff; box-shadow: 0 6px 20px -8px var(--brand); }
+  .btn-primary:hover { background: var(--brand-strong); }
+  .btn-ghost { border-color: var(--line); color: var(--text); background: var(--surface); }
+  .btn-ghost:hover { border-color: var(--muted); }
+  .btn-lg { padding: .95rem 1.75rem; font-size: 1rem; border-radius: 14px; }
+
+  /* ---------- 히어로 ---------- */
+  .hero { position: relative; padding: clamp(3.5rem, 9vw, 6.5rem) 0 clamp(3rem, 7vw, 5rem); overflow: hidden; }
+  .hero::before {
+    content: ''; position: absolute; inset: -20% -10% auto -10%; height: 620px; z-index: -1;
+    background: radial-gradient(50% 60% at 50% 0%, color-mix(in srgb, var(--brand) 20%, transparent), transparent 70%);
+  }
+  .hero-grid { display: grid; gap: clamp(2.5rem, 6vw, 4rem); grid-template-columns: 1fr; align-items: center; }
+  @media (min-width: 940px) { .hero-grid { grid-template-columns: 1.05fr .95fr; } }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: .5rem;
+    padding: .35rem .8rem; border-radius: 999px;
+    background: var(--brand-soft); color: var(--brand);
+    font-size: .78rem; font-weight: 600;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  h1 {
+    margin: 1.1rem 0 0;
+    font-size: clamp(2.1rem, 5.2vw, 3.5rem);
+    line-height: 1.22; letter-spacing: -.035em; font-weight: 800;
+  }
+  h1 .accent { color: var(--brand); }
+
+  .lede { margin: 1.1rem 0 0; font-size: clamp(1rem, 1.6vw, 1.125rem); color: var(--muted); max-width: 34rem; }
+
+  .cta-row { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 2rem; }
+  .cta-note { margin-top: .9rem; font-size: .8rem; color: var(--muted); }
+
+  /* ---------- 앱 목업 ---------- */
+  .mock {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .mock-bar { display: flex; align-items: center; gap: .4rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line); }
+  .mock-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+  .mock-body { padding: 1.1rem; }
+  .mock-search {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .7rem .9rem; border: 1px solid var(--line); border-radius: 11px;
+    color: var(--muted); font-size: .85rem; background: var(--bg);
+  }
+  .mock-search .caret { width: 1px; height: 15px; background: var(--brand); animation: blink 1.1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .mock-row { display: flex; align-items: center; gap: .7rem; padding: .75rem .35rem; border-bottom: 1px solid var(--line); }
+  .mock-row:last-child { border-bottom: 0; }
+  .mock-ico {
+    width: 30px; height: 30px; flex: none; border-radius: 8px;
+    background: var(--brand-soft); color: var(--brand);
+    display: grid; place-items: center; font-size: .62rem; font-weight: 700;
+  }
+  .mock-name { font-size: .82rem; font-weight: 600; }
+  .mock-sub { font-size: .72rem; color: var(--muted); }
+  .mock-score { margin-left: auto; font-size: .72rem; font-weight: 700; color: var(--brand); }
+  .mock-list-title { margin: 1.1rem .35rem .3rem; font-size: .72rem; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+
+  /* ---------- 섹션 공통 ---------- */
+  section { padding: clamp(3.5rem, 8vw, 6rem) 0; }
+  .section-head { max-width: 40rem; margin-bottom: clamp(2rem, 4vw, 3rem); }
+  h2 { margin: 0; font-size: clamp(1.6rem, 3.4vw, 2.25rem); letter-spacing: -.03em; line-height: 1.3; font-weight: 800; }
+  .section-head p { margin: .8rem 0 0; color: var(--muted); }
+
+  .cards { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 1.6rem;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow); border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); }
+  .card h3 { margin: 1rem 0 .5rem; font-size: 1.05rem; letter-spacing: -.02em; }
+  .card p { margin: 0; color: var(--muted); font-size: .9rem; }
+  .card-ico {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: var(--brand-soft); color: var(--brand);
+    display: grid; place-items: center;
+  }
+  .card-ico svg { width: 21px; height: 21px; }
+
+  /* ---------- 프라이버시 배너 ---------- */
+  .privacy {
+    background: linear-gradient(135deg, var(--brand) 0%, #7A5BF5 100%);
+    color: #fff; border-radius: 24px; padding: clamp(2rem, 5vw, 3.2rem);
+    display: grid; gap: 2rem; align-items: center;
+  }
+  @media (min-width: 860px) { .privacy { grid-template-columns: 1.3fr 1fr; } }
+  .privacy h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+  .privacy p { color: rgba(255, 255, 255, .84); margin: .9rem 0 0; }
+  .privacy-stats { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); text-align: center; }
+  .privacy-stats b { display: block; font-size: clamp(1.3rem, 3vw, 1.8rem); letter-spacing: -.03em; }
+  .privacy-stats span { font-size: .74rem; color: rgba(255, 255, 255, .78); }
+
+  /* ---------- 단계 ---------- */
+  .steps { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); counter-reset: step; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.6rem; position: relative; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: var(--brand); color: #fff; font-weight: 700; font-size: .85rem; margin-bottom: .9rem;
+  }
+  .step h3 { margin: 0 0 .45rem; font-size: 1rem; }
+  .step p { margin: 0; color: var(--muted); font-size: .88rem; }
+
+  /* ---------- 형식 배지 ---------- */
+  .formats { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.5rem; }
+  .fmt {
+    padding: .4rem .85rem; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--surface); font-size: .78rem; font-weight: 600; letter-spacing: .02em;
+  }
+
+  /* ---------- 표 ---------- */
+  .spec { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  .spec th, .spec td { text-align: left; padding: .9rem .2rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .spec th { width: 12rem; font-weight: 600; color: var(--muted); }
+  @media (max-width: 560px) { .spec th { width: 8rem; } }
+
+  /* ---------- FAQ ---------- */
+  details {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 1.1rem 1.3rem; margin-bottom: .7rem;
+  }
+  details[open] { border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); }
+  summary { cursor: pointer; font-weight: 600; font-size: .95rem; list-style: none; display: flex; align-items: center; gap: .7rem; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; margin-left: auto; color: var(--brand); font-size: 1.2rem; font-weight: 400; }
+  details[open] summary::after { content: '−'; }
+  details p { margin: .8rem 0 0; color: var(--muted); font-size: .88rem; }
+
+  /* ---------- 마무리 CTA ---------- */
+  .final { text-align: center; }
+  .final h2 { margin-bottom: 1rem; }
+  .final p { color: var(--muted); max-width: 32rem; margin: 0 auto 2rem; }
+
+  /* ---------- 푸터 ---------- */
+  footer { border-top: 1px solid var(--line); padding: 2.5rem 0; font-size: .82rem; color: var(--muted); }
+  .foot { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: center; }
+  .foot a { text-decoration: none; }
+  .foot a:hover { color: var(--text); }
+  .foot .right { margin-left: auto; display: flex; gap: 1.4rem; }
+
+  /* ---------- 등장 애니메이션 ---------- */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+    .mock-search .caret { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<header id="site-header">
+  <div class="wrap nav">
+    <a class="brand" href="#top" style="text-decoration:none">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="18" fill="#5B5BF5"/>
+        <path d="M14 20h13l4 5h19v21H14z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M36 30v10M31 35h10" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+      LocalFile AI
+    </a>
+    <nav class="nav-links">
+      <a href="#features">기능</a>
+      <a href="#how">사용 방법</a>
+      <a href="#spec">시스템 요구사항</a>
+      <a href="#faq">자주 묻는 질문</a>
+      <a class="btn btn-primary" data-download
+         href="https://github.com/localfileai/localfile-ai/releases/latest/download/LocalFileAI-Setup.exe">다운로드</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- 히어로 -->
+  <div class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow"><span class="dot"></span>100% 로컬 처리 · 무료</span>
+        <h1>이름은 기억 안 나도,<br /><span class="accent">내용은 기억나니까.</span></h1>
+        <p class="lede">
+          <b>최종.pdf</b>, <b>발표자료 2.pdf</b>, <b>무제.docx</b> —
+          말로 설명하면 찾아 주고, 정리까지 제안합니다.
+          문서는 이 PC를 떠나지 않습니다.
+        </p>
+        <div class="cta-row">
+          <!-- 눌렀을 때 페이지로 이동하지 않고 설치 파일이 바로 받아지는 주소.
+               GitHub이 최신 릴리스의 같은 이름 파일로 넘겨준다. -->
+          <a class="btn btn-primary btn-lg" data-download
+             href="https://github.com/localfileai/localfile-ai/releases/latest/download/LocalFileAI-Setup.exe">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+            Windows용 다운로드
+          </a>
+          <a class="btn btn-ghost btn-lg" href="https://github.com/localfileai/localfile-ai">GitHub에서 보기</a>
+        </div>
+        <p class="cta-note" data-download-meta>Windows 10 · 11 (64비트) · 설치 후 앱 안에서 AI 엔진을 자동으로 준비합니다</p>
+      </div>
+
+      <!-- 앱 화면 이미지(스타일화된 표현) -->
+      <div class="mock reveal" aria-hidden="true">
+        <div class="mock-bar"><i></i><i></i><i></i></div>
+        <div class="mock-body">
+          <div class="mock-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+            </svg>
+            <span id="typed">지난 학기 운영체제 과제</span><span class="caret"></span>
+          </div>
+
+          <div class="mock-list-title">검색 결과</div>
+          <div class="mock-row">
+            <div class="mock-ico">PDF</div>
+            <div><div class="mock-name">최종_최종2.pdf</div><div class="mock-sub">다운로드 · 스케줄링 과제 보고서</div></div>
+            <div class="mock-score">94%</div>
+          </div>
+          <div class="mock-row">
+            <div class="mock-ico">HWP</div>
+            <div><div class="mock-name">무제.hwp</div><div class="mock-sub">바탕화면 · 프로세스 동기화 실습</div></div>
+            <div class="mock-score">88%</div>
+          </div>
+
+          <div class="mock-list-title">정리 제안</div>
+          <div class="mock-row">
+            <div class="mock-ico">→</div>
+            <div>
+              <div class="mock-name">운영체제_스케줄링_과제_2025-1.pdf</div>
+              <div class="mock-sub">과제 / 운영체제 폴더로 이동</div>
+            </div>
+            <div class="mock-score">승인 대기</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 기능 -->
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>파일 이름을 몰라도 됩니다</h2>
+        <p>기억나는 대로 설명하면 내용으로 찾습니다. 정리는 제안까지만 하고, 실제 변경은 승인한 것만 실행합니다.</p>
+      </div>
+
+      <div class="cards">
+        <div class="card reveal">
+          <div class="card-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </div>
+          <h3>내용으로 찾는 검색</h3>
+          <p>“지난 학기 데이터베이스 정규화 과제”처럼 말로 물어보면, 문서 내용을 이해해 찾아 줍니다. 파일명이 <b>무제.docx</b>여도 상관없습니다.</p>
+        </div>
+
+        <div class="card reveal">
+          <div class="card-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2.5h10V19H3z"/><path d="M12 12v4M10 14h4"/></svg>
+          </div>
+          <h3>분류와 이름 추천</h3>
+          <p>강의자료·과제·보고서·시험 준비 같은 갈래로 나누고, 내용에 맞는 파일명을 제안합니다. 판단이 애매하면 억지로 분류하지 않습니다.</p>
+        </div>
+
+        <div class="card reveal">
+          <div class="card-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <h3>승인한 것만 실행</h3>
+          <p>확인하고 체크한 파일만 실제로 이동·이름 변경됩니다. 같은 이름이 있으면 덮어쓰지 않고, 되돌리기도 됩니다.</p>
+        </div>
+      </div>
+
+      <div class="formats reveal" aria-label="지원 문서 형식">
+        <span class="fmt">PDF</span>
+        <span class="fmt">DOCX</span>
+        <span class="fmt">DOC</span>
+        <span class="fmt">PPTX</span>
+        <span class="fmt">PPT</span>
+        <span class="fmt">HWP</span>
+        <span class="fmt">HWPX</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 프라이버시 -->
+  <section style="padding-top:0">
+    <div class="wrap">
+      <div class="privacy reveal">
+        <div>
+          <h2>문서가 이 PC를 떠나지 않습니다</h2>
+          <p>
+            검색도 분류도 전부 내 컴퓨터 안에서 처리합니다. 문서 내용을 외부 서버로 보내지 않고,
+            계정을 만들 필요도 없습니다. 처음 AI 엔진을 내려받은 뒤에는 인터넷 없이도 동작합니다.
+          </p>
+        </div>
+        <div class="privacy-stats">
+          <div><b>0건</b><span>외부 전송</span></div>
+          <div><b>7종</b><span>지원 형식</span></div>
+          <div><b>무료</b><span>오픈소스</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 사용 방법 -->
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>설치하고, 버튼 두 번</h2>
+        <p>명령어를 입력할 일이 없습니다. 앱이 필요한 것을 스스로 확인하고 준비합니다.</p>
+      </div>
+
+      <div class="steps">
+        <div class="step reveal">
+          <h3>설치 파일 실행</h3>
+          <p>내려받은 설치 파일을 실행하면 앱이 설치됩니다. 별도의 프로그램을 미리 깔 필요는 없습니다.</p>
+        </div>
+        <div class="step reveal">
+          <h3>준비 화면에서 시작</h3>
+          <p>앱을 처음 켜면 준비 화면이 나옵니다. 버튼을 누르면 AI 엔진과 모델(약 2.2GB)을 알아서 내려받습니다.</p>
+        </div>
+        <div class="step reveal">
+          <h3>폴더 고르고 사용</h3>
+          <p>정리할 폴더를 선택하면 문서를 읽어 검색 준비를 마칩니다. 이후에는 바로 찾고 정리하면 됩니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 시스템 요구사항 -->
+  <section id="spec">
+    <div class="wrap" style="max-width:820px">
+      <div class="section-head reveal">
+        <h2>시스템 요구사항</h2>
+        <p>그래픽카드가 없어도 동작합니다. 사양에 맞춰 앱이 알아서 가벼운 방식으로 전환합니다.</p>
+      </div>
+
+      <table class="spec reveal">
+        <tbody>
+          <tr><th>운영체제</th><td>Windows 10 또는 11 (64비트)</td></tr>
+          <tr><th>저장 공간</th><td>약 3GB — AI 모델 약 2.2GB 포함. 고품질 모델을 추가하면 약 4.8GB 더 필요합니다.</td></tr>
+          <tr><th>메모리</th><td>8GB 이상 권장</td></tr>
+          <tr><th>그래픽카드</th><td>없어도 됩니다. 있으면 파일명 추천이 더 빠르고 정확해집니다.</td></tr>
+          <tr><th>인터넷</th><td>처음 AI 엔진을 준비할 때만 필요합니다.</td></tr>
+          <tr><th>지원하지 않는 것</th><td>글자가 없는 스캔 PDF(사진으로 찍힌 문서)와 이미지 파일은 내용을 읽지 못합니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="wrap" style="max-width:820px">
+      <div class="section-head reveal">
+        <h2>자주 묻는 질문</h2>
+      </div>
+
+      <details class="reveal">
+        <summary>내 문서가 외부로 전송되나요?</summary>
+        <p>아닙니다. 문서를 읽고 분석하는 과정이 전부 사용자 PC 안에서 실행됩니다. 인터넷은 처음 AI 모델을 내려받을 때만 사용하고, 그 뒤로는 오프라인에서도 동작합니다.</p>
+      </details>
+
+      <details class="reveal">
+        <summary>왜 처음에 2GB가 넘는 파일을 받아야 하나요?</summary>
+        <p>문서를 이해하는 AI 모델을 사용자 PC에 직접 두기 때문입니다. 외부 서버에 문서를 보내는 방식이라면 다운로드가 필요 없겠지만, 그러면 문서가 PC를 떠나게 됩니다. 한 번만 받으면 이후에는 다시 받지 않습니다.</p>
+      </details>
+
+      <details class="reveal">
+        <summary>파일이 엉뚱한 곳으로 옮겨지면 어떡하죠?</summary>
+        <p>앱은 제안만 하고, 사용자가 확인하고 체크한 파일만 실제로 옮깁니다. 옮긴 내역이 기록으로 남아 되돌릴 수 있고, 같은 이름의 파일이 이미 있으면 덮어쓰지 않고 건너뜁니다.</p>
+      </details>
+
+      <details class="reveal">
+        <summary>그래픽카드가 없는 노트북에서도 쓸 수 있나요?</summary>
+        <p>네. 앱이 첫 실행 때 처리 속도를 재보고, 느리면 가벼운 모델로 자동 전환합니다. 검색과 분류는 원래 가벼운 방식으로 동작하므로 성능 차이가 거의 없고, 파일명 추천 속도에서만 차이가 납니다.</p>
+      </details>
+
+      <details class="reveal">
+        <summary>설치할 때 Windows 경고가 뜹니다.</summary>
+        <p>코드 서명 인증서가 없는 앱이라 나타나는 안내입니다. <b>추가 정보</b>를 누른 뒤 <b>실행</b>을 선택하면 설치됩니다. 소스 코드는 GitHub에 공개돼 있어 누구나 확인할 수 있습니다.</p>
+      </details>
+
+      <details class="reveal">
+        <summary>한글(HWP) 문서도 읽나요?</summary>
+        <p>네. HWP와 HWPX 모두 지원합니다. PDF·DOCX·DOC·PPTX·PPT까지 대학에서 자주 쓰는 형식 7종을 다룹니다.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- 마무리 -->
+  <section class="final">
+    <div class="wrap">
+      <div class="reveal">
+        <h2>정리, 이제 미루지 않아도 됩니다</h2>
+        <p>다운로드 폴더에 쌓인 <b>최종.pdf</b>들을 열어보지 않고도 정리할 수 있습니다.</p>
+        <a class="btn btn-primary btn-lg" data-download
+           href="https://github.com/localfileai/localfile-ai/releases/latest/download/LocalFileAI-Setup.exe">Windows용 다운로드</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>© 2026 LocalFile AI</span>
+    <span class="right">
+      <a href="https://github.com/localfileai/localfile-ai">GitHub</a>
+      <a href="https://github.com/localfileai/localfile-ai/releases">릴리스</a>
+      <a href="https://github.com/localfileai/localfile-ai/issues">문제 신고</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  // 스크롤하면 헤더 아래에 경계선을 만든다 (맨 위에서는 배경과 이어지게)
+  const header = document.getElementById('site-header');
+  const onScroll = () => header.classList.toggle('scrolled', window.scrollY > 8);
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  // 화면에 들어온 요소만 부드럽게 등장시킨다
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in');
+        io.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // 최신 릴리스 정보를 읽어 버튼에 버전·용량을 채운다.
+  // 실패해도 버튼은 그대로 동작한다 — href에 이미 고정 다운로드 주소가 들어 있다.
+  fetch('https://api.github.com/repos/localfileai/localfile-ai/releases/latest')
+    .then((response) => (response.ok ? response.json() : null))
+    .then((release) => {
+      if (!release || !Array.isArray(release.assets)) return;
+      const asset = release.assets.find((a) => a.name === 'LocalFileAI-Setup.exe')
+        || release.assets.find((a) => a.name.endsWith('.exe'));
+      if (!asset) return;
+
+      // 파일 이름이 바뀐 릴리스에도 정확한 주소를 쓰게 한다
+      document.querySelectorAll('[data-download]').forEach((el) => {
+        el.href = asset.browser_download_url;
+      });
+      const size = Math.round(asset.size / 1024 / 1024);
+      document.querySelectorAll('[data-download-meta]').forEach((el) => {
+        el.textContent = `${release.tag_name} · ${size}MB · Windows 10 · 11 (64비트)`;
+      });
+    })
+    .catch(() => {});
+
+  // 히어로 검색창에 질의를 한 글자씩 적는다 — 제품의 사용법을 그대로 보여 주는 장치
+  const typed = document.getElementById('typed');
+  const phrases = ['지난 학기 운영체제 과제', '정규화 정리한 자료', '발표할 때 쓴 슬라이드'];
+  if (typed && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    let phrase = 0, index = 0, erasing = false;
+    setInterval(() => {
+      const current = phrases[phrase];
+      index += erasing ? -1 : 1;
+      typed.textContent = current.slice(0, index);
+      if (!erasing && index === current.length) {
+        erasing = true;
+        index += 14; // 다 쓰고 잠시 머무른다
+      } else if (erasing && index <= 0) {
+        erasing = false;
+        phrase = (phrase + 1) % phrases.length;
+      }
+    }, 110);
+  }
+</script>
+
+</body>
+</html>

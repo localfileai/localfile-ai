@@ -1,0 +1,40 @@
+{"query": "테이블 나눠서 중복 없애는 방법 정리한 자료", "topic_title": "관계형 데이터베이스 정규화", "course": "데이터베이스", "difficulty": "paraphrase"}
+{"query": "제3정규형이 뭔지 설명한 문서", "topic_title": "관계형 데이터베이스 정규화", "course": "데이터베이스", "difficulty": "keyword"}
+{"query": "쿼리 너무 느릴 때 빠르게 만드는 법 찾아줘", "topic_title": "SQL 질의 최적화와 인덱스 설계", "course": "데이터베이스", "difficulty": "paraphrase"}
+{"query": "인덱스 설계 관련 자료", "topic_title": "SQL 질의 최적화와 인덱스 설계", "course": "데이터베이스", "difficulty": "keyword"}
+{"query": "여러 명이 동시에 데이터 고칠 때 꼬이는 문제 다룬 거", "topic_title": "트랜잭션과 동시성 제어", "course": "데이터베이스", "difficulty": "paraphrase"}
+{"query": "트랜잭션 락 정리한 문서", "topic_title": "트랜잭션과 동시성 제어", "course": "데이터베이스", "difficulty": "keyword"}
+{"query": "CPU가 어떤 작업을 먼저 처리할지 정하는 방법 자료", "topic_title": "프로세스 스케줄링 알고리즘", "course": "운영체제", "difficulty": "paraphrase"}
+{"query": "라운드로빈 방식 설명해 놓은 거", "topic_title": "프로세스 스케줄링 알고리즘", "course": "운영체제", "difficulty": "keyword"}
+{"query": "메모리 모자랄 때 디스크를 대신 쓰는 기법 정리", "topic_title": "가상 메모리와 페이지 교체", "course": "운영체제", "difficulty": "paraphrase"}
+{"query": "LRU 페이지 교체 자료 찾아줘", "topic_title": "가상 메모리와 페이지 교체", "course": "운영체제", "difficulty": "keyword"}
+{"query": "프로세스들이 서로 기다리다가 다 멈춰버리는 문제", "topic_title": "교착 상태 탐지와 회피", "course": "운영체제", "difficulty": "paraphrase"}
+{"query": "은행원 알고리즘 나오는 문서", "topic_title": "교착 상태 탐지와 회피", "course": "운영체제", "difficulty": "keyword"}
+{"query": "네트워크 막힐 때 보내는 속도를 조절하는 방법 정리한 거", "topic_title": "TCP 혼잡 제어", "course": "컴퓨터네트워크", "difficulty": "paraphrase"}
+{"query": "슬라이딩 윈도우 설명 자료", "topic_title": "TCP 혼잡 제어", "course": "컴퓨터네트워크", "difficulty": "keyword"}
+{"query": "웹 API 주소랑 응답 코드 설계 규칙 정리", "topic_title": "HTTP와 REST API 설계", "course": "컴퓨터네트워크", "difficulty": "paraphrase"}
+{"query": "REST API 상태 코드 문서", "topic_title": "HTTP와 REST API 설계", "course": "컴퓨터네트워크", "difficulty": "keyword"}
+{"query": "패킷이 어느 길로 갈지 정하는 프로토콜들 비교한 자료", "topic_title": "라우팅 프로토콜 비교", "course": "컴퓨터네트워크", "difficulty": "paraphrase"}
+{"query": "OSPF BGP 비교한 문서", "topic_title": "라우팅 프로토콜 비교", "course": "컴퓨터네트워크", "difficulty": "keyword"}
+{"query": "노드를 하나씩 방문하면서 다 뒤지는 방법 정리한 거", "topic_title": "트리와 그래프 탐색", "course": "자료구조", "difficulty": "paraphrase"}
+{"query": "BFS DFS 정리 자료", "topic_title": "트리와 그래프 탐색", "course": "자료구조", "difficulty": "keyword"}
+{"query": "작은 문제로 쪼개서 푸는 방법이랑 당장 최선만 고르는 방법 비교", "topic_title": "동적 계획법과 그리디 비교", "course": "알고리즘", "difficulty": "paraphrase"}
+{"query": "동적 계획법 최적 부분 구조 설명", "topic_title": "동적 계획법과 그리디 비교", "course": "알고리즘", "difficulty": "keyword"}
+{"query": "숫자 순서대로 나열하는 알고리즘들 속도 비교한 자료", "topic_title": "정렬 알고리즘 성능 분석", "course": "알고리즘", "difficulty": "paraphrase"}
+{"query": "퀵소트 시간 복잡도 정리", "topic_title": "정렬 알고리즘 성능 분석", "course": "알고리즘", "difficulty": "keyword"}
+{"query": "사진 보고 뭐가 찍혔는지 맞추는 딥러닝 자료", "topic_title": "합성곱 신경망 기반 이미지 분류", "course": "인공지능", "difficulty": "paraphrase"}
+{"query": "CNN 합성곱 설명 문서", "topic_title": "합성곱 신경망 기반 이미지 분류", "course": "인공지능", "difficulty": "keyword"}
+{"query": "문장을 숫자 벡터로 바꿔서 비교하는 거 정리한 자료", "topic_title": "자연어 처리 문장 임베딩", "course": "인공지능", "difficulty": "paraphrase"}
+{"query": "문장 임베딩 문서 찾아줘", "topic_title": "자연어 처리 문장 임베딩", "course": "인공지능", "difficulty": "keyword"}
+{"query": "상 주면서 스스로 배우게 하는 AI가 길 찾는 내용", "topic_title": "강화학습 경로 탐색", "course": "인공지능", "difficulty": "paraphrase"}
+{"query": "강화학습 보상 관련 자료", "topic_title": "강화학습 경로 탐색", "course": "인공지능", "difficulty": "keyword"}
+{"query": "소프트웨어 만들기 전에 뭘 만들지 정리해 두는 문서", "topic_title": "요구사항 명세와 유스케이스", "course": "소프트웨어공학", "difficulty": "paraphrase"}
+{"query": "유스케이스 명세서 자료", "topic_title": "요구사항 명세와 유스케이스", "course": "소프트웨어공학", "difficulty": "keyword"}
+{"query": "코드가 제대로 도는지 자동으로 검사하는 방법 정리", "topic_title": "단위 테스트와 통합 테스트", "course": "소프트웨어공학", "difficulty": "paraphrase"}
+{"query": "테스트 커버리지 문서", "topic_title": "단위 테스트와 통합 테스트", "course": "소프트웨어공학", "difficulty": "keyword"}
+{"query": "열쇠 하나로 잠그는 방식이랑 열쇠 두 개 쓰는 방식 비교한 자료", "topic_title": "대칭키와 공개키 암호", "course": "정보보안", "difficulty": "paraphrase"}
+{"query": "공개키 암호화 정리한 거", "topic_title": "대칭키와 공개키 암호", "course": "정보보안", "difficulty": "keyword"}
+{"query": "로그인 창에 이상한 코드 넣어서 뚫는 공격 설명", "topic_title": "웹 취약점과 SQL 인젝션", "course": "정보보안", "difficulty": "paraphrase"}
+{"query": "SQL 인젝션 보안 자료", "topic_title": "웹 취약점과 SQL 인젝션", "course": "정보보안", "difficulty": "keyword"}
+{"query": "리액트에서 화면 데이터 흐름 관리하는 법 정리한 거", "topic_title": "프론트엔드 상태 관리", "course": "웹프로그래밍", "difficulty": "paraphrase"}
+{"query": "프론트엔드 컴포넌트 상태 관리 자료", "topic_title": "프론트엔드 상태 관리", "course": "웹프로그래밍", "difficulty": "keyword"}

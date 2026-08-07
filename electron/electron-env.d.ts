@@ -1,0 +1,64 @@
+/// <reference types="vite-plugin-electron/electron-env" />
+
+declare namespace NodeJS {
+  interface ProcessEnv {
+    /**
+     * The built directory structure
+     *
+     * ```tree
+     * ├─┬─┬ dist
+     * │ │ └── index.html
+     * │ │
+     * │ ├─┬ dist-electron
+     * │ │ ├── main.js
+     * │ │ └── preload.js
+     * │
+     * ```
+     */
+    APP_ROOT: string
+    /** /dist/ or /public/ */
+    VITE_PUBLIC: string
+  }
+}
+
+/** 앱이 띄운 백엔드의 상태 (electron/backend.ts) */
+interface BackendState {
+  status: 'starting' | 'ready' | 'failed' | 'external'
+  detail: string
+}
+
+/** Ollama 설치 진행 상황 (electron/ollama.ts) */
+interface OllamaInstallProgress {
+  phase: 'downloading' | 'installing' | 'ready' | 'opened-page' | 'failed'
+  percent: number
+  detail: string
+}
+
+// Used in Renderer process, expose in `preload.ts`
+interface Window {
+  ipcRenderer: import('electron').IpcRenderer
+  api: {
+    /** OS 네이티브 폴더 선택 창을 열고 경로를 반환(취소 시 null) */
+    selectFolder: () => Promise<string | null>
+    /** 드롭된 File의 로컬 실제 경로 추출 */
+    getPathForFile: (file: File) => string
+    /** 파일이 있는 폴더를 탐색기로 열고 그 파일을 선택한다 */
+    revealFile: (filePath: string) => Promise<boolean>
+
+    /** 앱이 띄운 백엔드(server.exe)의 현재 상태 */
+    backendStatus: () => Promise<BackendState>
+    /** 백엔드 상태 변화 구독. 반환값을 호출하면 구독 해제 */
+    onBackendState: (listener: (state: BackendState) => void) => () => void
+
+    /**
+     * Ollama 자동 설치를 시작한다.
+     * `{ repair: true }`면 이미 떠 있어도 다시 깐다 — 응답은 하는데 모델
+     * 실행 파일(llama-server)이 빠져 있는 설치를 되돌린다.
+     */
+    installOllama: (options?: { repair?: boolean }) => Promise<OllamaInstallProgress>
+    /** Ollama 설치 진행률 구독. 반환값을 호출하면 구독 해제 */
+    onOllamaProgress: (listener: (progress: OllamaInstallProgress) => void) => () => void
+    /** 준비 실패 시 보여 줄 진단 기록 파일(setup.log) 경로 */
+    setupLogPath: () => Promise<string>
+  }
+}

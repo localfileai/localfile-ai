@@ -1,0 +1,26 @@
+# 라이브 API 데모 — 임베딩 심(e5) + ChromaDB 1,000건 색인 + 실제 FastAPI 서버
+# 질의는 어려운 평가셋의 paraphrase(핵심어 없음) 문항. 파일명이 아니라 내용으로 찾는다.
+
+$ GET /search/status
+{"ready":true,"indexed_documents":1000,"embed_model":"ollama-e5-query","detail":""}
+
+$ GET /search?q=테이블 나눠서 중복 없애는 방법 정리한 자료&top_k=3
+  elapsed_ms=75
+  [0.834] 제목 없음_12.docx          본문: 정렬 알고리즘 성능 분석 프로젝트 계획서 문서 유형: 프로젝트 계획서 과목: 알고리즘 학기: 2024
+  [0.834] 최종.pptx                본문: 정렬 알고리즘 성능 분석 프로젝트 계획서 문서 유형: 프로젝트 계획서 과목: 알고리즘 학기: 2024
+  [0.834] 발표자료.pptx              본문: 트랜잭션과 동시성 제어 시험 정리 문서 유형: 시험 정리 과목: 데이터베이스 학기: 2026-1 작성
+
+$ GET /search?q=메모리 모자랄 때 디스크를 대신 쓰는 기법 정리&top_k=3
+  elapsed_ms=86
+  [0.848] 무제.docx                본문: 가상 메모리와 페이지 교체 강의자료 문서 유형: 강의자료 과목: 운영체제 학기: 2024-1 작성자:
+  [0.848] 스캔 5.hwpx              본문: 가상 메모리와 페이지 교체 강의자료 문서 유형: 강의자료 과목: 운영체제 학기: 2025-2 작성자:
+  [0.846] 문서(4).hwpx             본문: 가상 메모리와 페이지 교체 논문 요약 문서 유형: 논문 요약 과목: 운영체제 학기: 2026-1 작성
+
+$ GET /search?q=로그인 창에 이상한 코드 넣어서 뚫는 공격 설명&top_k=3
+  elapsed_ms=67
+  [0.833] 스캔(3).pptx             본문: 웹 취약점과 SQL 인젝션 논문 요약 문서 유형: 논문 요약 과목: 정보보안 학기: 2024-2 작성
+  [0.833] 진짜최종_11.hwpx           본문: 웹 취약점과 SQL 인젝션 강의자료 문서 유형: 강의자료 과목: 정보보안 학기: 2024-2 작성자:
+  [0.831] 정리 3.hwpx              본문: 웹 취약점과 SQL 인젝션 논문 요약 문서 유형: 논문 요약 과목: 정보보안 학기: 2024-2 작성
+
+$ GET /organize/status   (이 환경에는 생성 모델이 없어 ready:false + 이유를 돌려준다)
+{"ready":false,"mode_default":"full","generate_model":"exaone3.5:7.8b","generate_model_slim":"exaone3.5:2.4b","detail":"생성 모델이 없습니다: exaone3.5:7.8b. `ollama pull exaone3.5:7.8b` 로 받으세요.","index":{"ready":true,"indexed_documents":1000,"embed_model":"ollama-e5-query","detail":""}}

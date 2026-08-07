@@ -4,175 +4,285 @@
 
 **내 PC의 문서를 로컬에서 검색하고 정리하는 데스크톱 앱**
 
-`최종.pdf`, `발표자료2.pdf` — 이름은 기억 안 나도 내용은 기억납니다.
+`최종.pdf`, `발표자료 2.pdf` — 이름은 기억 안 나도 내용은 기억납니다.
 문서를 외부 서버로 보내지 않고, 내 PC 안에서 찾고 정리합니다.
 
-[![server](https://github.com/localfileai/localfile-ai/actions/workflows/server.yml/badge.svg)](https://github.com/localfileai/localfile-ai/actions/workflows/server.yml)
-[![desktop](https://github.com/localfileai/localfile-ai/actions/workflows/desktop.yml/badge.svg)](https://github.com/localfileai/localfile-ai/actions/workflows/desktop.yml)
-[![release](https://img.shields.io/github/v/release/localfileai/localfile-ai?style=flat-square&include_prereleases)](https://github.com/localfileai/localfile-ai/releases)
-[![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-
-[문서](docs/) · [아키텍처](docs/architecture.md) · [기여 가이드](CONTRIBUTING.md) · [로드맵](#로드맵)
+Electron + React + TypeScript / FastAPI + Ollama + ChromaDB
 
 </div>
 
 ---
 
-<!-- TODO: 3주차에 앱이 동작하면 이 자리에 데모 GIF를 넣으세요.
-     README에서 가장 효과가 큰 한 칸입니다. docs/assets/demo.gif -->
+## 그냥 쓰고 싶다면 (설치본)
 
-## 기능
+**설치 파일 하나를 실행하면 끝입니다. 명령어를 칠 일이 없습니다.**
 
-| | |
-|---|---|
-| **자연어 검색** | "네트워크 스케줄링 발표 자료 찾아줘" — 파일명을 몰라도 내용으로 찾습니다 |
-| **정리 추천** | 문서 내용을 근거로 새 파일명과 폴더를 제안합니다 |
-| **증분 인덱싱** | 폴더 변경을 감지해 바뀐 파일만 다시 처리합니다 |
-| **로컬 전용** | Ollama + ChromaDB. 네트워크 요청도, 유료 API도 없습니다 |
+1. `LocalFile AI Setup.exe` 실행 → 설치 → 앱 실행
+2. 앱이 뜨면 **준비 화면**이 나옵니다. 버튼을 누르면 앱이 알아서 합니다.
+   - Ollama(모델 실행기)가 없으면 → **[Ollama 설치하기]**
+   - AI 모델이 없으면 → **[모델 받기 시작]** (기본 약 2.2GB, 진행 바 표시)
+3. 준비가 끝나면 폴더를 고르고 바로 검색·정리를 씁니다.
 
-파일은 **사용자가 승인한 것만** 이동·이름 변경됩니다. 모든 변경은 SQLite에 이력으로 남습니다.
+> 그래픽카드(GPU)가 있으면 준비 화면에서 **고품질 모델(약 4.8GB)** 을 함께 받을 수 있습니다.
+> 나중에 받아도 됩니다 — 앱은 사양에 맞춰 자동으로 모드를 고릅니다.
 
-## 시작하기
+설치본 만들기(개발자용, Windows에서):
 
-### 요구사항
+```powershell
+npm run dist:win        # 백엔드 exe 빌드 → 프론트 빌드 → release/ 에 Setup.exe
+```
 
-| | 버전 | 비고 |
-|---|---|---|
-| Node.js | 22 LTS | 데스크톱 앱 |
-| Python | 3.14 | 백엔드 서버 |
-| [Ollama](https://ollama.com) | 0.32+ | 로컬 LLM 런타임 |
-| VRAM | 8GB 이상 권장 | 7~8B 모델 기준. 미만이면 CPU로 동작하나 느립니다 |
+아래는 **소스에서 직접 개발할 때**의 방법입니다.
 
-### 설치
+---
 
-```bash
+## 3분 만에 실행하기 (개발자용)
+
+```powershell
 git clone https://github.com/localfileai/localfile-ai.git
 cd localfile-ai
 
-# 모델 준비
-ollama pull exaone3.5:7.8b
-ollama pull bge-m3
-
-# 백엔드
-cd apps/server
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-python -m pip install -e ".[files,ai,dev]"
-
-# 데스크톱
-cd ../desktop
-npm ci
+npm install        # 1분
+npm run setup      # 3분 — 가상환경 + 파이썬 의존성 + 정답 데이터셋 1,000쌍
 ```
 
-> Windows에서 `pip.exe`를 직접 실행하면 Smart App Control에 차단되는 사례가 있습니다.
-> 반드시 `python -m pip` 형태로 실행하세요.
+그다음 **터미널 두 개**를 엽니다.
 
-### 실행
-
-```bash
-cd apps/desktop
-npm run dev          # Electron 앱 + FastAPI 서버 동시 기동
+```powershell
+npm run backend:dev      # 터미널 1 — FastAPI (127.0.0.1:8000)
+npm run dev              # 터미널 2 — Electron 앱 창
 ```
 
-서버만 따로 띄우려면 `cd apps/server && uvicorn app.main:app --reload`.
-API 문서는 http://localhost:8000/docs 에서 볼 수 있습니다.
+막히면 언제든 이걸 먼저 돌리세요. 무엇이 빠졌는지 알려 줍니다.
 
-## 저장소 구조
+```powershell
+npm run doctor
+```
 
-단일 저장소입니다. 4주차에 백엔드가 `server.exe`로 빌드되어 Electron 안에 포함되므로
-데스크톱과 서버가 같은 커밋에서 함께 검증되어야 합니다.
-([ADR-0001](docs/decisions/0001-monorepo.md))
+### 요구사항
+
+| | 버전 | 필수 여부 |
+|---|---|---|
+| Node.js | 20 이상 | **필수** — 16에서는 빌드가 실패합니다(아래 참고) |
+| Python | 3.11 이상 | **필수** |
+| [Ollama](https://ollama.com) | — | 선택 — 없어도 앱은 돌아갑니다 |
+
+> **VS Code에서 `node`를 못 찾으면** Node 설치 후 VS Code를 재시작하세요.
+> 실행 중인 창은 설치 이전 환경을 물려받습니다.
+
+---
+
+## 실제 검색까지 켜기 (선택)
+
+Ollama가 있으면 **진짜 자연어 검색**이 켜집니다. 없으면 Mock 검색으로 화면은 그대로 돕니다.
+
+```powershell
+ollama pull qwen3-embedding:0.6b   # 임베딩 639MB — 검색에 필요 (3주차에 bge-m3에서 교체)
+ollama pull exaone3.5:2.4b      # LLM 1.53GB — 2주차 추천에 필요
+
+npm run index                   # 색인 생성 · GPU 약 2분 / CPU 약 50분
+```
+
+`npm run index`는 **한 번만** 하면 됩니다. 중간에 끊으면 색인이 불완전해지니 끝까지 두세요.
+
+색인이 끝나면 앱의 검색창 위 토글이 `실제 검색`로 활성화되고,
+그 아래에 `색인 1,000건`이 초록색으로 표시됩니다.
+
+검색해 볼 문장입니다.
+
+```
+공개키 암호화 정리한 거
+OSPF BGP 비교한 문서
+퀵소트 시간복잡도 정리
+```
+
+`정리_16.pdf`, `무제.pdf`, `aaa_11.txt` 같은 **지저분한 이름이 나오는 게 정상**입니다.
+파일명이 아니라 내용으로 찾은 것이라 그렇습니다.
+결과의 **파일명을 클릭**하면 실제 문서 원문이 뜹니다.
+
+---
+
+## 화면에서 확인할 것
+
+| 위치 | 동작 | 상태 |
+|---|---|---|
+| 검색창 (`실제 검색`) | 자연어로 1,000건 색인 검색 | **실제** · qwen3-embedding |
+| 검색 결과 → 파일명 클릭 | 실제 문서 원문 미리보기 | **실제** · PyMuPDF |
+| 우측 상단 `폴더 선택` | OS 폴더 창 → 그 폴더의 문서 실제 추출 | **실제** |
+| 검색창 (`Mock`) | 하드코딩 4건 | Mock · 1주차 |
+| `폴더 정리` 탭 | 파일명·폴더 추천 표, 체크 후 [적용] | Mock — **실제 파일은 바뀌지 않습니다** |
+
+`폴더 선택`으로 아래 경로를 고르면 TSN 논문 5건이 실제로 추출됩니다.
+
+```
+backend\mock\pdf
+```
+
+---
+
+## 지원 문서 형식
+
+기획안 3장의 대상 확장자를 따릅니다.
+
+| 형식 | 방식 |
+|---|---|
+| `pdf` | PyMuPDF로 **첫 페이지만** |
+| `txt` `md` | 앞부분만 (페이지 개념 없음) |
+| `docx` `pptx` `hwpx` | zip + XML 파싱 (외부 라이브러리 없이) |
+| `hwp` | olefile로 BodyText 스트림 디코딩 |
+
+`doc` · `ppt`(구형 OLE 이진 포맷)는 표준 파서가 없어 외부 변환 도구가 필요하므로
+스캔 PDF·이미지와 함께 초기 MVP 범위에서 제외했습니다.
+
+---
+
+## 선정된 모델
+
+1주차 실측으로 정했습니다. 근거는 [ADR-0002](docs/decisions/0002-model-selection.md). (BE1 · 강인혁)
+
+| 용도 | 모델 | 근거 |
+|---|---|---|
+| **임베딩** (자연어 검색) | `qwen3-embedding:0.6b` | 3주차 교체 — 느낌 검색 +20%p, 크기 절반 (ADR-0002 §2 개정) |
+| **로컬 LLM** (파일명·폴더 추천) | `exaone3.5:7.8b` | 파일명 88.5% · 한국어 100% 유지 · 학기 포함률 97.5% |
+| 저사양 PC용 | `exaone3.5:2.4b` | GPU 없이 13초/파일 (7.8b는 81초) |
+
+차선 `llama3.1:8b` · 제외 `qwen2.5:7b`(한국어 85%) · 제외 `EEVE-Korean-10.8B`(VRAM 초과)
+
+> **오프라인**: 모델이 PC에 있으면 인터넷 없이 돕니다. Ollama는 `127.0.0.1`에
+> 로컬 서버를 띄우고, 추론 중 외부로 나가는 연결은 없습니다.
+> 인터넷은 모델을 처음 받을 때만 필요합니다.
+>
+> **저사양 PC**: GPU가 없으면 추천이 느립니다. 대책을 실측해 **81초 → 13초/파일**로
+> 줄였습니다. → [ADR-0003](docs/decisions/0003-offline-and-low-spec.md)
+
+---
+
+## 구조
 
 ```
 localfile-ai/
-├── apps/
-│   ├── desktop/                  Electron + React + TypeScript
-│   │   ├── electron/             메인 프로세스 · preload · IPC · 서버 프로세스 관리
-│   │   └── src/                  React UI — 검색, 미리보기, 승인
-│   └── server/                   FastAPI
-│       ├── app/
-│       │   ├── __init__.py       create_app() 팩토리
-│       │   ├── main.py           uvicorn app.main:app
-│       │   ├── api/routes/       라우터 — items · mock · preprocess
-│       │   ├── contracts/        Pydantic 스키마 — 팀 공용 단일 기준
-│       │   ├── extraction/       PyMuPDF 텍스트 추출
-│       │   ├── watcher/          Watchdog 증분 인덱싱
-│       │   ├── fileops/          shutil 파일 이동 · 충돌 검사 · 이력
-│       │   ├── rag/              ChromaDB 임베딩 · 유사도 검색
-│       │   ├── llm/              Ollama 클라이언트 · 프롬프트 · 재시도
-│       │   └── db/               SQLite
-│       ├── scripts/              서버 없이 전처리만 돌려보는 CLI
-│       └── experiments/          모델 비교 실험 및 데이터셋 생성기
-├── packages/
-│   └── contracts/                Pydantic → JSON Schema → TypeScript 타입
-├── docs/
-│   ├── architecture.md
-│   ├── data-contract.md
-│   ├── development.md
-│   ├── decisions/                ADR — 왜 그렇게 정했는지
-│   └── weekly/                   주차별 진행 기록
-└── scripts/
+├─ electron/            메인 프로세스 · preload · IPC              FE1
+│                      + backend.ts(server.exe 수명) · ollama.ts   BE1(5주차)
+├─ src/
+│  ├─ App.tsx           FE1 폴더 인식 + FE2 레이아웃이 만나는 곳
+│  ├─ components/       Sidebar · Header · MainView ·
+│  │                    OrganizedView · AllFilesView · FileResultCard   FE2
+│  └─ api/              organizeApi · searchApi · preprocessApi         FE2
+├─ scripts/             setup · doctor · backend · dev (크로스플랫폼)
+├─ docs/decisions/      ADR — 왜 그렇게 정했는지
+└─ backend/                                                        BE1 + BE2
+   ├─ app/
+   │  ├─ api/routes/    health · mock · preprocess · search · organize ·
+   │  │                  indexing · feedback · apply · setup
+   │  ├─ contracts/     ai.py(BE1 · 팀 공용 계약) · api.py(BE2 · API 형태)
+   │  ├─ core/          config.py 설정 단일 출처 · warmup.py 웜업    BE1
+   │  ├─ extraction/    문서 텍스트 추출 (기획안 7종 형식)           BE2
+   │  ├─ fileops/       승인 후 파일 이동·개명 + 이력·undo (4주차)   BE1
+   │  ├─ llm/           추천 프롬프트 · 검증 + 1회 재시도            BE1
+   │  ├─ rag/           qwen3 임베딩 · ChromaDB 검색 · 분류          BE1
+   │  └─ setup/         첫 실행 준비 — 모델 확인·자동 다운로드 (5주차) BE1
+   ├─ run.py·server.spec  server.exe 엔트리·빌드 사양 (4주차)        BE1
+   ├─ scripts/          데이터셋 생성 · 임베딩 · 모델 비교           BE1
+   ├─ tests/            추천 파이프라인 테스트 (Ollama 불필요)       BE1
+   └─ mock/pdf/         추출 테스트용 실제 PDF 5건                  BE2
 ```
 
-### 타입 계약
+## API
 
-`apps/server/app/contracts/`의 Pydantic 모델이 **단일 기준**입니다.
-프론트엔드 타입은 손으로 쓰지 않고 여기서 생성합니다.
-
-```bash
-python scripts/generate_contracts.py    # → packages/contracts/index.ts
-```
-
-같은 스키마를 두 언어에 각각 손으로 쓰면 반드시 갈라집니다. 컴파일은 통과하는데
-런타임에 `undefined`가 나오고, 그 버그는 통합 단계에서야 발견됩니다.
-
-> 생성 스크립트는 계약이 안정되는 2주차에 붙입니다.
-> 현재 스키마와 미해결 논의는 [docs/data-contract.md](docs/data-contract.md).
-
-## 로드맵
-
-| | 마일스톤 | 결과물 |
-|:---:|---|---|
-| ✅ **W1** | 데이터셋 확보 · Mock 연동 | 폴더를 고르면 더미 데이터가 화면에 뜨는 프로토타입 |
-| 🔄 **W2** | 모델 테스트 · 시스템 뼈대 | Mock을 걷어내고 실제 LLM·DB로 검색과 추천이 동작 |
-| **W3** | 모델 최적화 · 파일 제어 | [승인]을 누르면 탐색기에서 실제로 파일이 이동 |
-| **W4** | 패키징 · 배포 | 개발 툴 없는 PC에서 `setup.exe` 하나로 설치 |
-
-주차별 상세 기록은 [docs/weekly/](docs/weekly/), 릴리스는
-[Releases](https://github.com/localfileai/localfile-ai/releases)에 있습니다.
-
-### MVP 범위 밖
-
-`스캔 PDF · OCR` · `HWP · DOCX · PPTX` · `Docker` · `클라우드 서버` ·
-`자동 파일 삭제` · `승인 없는 완전 자동 정리`
-
-마지막 두 개는 일정 문제가 아니라 방침입니다.
-
-## 팀
-
-| 파트 | 담당 | 소유 디렉터리 |
+| 엔드포인트 | 상태 | 담당 |
 |---|---|---|
-| **BE1** · AI/DB | [@InhyeokKang](https://github.com/InhyeokKang) | `app/rag` `app/llm` `experiments` |
-| **BE2** · 파일 시스템 | [@lauranofirst1](https://github.com/lauranofirst1) | `app/api` `app/extraction` `app/watcher` `app/fileops` `app/db` |
-| **FE1** · Electron 아키텍처 | [@hongham](https://github.com/hongham) | `apps/desktop/electron` |
-| **FE2** · UI/UX | [@0hj2](https://github.com/0hj2) | `apps/desktop/src` |
-| **AI** · 리서치/검증 | [@kimyunzoo](https://github.com/kimyunzoo) | `app/rag` `app/llm` `experiments` `docs/decisions` (BE1과 공동) |
+| `GET /health` | 실제 | BE2 |
+| `POST /preprocess/extract-first-page` | **실제** | BE2 |
+| `GET /search` · `GET /search/status` | **실제** — qwen3-embedding 임베딩 검색 | BE1 |
+| `POST /organize` · `GET /organize/status` | **실제** — RAG + LLM 분류·파일명 추천 (3주차) | BE1 |
+| `POST /index` · `GET /index/status` | **실제** — 사용자 폴더 색인. 색인 후 `/search`가 실파일 대상 (3주차) | BE1 |
+| `POST /feedback` · `GET /feedback/status` | **실제** — 승인 결과를 예시로 축적, 분류 맞춤화 (3주차) | BE1 |
+| `POST /apply` · `GET /apply/history` · `POST /apply/undo` | **실제** — 승인 후 파일 이동·개명. 충돌·경로·권한 검증 + 이력·되돌리기 (4주차) | BE1 (BE2 리뷰 필요) |
+| `GET /setup/status` · `POST /setup/models` | **실제** — 첫 실행 준비. 모델 보유 확인과 자동 다운로드 (5주차) | BE1 |
+| `GET /mock/search` · `/mock/rename` · `/mock/move` | Mock | BE2 |
+| `POST /mock/rename/apply` · `/mock/move/apply` | Mock (**파일 변경 없음** — 폴더 미선택 데모에서만 사용) | BE2 |
 
-리뷰어는 [CODEOWNERS](.github/CODEOWNERS)로 자동 지정됩니다.
+API 문서: http://127.0.0.1:8000/docs
 
-**AI 트랙은 두 명이 함께 봅니다.** 모델 선정, 임베딩, 프롬프트는 한 번 정하면
-되돌리기 비싸고 수치 해석이 틀리기 쉽습니다. 1주차에 무작위 라벨 데이터셋으로
-모델을 비교하고 잘못된 결론을 낸 적이 있어([ADR-0002](docs/decisions/0002-model-selection.md))
-교차 검증을 구조로 넣었습니다. 둘 중 한 명만 승인해도 병합됩니다.
+## 데이터 계약
 
-`app/contracts/`는 전원이 리뷰어로 지정됩니다. 다만 **GitHub이 강제하는 것은
-그중 1명의 승인**입니다. 전원 승인을 강제하는 기능은 없습니다.
-실제 합의는 [계약 변경 제안 이슈](.github/ISSUE_TEMPLATE/contract.yml)의
-체크박스로 관리합니다. 코드보다 이슈가 먼저입니다.
+`backend/app/contracts/ai.py`가 팀 공용 단일 기준입니다 (BE1).
 
-## 기여
+```powershell
+cd backend
+.venv\Scripts\python.exe app\contracts\ai.py     # 자체 테스트 32건
+```
 
-브랜치 전략, 커밋 규칙, PR 절차는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+> ⚠️ 아직 `app/contracts/api.py`(BE2, API 응답 형태)와 필드명이 다릅니다.
+> `recommended_filename` vs `recommended_name`, `reason` vs `summary` 등.
+> Mock을 실제 LLM으로 바꾸는 2주차에 하나로 합쳐야 합니다.
+
+---
+
+## 명령어
+
+| 명령 | 설명 |
+|---|---|
+| `npm run setup` | 클론 직후 1회 — 가상환경 + 의존성 + 데이터셋 |
+| `npm run doctor` | 환경 점검. 빠진 것과 다음 할 일 표시 |
+| `npm run dev` | Electron 앱 |
+| `npm run backend:dev` | FastAPI 서버 |
+| `npm run dataset` | 정답 데이터셋 1,000쌍 재생성 (약 2분) |
+| `npm run index` | ChromaDB 색인 (GPU 2분 / CPU 50분) |
+| `npm run backend:test` | 백엔드 단위 테스트 94건 (Ollama 불필요) |
+| `npm run backend:build-exe` | server 실행 파일 빌드 — Windows에서 실행 (4주차) |
+| `npm run dist:win` | **배포용 Setup.exe 생성** — 백엔드 exe + 프론트 + 설치본 (5주차) |
+| `npm run typecheck` · `lint` · `build` | 검사·빌드 |
+
+## 처음 상태로 되돌리기 (테스트용)
+
+첫 설치 흐름을 고친 뒤에는 "새 PC"가 필요하다. 내 PC를 새 PC처럼 만드는
+스크립트를 쓴다 (Windows).
+
+```powershell
+# 색인·설정만 초기화 (모델 유지 — 몇 초)
+powershell -ExecutionPolicy Bypass -File scripts\reset-windows.ps1 -Scope app
+
+# 모델만 전부 삭제 (Ollama 유지 — 모델 다운로드 단계부터 다시)
+powershell -ExecutionPolicy Bypass -File scripts\reset-windows.ps1 -Scope models
+
+# 진짜 새 PC 상태 (Ollama 제거 + 모델 + 앱 데이터 + 앱 제거)
+powershell -ExecutionPolicy Bypass -File scripts\reset-windows.ps1 -Scope all -RemoveApp
+```
+
+⚠️ `models`/`all`은 **이 PC의 Ollama 모델을 전부** 지운다 — 다른 프로젝트에서
+받아 둔 모델도 함께다. `ollama list`로 먼저 확인할 것.
+
+## 알려진 문제
+
+| 문제 | 상태 |
+|---|---|
+| **Node 16에서 빌드 실패** — `Cannot find native binding`(@tailwindcss/oxide) | Node 20+ 설치 후 `node_modules`·`package-lock.json` 지우고 `npm install`. npm 8의 optional dependency 버그로 네이티브 바이너리가 빠진다 |
+| **경로에 한글이 있으면** ChromaDB가 절대경로로 색인을 못 엶 | 상대경로로 우회. `npm run backend:dev`로 실행할 것 (배포본은 `run.py`가 자동 처리) |
+| **Drag & Drop** 동작 미확인 | 실패 시 앱에 빨간 배너 표시. 콘솔의 `[preload]` 로그 확인 필요 |
+| Ollama는 요청을 **직렬 처리** | 색인 중 검색은 수십 초 대기. 2주차에 큐 분리 필요 |
+
+## 남은 범위
+
+`SQLite` · `Watchdog 증분 인덱싱` (BE2 몫) · `setup.exe 패키징` (server.exe 빌드
+준비는 완료 — `npm run backend:build-exe`) · FE 로딩 UI (FE1&2 몫)
+
+`실제 파일 이동·이름 변경`(4주차)과 `LLM 추천 연동`(3주차)은 완료됐습니다 —
+폴더를 선택하면 실제 AI 추천이, 적용 버튼은 실제 파일 변경(`POST /apply`)이 동작합니다.
+주차별 기록: `docs/weekly/`
 
 ## 라이선스
 
-[MIT](LICENSE)
+**오픈소스가 아닙니다.** 이 저장소는 만든 사람들의 포트폴리오입니다.
+
+|  | |
+|---|---|
+| ✅ 할 수 있는 것 | 소스 읽기 · 내려받아 직접 빌드하고 실행해 보기(평가·학습 목적) · 인용하고 링크하기 |
+| ❌ 할 수 없는 것 | 복제·배포 · 수정본 공개 · 다른 저작물에 포함 · 상업적 이용 · 자기 작업물로 제출 |
+
+전문은 [LICENSE](LICENSE)에 있습니다. 채용 담당자나 학습자가 코드를 읽고
+직접 돌려 보는 데는 아무 제약이 없도록 열어 두었습니다.
+
+제3자 소프트웨어와 AI 모델은 각자의 라이선스를 따릅니다 —
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+결정 근거는 [ADR-0004](docs/decisions/0004-license-and-commercialization.md)에 있습니다.

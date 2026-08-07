@@ -1,0 +1,31 @@
+# Python 가상환경과 캐시
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 로컬 환경변수
+.env
+.env.*
+
+# OS/에디터 설정
+.DS_Store
+.vscode/
+.idea/
+
+# 빌드 결과물
+dist/
+build/
+*.egg-info/
+
+# AI/RAG 로컬 실험 산출물
+dataset/
+chroma_db/
+model_test_results.csv
+
+# 임베딩 심 서버용 로컬 모델 캐시 (scripts/ollama_embed_shim.py)
+.fastembed_cache/
+# 임시 CI/검증용 가상환경
+.venv-ci/
+# 검색 평가 산출물
+search_eval_results.csv
