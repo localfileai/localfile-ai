@@ -1,0 +1,43 @@
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/desktop/**"]
+  pull_request:
+    paths: ["apps/desktop/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 린트
+        run: npm run lint
+
+      - name: 타입 검사
+        run: npm run typecheck
+
+      - name: 렌더러 빌드
+        # vite build 까지만 합니다.
+        # electron-builder 패키징은 Windows 러너가 필요하므로 4주차에 release.yml 로 분리합니다.
+        run: npm run build

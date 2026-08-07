@@ -1,0 +1,66 @@
+# 리뷰어 자동 지정
+# 아래로 갈수록 우선합니다. 마지막에 매칭된 규칙 하나만 적용됩니다.
+#
+# 주의: 여기 적힌 계정은 저장소에 write 권한이 있어야 자동 지정이 동작합니다.
+#       조직 People 화면에서 4명 모두 Member 이상인지 확인하세요.
+
+# 기본값 — 아래 규칙에 걸리지 않는 모든 파일
+*                                   @InhyeokKang
+
+# ─────────────────────────────────────────────
+# FE1 · Electron 아키텍처
+# ─────────────────────────────────────────────
+/apps/desktop/electron/             @hongham
+/apps/desktop/electron-builder.yml  @hongham
+/apps/desktop/vite.config.ts        @hongham
+
+# ─────────────────────────────────────────────
+# FE2 · UI/UX
+# ─────────────────────────────────────────────
+/apps/desktop/src/                  @0hj2
+/apps/desktop/tailwind.config.ts    @0hj2
+/apps/desktop/index.html            @0hj2
+
+# 데스크톱 공통 설정은 FE 두 명 모두
+/apps/desktop/package.json          @hongham @0hj2
+/apps/desktop/tsconfig.json         @hongham @0hj2
+
+# ─────────────────────────────────────────────
+# BE1 · AI/DB  +  AI · 리서치/검증
+#
+# AI 트랙은 두 명이 함께 봅니다. 모델 선정, 임베딩, 프롬프트는 한 번 정하면
+# 되돌리기 비싸고 수치 해석이 틀리기 쉬운 영역이라 교차 검증이 필요합니다.
+# 둘 중 한 명만 승인해도 병합됩니다. 강인혁님이 자리를 비워도 막히지 않습니다.
+# ─────────────────────────────────────────────
+/apps/server/app/rag/               @InhyeokKang @kimyunzoo
+/apps/server/app/llm/               @InhyeokKang @kimyunzoo
+/apps/server/experiments/           @InhyeokKang @kimyunzoo
+
+# ─────────────────────────────────────────────
+# BE2 · 파일 시스템 / API
+# ─────────────────────────────────────────────
+/apps/server/app/api/               @lauranofirst1
+/apps/server/app/extraction/        @lauranofirst1
+/apps/server/app/watcher/           @lauranofirst1
+/apps/server/app/fileops/           @lauranofirst1
+/apps/server/app/db/                @lauranofirst1
+
+# ─────────────────────────────────────────────
+# 계약 — 한 명이 바꾸면 나머지가 깨집니다
+#
+# 주의: CODEOWNERS는 여기 적힌 전원을 리뷰어로 "요청"하지만, GitHub이 강제하는 건
+#       그중 최소 1명의 승인입니다. 전원 승인을 강제하는 기능은 없습니다.
+#       실제 전원 합의는 '계약 변경 제안' 이슈의 체크박스로 관리합니다.
+#       코드보다 이슈가 먼저입니다.
+# ─────────────────────────────────────────────
+/apps/server/app/contracts/         @InhyeokKang @lauranofirst1 @hongham @0hj2 @kimyunzoo
+/packages/contracts/                @InhyeokKang @lauranofirst1 @hongham @0hj2 @kimyunzoo
+
+# ─────────────────────────────────────────────
+# 인프라 · 문서
+# ─────────────────────────────────────────────
+/.github/                           @InhyeokKang
+
+# ADR은 결정의 근거를 남기는 문서입니다. 모델·RAG 관련 결정이 대부분이라
+# AI 트랙 두 명이 함께 봅니다.
+/docs/decisions/                    @InhyeokKang @kimyunzoo

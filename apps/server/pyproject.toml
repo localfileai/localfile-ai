@@ -1,0 +1,83 @@
+[project]
+name = "localfile-ai-server"
+version = "0.1.0"
+description = "LocalFile AI 백엔드 — 로컬 문서 인덱싱, 자연어 검색, 정리 추천"
+requires-python = ">=3.14"
+
+dependencies = [
+    "fastapi>=0.120",
+    "uvicorn[standard]>=0.51",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.14",
+]
+
+[project.optional-dependencies]
+# BE2 — 문서 추출 · 파일 감시
+files = [
+    "pymupdf>=1.26",
+    "watchdog>=6.0",
+]
+
+# BE1 — 벡터 검색 · LLM. onnxruntime을 끌고 와서 설치가 무겁습니다.
+# CI에서는 설치하지 않으므로, 이 패키지들에 의존하는 테스트에는
+# @pytest.mark.integration 을 붙이세요.
+ai = [
+    "chromadb>=1.5",
+    "requests>=2.34",
+]
+
+dev = [
+    "pytest>=8.4",
+    "httpx2",   # starlette TestClient 백엔드. httpx는 deprecated 경고가 납니다
+    "ruff>=0.14",
+]
+
+# ─────────────────────────────────────────────
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+extend-exclude = ["experiments/legacy"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort — import 정렬
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 실험 스크립트는 탐색용입니다. 프로덕션 코드와 같은 잣대를 들이대면
+# 실험을 안 하게 됩니다. 실제 버그를 잡는 F 규칙만 남기고 스타일은 봐줍니다.
+"experiments/**" = ["E501", "B", "SIM", "UP", "I"]
+"tests/**" = ["E501"]
+
+# 한국어 목업 데이터와 OpenAPI 예시 문자열. 코드가 아니라 데이터라서
+# 줄바꿈으로 쪼개면 오히려 읽기 나빠집니다.
+"app/api/routes/mock.py" = ["E501"]
+"app/contracts/api.py" = ["E501"]
+
+# scripts/ 는 `python scripts/foo.py` 로 직접 실행할 수 있어야 합니다.
+# 그러려면 import 전에 sys.path를 손봐야 하므로 E402는 불가피합니다.
+"scripts/**" = ["E402"]
+
+[tool.ruff.format]
+# 실험 코드는 포맷터를 돌리지 않습니다.
+# 1,500줄짜리 생성기를 재포맷하면 diff가 실제 변경을 덮어버립니다.
+exclude = ["experiments/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: Ollama·ChromaDB 등 실제 런타임이 필요한 테스트 (CI에서 제외됨)",
+]
