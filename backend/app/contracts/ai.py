@@ -24,6 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # 로컬 LLM 컨텍스트와 응답 속도를 고려한 첫 페이지 텍스트 상한.
 MAX_FIRST_PAGE_CHARS = 2000
+# 파일명 추천은 제목이 뒤쪽에 있는 문서도 다루도록 더 넓은 분석 표본을 사용한다.
+MAX_ANALYSIS_CHARS = 6000
 # RAG 프롬프트에 끼워 넣을 유사 예시 최대 개수.
 MAX_SIMILAR_EXAMPLES = 3
 # MVP 대상 확장자.
@@ -173,10 +175,17 @@ class FileSuggestion(Strict):
     @field_validator("recommended_filename")
     @classmethod
     def _safe_filename(cls, value: str) -> str:
-        if any(ch in value for ch in '\\/:*?"<>|'):
+        if any(ch in value for ch in '\\/:*?"<>|') or any(ord(ch) < 32 for ch in value):
             raise ValueError(f"파일명에 사용할 수 없는 문자가 있습니다: {value!r}")
+        if value != value.rstrip(" ."):
+            raise ValueError(f"파일명은 공백이나 점으로 끝날 수 없습니다: {value!r}")
         if "." not in value:
             raise ValueError(f"확장자가 없습니다: {value!r}")
+        stem = value.rsplit(".", 1)[0]
+        if stem.upper() in {"CON", "PRN", "AUX", "NUL",
+                            *(f"COM{i}" for i in range(1, 10)),
+                            *(f"LPT{i}" for i in range(1, 10))}:
+            raise ValueError(f"Windows 예약 파일명은 사용할 수 없습니다: {value!r}")
         return value
 
     @field_validator("recommended_folder")
@@ -258,6 +267,8 @@ class OrganizeResponse(Strict):
     suggestions: list[SuggestionItem] = Field(default_factory=list)
     failed: list[FailedFile] = Field(default_factory=list)
     elapsed_ms: int = Field(..., ge=0)
+    stages_ms: dict[str, int] = Field(default_factory=dict,
+                                      description="추출·임베딩·분류·RAG·LLM·검증 누적 시간")
 
 
 # =========================================================

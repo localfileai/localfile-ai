@@ -73,8 +73,12 @@ def generate(
     *,
     model: str = config.OLLAMA_GENERATE_MODEL,
     timeout: int = config.GENERATE_TIMEOUT_SEC,
+    num_predict: int | None = None,
 ) -> str:
     """JSON 형식을 강제해 한 번 생성한다. 실패는 LLMRequestError로 올린다."""
+    options = {"temperature": config.GENERATE_TEMPERATURE}
+    if num_predict is not None:
+        options["num_predict"] = num_predict
     payload = {
         "model": model,
         "system": system,
@@ -82,7 +86,7 @@ def generate(
         # 실험(test_models.py)과 같은 조건이어야 ADR-0002 수치와 비교할 수 있다.
         "format": "json",
         "stream": False,
-        "options": {"temperature": config.GENERATE_TEMPERATURE},
+        "options": options,
         "keep_alive": config.OLLAMA_KEEP_ALIVE,
     }
     try:

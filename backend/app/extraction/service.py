@@ -40,6 +40,7 @@ SUPPORTED_TEXT_EXTENSIONS = {".pdf", ".docx", ".doc", ".pptx", ".ppt", ".hwpx", 
 
 # 구형 OLE 포맷 스트림을 읽는 상한. 첫 페이지 텍스트는 이 안에 있다.
 LEGACY_STREAM_CAP = 4 * 1024 * 1024
+MAX_PDF_ANALYSIS_PAGES = 5
 
 # zip + XML 구조라서 같은 방식으로 읽는 포맷들.
 # 각 값은 본문이 들어 있는 zip 내부 경로의 접두사입니다.
@@ -109,6 +110,24 @@ def truncate_text(text: str, max_chars: int) -> str:
     return truncated.rstrip()
 
 
+def select_analysis_text(text: str, max_chars: int) -> str:
+    """긴 문서의 앞·중간·뒤를 골고루 담아 뒤쪽 핵심 정보 손실을 줄인다."""
+    if len(text) <= max_chars:
+        return text
+    marker = "\n… [중간 생략] …\n"
+    if max_chars <= len(marker) * 2 + 3:
+        return text[:max_chars]
+    budget = max_chars - len(marker) * 2
+    head = budget // 2
+    middle = budget // 4
+    tail = budget - head - middle
+    midpoint = len(text) // 2
+    middle_start = max(0, midpoint - middle // 2)
+    return (text[:head].rstrip() + marker
+            + text[middle_start:middle_start + middle].strip() + marker
+            + text[-tail:].lstrip())
+
+
 def extract_first_page_text(file_path: str) -> str:
     """지원 문서에서 추출할 텍스트를 반환합니다."""
     path = Path(file_path).expanduser()
@@ -141,7 +160,7 @@ def extract_first_page_text(file_path: str) -> str:
 # ---------------------------------------------------------------------
 
 def _extract_pdf_text(path: Path) -> str:
-    """PDF 첫 페이지의 텍스트.
+    """PDF 앞쪽 최대 5페이지의 텍스트.
 
     PDFium(pypdfium2, BSD-3-Clause/Apache-2.0)을 씁니다. 예전에는 PyMuPDF였는데
     AGPL-3.0이라 설치본 배포와 충돌했습니다 (ADR-0004).
@@ -162,15 +181,16 @@ def _extract_pdf_text(path: Path) -> str:
     try:
         if len(document) == 0:
             return ""
-        page = document[0]
-        text_page = page.get_textpage()
-        try:
-            # PDFium은 줄바꿈을 CRLF로 돌려줍니다. 뒤에 오는 단계(임베딩·길이
-            # 제한·화면 표시)가 예전과 똑같이 동작하도록 LF로 맞춥니다.
-            return text_page.get_text_range().replace("\r\n", "\n").strip()
-        finally:
-            text_page.close()
-            page.close()
+        parts = []
+        for index in range(min(len(document), MAX_PDF_ANALYSIS_PAGES)):
+            page = document[index]
+            text_page = page.get_textpage()
+            try:
+                parts.append(text_page.get_text_range().replace("\r\n", "\n").strip())
+            finally:
+                text_page.close()
+                page.close()
+        return "\n".join(part for part in parts if part)
     finally:
         # 파일 핸들을 반드시 닫습니다. Windows에서는 열린 핸들이 남으면
         # 그 파일의 이름 변경·이동(POST /apply)이 통째로 실패합니다.
@@ -486,13 +506,13 @@ def extract_from_path(target_path: str, max_chars: int = 1000) -> List[Dict[str,
             # 깨진 추출(암호화·비표준 인코딩)은 여기서 걸러 분류·색인 오염을 막는다.
             if normalized_text.strip() and readable_ratio(normalized_text) < MIN_READABLE_RATIO:
                 raise ValueError("garbled_text: 추출된 텍스트가 깨져 있습니다 (암호화·비표준 인코딩 가능성)")
-            preview_text = truncate_text(normalized_text, max_chars)
+            preview_text = select_analysis_text(normalized_text, max_chars)
             results.append({
                 "path": str(file_path),
                 "name": file_path.name,
                 "extension": file_path.suffix.lower(),
-                "raw_text": truncate_text(raw_text, max_chars),
-                "normalized_text": truncate_text(normalized_text, max_chars),
+                "raw_text": select_analysis_text(raw_text, max_chars),
+                "normalized_text": select_analysis_text(normalized_text, max_chars),
                 "preview_text": preview_text,
                 "error": "",
             })

@@ -126,11 +126,15 @@ def test_추출_실패_파일은_failed로_분리(client, happy_path, monkeypatc
 
 
 def test_slim_모드는_자동_분류를_쓴다(client, happy_path, monkeypatch):
+    options = []
+
+    def generate(system, prompt, model=None, **kw):
+        options.append(kw)
+        return json.dumps({"recommended_filename": "데이터베이스_정규화_과제_2025-1"},
+                          ensure_ascii=False)
+
     monkeypatch.setattr(
-        organize_route.llm_client, "generate",
-        lambda system, prompt, model=None, **kw:
-            json.dumps({"recommended_filename": "데이터베이스_정규화_과제_2025-1"},
-                       ensure_ascii=False))
+        organize_route.llm_client, "generate", generate)
     response = client.post("/organize", json={"path": "C:/a", "mode": "slim"})
     body = OrganizeResponse.model_validate(response.json())
     assert body.success_count == 1
@@ -138,6 +142,7 @@ def test_slim_모드는_자동_분류를_쓴다(client, happy_path, monkeypatch)
     assert suggestion.category is Category.ASSIGNMENT   # 자동 분류 결과
     assert suggestion.recommended_filename.endswith(".pdf")  # 확장자 보정
     assert "분류" in suggestion.reason
+    assert options[0]["num_predict"] == organize_route.config.SLIM_NUM_PREDICT
 
 
 def test_slim_모드에서_임베딩이_안_되면_파일은_실패_처리(client, happy_path, monkeypatch):

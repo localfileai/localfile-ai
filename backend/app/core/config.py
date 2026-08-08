@@ -98,6 +98,8 @@ AUTO_SLIM_THRESHOLD_SEC = float(os.getenv("LOCAL_FILE_AI_AUTO_SLIM_THRESHOLD", "
 
 # LLM 응답 생성 온도. 실험(test_models.py)과 런타임이 같아야 수치를 비교할 수 있다.
 GENERATE_TEMPERATURE = float(os.getenv("LOCAL_FILE_AI_TEMPERATURE", "0.1"))
+# slim은 subject/topic/semester JSON만 필요하다. 정상 한국어 JSON에는 충분한 상한이다.
+SLIM_NUM_PREDICT = int(os.getenv("LOCAL_FILE_AI_SLIM_NUM_PREDICT", "64"))
 
 # 사용자 폴더 색인 시 임베딩에 넣을 텍스트 상한(글자).
 # 임베딩 시간은 글자 수에 비례하므로 이 값이 저사양 색인 속도를 직접 좌우한다.

@@ -40,10 +40,22 @@ def _warm_up() -> None:
         from ..rag import classify
 
         classify._label_vectors()
+
+        # 4) slim 생성 모델도 한 번 올려 첫 파일명 추천의 cold start를 제거한다.
+        from ..llm import client
+        from . import config
+
+        ready, _ = client.check_generate_model(config.OLLAMA_GENERATE_MODEL_SLIM)
+        if ready:
+            client.generate(
+                "JSON만 출력: {\"ok\":true}", "준비",
+                model=config.OLLAMA_GENERATE_MODEL_SLIM,
+                num_predict=8, timeout=60)
     except Exception as exc:
         logger.info("웜업 건너뜀 (Ollama/색인 미준비 — 서버 동작에는 지장 없음): %s", exc)
         return
-    logger.info("웜업 완료: 임베딩 모델·라벨 좌표·색인 준비 (%.1fs)", time.perf_counter() - started)
+    logger.info("웜업 완료: 임베딩·생성 모델·라벨 좌표·색인 준비 (%.1fs)",
+                time.perf_counter() - started)
 
 
 def start_warmup_thread() -> threading.Thread:

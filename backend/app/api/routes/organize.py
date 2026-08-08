@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from ...contracts.ai import (
-    MAX_FIRST_PAGE_CHARS,
+    MAX_ANALYSIS_CHARS,
     FailedFile,
     FileRef,
     OrganizeRequest,
@@ -111,6 +111,8 @@ async def organize_status():
 async def organize(request: OrganizeRequest) -> OrganizeResponse:
     """경로의 문서를 분석해 분류·파일명 추천을 만든다. 파일은 변경하지 않는다."""
     started = time.perf_counter()
+    stage_seconds = {name: 0.0 for name in
+                     ("extract", "embedding", "classify", "rag", "llm")}
 
     mode = _resolve_mode(request.mode)
     model = (config.OLLAMA_GENERATE_MODEL_SLIM if mode == "slim"
@@ -121,11 +123,22 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
         raise HTTPException(status_code=503, detail=detail)
 
     try:
-        extracted = extract_from_path(request.path, max_chars=MAX_FIRST_PAGE_CHARS)
+        stage_started = time.perf_counter()
+        extracted = extract_from_path(request.path, max_chars=MAX_ANALYSIS_CHARS)
+        stage_seconds["extract"] += time.perf_counter() - stage_started
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    generate_fn = partial(llm_client.generate, model=model)
+    base_generate = partial(
+        llm_client.generate, model=model,
+        num_predict=(config.SLIM_NUM_PREDICT if mode == "slim" else None))
+
+    def generate_fn(system: str, prompt: str) -> str:
+        stage_started = time.perf_counter()
+        try:
+            return base_generate(system, prompt)
+        finally:
+            stage_seconds["llm"] += time.perf_counter() - stage_started
 
     suggestions: list[SuggestionItem] = []
     failed: list[FailedFile] = []
@@ -152,23 +165,31 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
         # LLM 직접 분류(50%)보다 라벨 정의문 zero-shot(82.8%)이 정확하다.
         vector = None
         try:
+            stage_started = time.perf_counter()
             vector = classify.embed_text(text)
         except Exception as exc:
             rag_unavailable_reason = f"임베딩 실패: {exc}"
+        finally:
+            stage_seconds["embedding"] += time.perf_counter() - stage_started
 
         decision = None
         if vector is not None:
+            stage_started = time.perf_counter()
             decision = classify.classify_vector(vector, feedback_collection())
+            stage_seconds["classify"] += time.perf_counter() - stage_started
 
         context = RagContext()
         if vector is not None and request.use_rag:
             try:
+                stage_started = time.perf_counter()
                 context = retrieve_context(
                     embedding=vector, exclude_name=file_ref.name)
             except SearchUnavailable as exc:
                 rag_unavailable_reason = str(exc)
             except Exception as exc:
                 rag_unavailable_reason = f"RAG 조회 실패: {exc}"
+            finally:
+                stage_seconds["rag"] += time.perf_counter() - stage_started
 
         examples = context.examples if request.use_rag else []
 
@@ -211,10 +232,14 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
         else:
             suggestions.append(SuggestionItem(current=file_ref, suggestion=result.suggestion))
 
+    elapsed = time.perf_counter() - started
+    measured = sum(stage_seconds.values())
+    stages_ms = {name: int(seconds * 1000) for name, seconds in stage_seconds.items()}
+    stages_ms["other"] = max(0, int((elapsed - measured) * 1000))
     return OrganizeResponse(
         total_files=len(extracted[: request.max_files]),
         success_count=len(suggestions),
         suggestions=suggestions,
         failed=failed,
-        elapsed_ms=int((time.perf_counter() - started) * 1000),
+        elapsed_ms=int(elapsed * 1000), stages_ms=stages_ms,
     )
