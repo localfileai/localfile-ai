@@ -4,9 +4,10 @@
 경로 탈출, 충돌, 권한 에러 격리, dry_run 무변경, undo 역순 복원.
 """
 
-import shutil
+from pathlib import Path
 
 import pytest
+import errno
 
 from app.contracts.ai import ApplyItem, ApplyRequest
 from app.fileops import apply as fileops
@@ -52,7 +53,7 @@ class TestApply:
         assert not (root / "강의자료").exists()          # 폴더도 안 만든다
         assert result.history_id == ""                   # 이력도 없다
 
-    def test_대상에_같은_이름이_있으면_건너뛴다(self, root, history_dir):
+    def test_대상에_같은_이름이_있으면_번호를_붙여_이동한다(self, root, history_dir):
         target_dir = root / "과제"
         target_dir.mkdir()
         (target_dir / "hw3.docx").write_text("기존 파일", encoding="utf-8")
@@ -60,10 +61,83 @@ class TestApply:
         result = fileops.apply_changes(str(root), [
             item(root / "hw3.docx", "과제", "hw3.docx")])
 
-        assert result.items[0].status == "skipped"
-        assert "conflict" in result.items[0].reason
+        assert result.items[0].status == "moved"
+        assert "conflict_renamed" in result.items[0].reason
+        assert result.items[0].target_path.endswith("hw3 (1).docx")
         assert (target_dir / "hw3.docx").read_text(encoding="utf-8") == "기존 파일"
-        assert (root / "hw3.docx").exists()  # 원본 유지
+        assert (target_dir / "hw3 (1).docx").read_text(encoding="utf-8") == "과제"
+        assert not (root / "hw3.docx").exists()
+
+    def test_여러_충돌은_다음_번호를_찾는다(self, root, history_dir):
+        target_dir = root / "과제"
+        target_dir.mkdir()
+        (target_dir / "과제.docx").write_text("0", encoding="utf-8")
+        (target_dir / "과제 (1).docx").write_text("1", encoding="utf-8")
+
+        result = fileops.apply_changes(str(root), [
+            item(root / "hw3.docx", "과제", "과제.docx")])
+
+        assert result.items[0].target_path.endswith("과제 (2).docx")
+        assert (target_dir / "과제 (2).docx").is_file()
+
+    def test_dry_run도_같은_요청의_대상_이름을_각각_예약한다(self, root, history_dir):
+        result = fileops.apply_changes(str(root), [
+            item(root / "os_lecture.pdf", "정리", "문서.pdf"),
+            item(root / "os_lecture.pdf", "정리", "문서.pdf"),
+        ], dry_run=True)
+
+        assert [entry.status for entry in result.items] == ["valid", "valid"]
+        assert result.items[0].target_path.endswith("문서.pdf")
+        assert result.items[1].target_path.endswith("문서 (1).pdf")
+        assert "conflict_renamed" in result.items[1].reason
+        assert not (root / "정리").exists()
+
+    def test_긴_파일명도_번호를_포함해_150자_이하다(self, root, history_dir):
+        target_dir = root / "과제"
+        target_dir.mkdir()
+        long_name = f"{'가' * 145}.docx"  # 확장자 포함 150자
+        (target_dir / long_name).write_text("기존", encoding="utf-8")
+
+        result = fileops.apply_changes(str(root), [
+            item(root / "hw3.docx", "과제", long_name)])
+
+        chosen = Path(result.items[0].target_path).name
+        assert len(chosen) <= 150
+        assert chosen.endswith(" (1).docx")
+        assert (target_dir / long_name).read_text(encoding="utf-8") == "기존"
+
+    def test_외부_프로세스가_첫_후보를_선점하면_다음_번호로_재시도한다(
+            self, root, history_dir, monkeypatch):
+        original = fileops._atomic_move_no_replace
+        calls = []
+
+        def race_once(source, target):
+            calls.append(target.name)
+            if len(calls) == 1:
+                raise FileExistsError("외부 프로세스가 먼저 생성")
+            return original(source, target)
+
+        monkeypatch.setattr(fileops, "_atomic_move_no_replace", race_once)
+        result = fileops.apply_changes(str(root), [
+            item(root / "hw3.docx", "과제", "과제.docx")])
+
+        assert calls == ["과제.docx", "과제 (1).docx"]
+        assert result.items[0].status == "moved"
+        assert result.items[0].target_path.endswith("과제 (1).docx")
+
+    def test_hard_link_미지원은_안전한_복구_안내를_준다(
+            self, root, history_dir, monkeypatch):
+        def unsupported(source, target):
+            raise OSError(errno.EXDEV, "cross-device link")
+
+        monkeypatch.setattr(fileops, "_atomic_move_no_replace", unsupported)
+        result = fileops.apply_changes(str(root), [
+            item(root / "hw3.docx", "과제", "과제.docx")])
+
+        assert result.items[0].status == "failed"
+        assert "atomic_move_unsupported" in result.items[0].reason
+        assert "같은 로컬 드라이브" in result.items[0].reason
+        assert (root / "hw3.docx").exists()
 
     def test_root_밖으로_나가는_경로는_실패한다(self, root, history_dir):
         # 계약 검증(FileSuggestion)과 별개로 실행 계층도 자체 방어해야 한다.
@@ -93,14 +167,14 @@ class TestApply:
     def test_권한_에러는_그_항목만_실패하고_나머지는_진행된다(self, root, history_dir,
                                                               monkeypatch):
         # 기획안 4주차 '파일 권한 에러 방지' — Windows에서 열려 있는 파일 상황 재현
-        original_move = shutil.move
+        original_link = fileops._atomic_move_no_replace
 
         def move_with_lock(src, dst):
-            if "hw3" in src:
+            if "hw3" in str(src):
                 raise PermissionError("파일이 다른 프로세스에서 사용 중입니다")
-            return original_move(src, dst)
+            return original_link(src, dst)
 
-        monkeypatch.setattr(fileops.shutil, "move", move_with_lock)
+        monkeypatch.setattr(fileops, "_atomic_move_no_replace", move_with_lock)
         result = fileops.apply_changes(str(root), [
             item(root / "hw3.docx", "과제", "hw3.docx"),
             item(root / "os_lecture.pdf", "강의자료", "os_lecture.pdf")])

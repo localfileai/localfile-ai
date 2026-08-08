@@ -9,7 +9,8 @@ import pytest
 
 from app.contracts.ai import Category
 from app.llm.client import LLMRequestError
-from app.llm.suggest import autofix_extension, suggest_full, suggest_slim
+from app.llm.suggest import (autofix_extension, build_filename, suggest_full,
+                             suggest_slim)
 
 VALID_FULL = json.dumps({
     "category": "assignment",
@@ -64,6 +65,21 @@ class TestAutofixExtension:
         raw, did_fix = autofix_extension("깨진 응답 {", "pdf")
         assert raw == "깨진 응답 {"
         assert not did_fix
+
+    def test_잘못된_확장자는_원본으로_교체한다(self):
+        raw = json.dumps({"recommended_filename": "보고서.docx"})
+        fixed, did_fix = autofix_extension(raw, "pdf")
+        assert did_fix
+        assert json.loads(fixed)["recommended_filename"] == "보고서.pdf"
+
+    def test_구조화_요소를_안전하게_조립한다(self):
+        payload = {"subject": "데이터베이스", "topic": "정규화/함수 종속",
+                   "document_type": "강의자료", "semester": "2026-1"}
+        assert build_filename(payload, "pdf", Category.ASSIGNMENT) == \
+            "데이터베이스_정규화_함수_종속_과제_2026-1.pdf"
+
+    def test_Windows_예약어는_회피한다(self):
+        assert build_filename({"topic": "CON"}, "pdf") == "문서_CON.pdf"
 
 
 class TestSuggestFull:
@@ -178,6 +194,97 @@ class TestSuggestSlim:
         assert "라벨 정의문" in result.suggestion.reason  # 분류 방식이 근거에 표시된다
         assert not result.retried
 
+    def test_구조화_응답은_분류기_유형으로_파일명을_조립한다(self):
+        raw = json.dumps({"subject": "데이터베이스", "topic": "정규화",
+                          "document_type": "보고서", "semester": "2026-1"},
+                         ensure_ascii=False)
+        generate = make_generate([raw])
+        result = suggest_slim(generate, **COMMON, **self.SLIM_ARGS)
+        assert result.suggestion is not None
+        assert result.suggestion.recommended_filename == \
+            "데이터베이스_정규화_강의자료.pdf"
+
+    def test_본문에_없는_subject_topic은_파일명에서_제외한다(self):
+        raw = json.dumps({"subject": "법학", "topic": "형법",
+                          "document_type": "과제", "semester": "2025-2"},
+                         ensure_ascii=False)
+        generate = make_generate([raw])
+        result = suggest_slim(generate, **COMMON, **self.SLIM_ARGS)
+        assert result.suggestion is not None
+        assert result.suggestion.recommended_filename == "강의자료.pdf"
+
+    def test_일반어_과제만_맞아도_환각_topic은_제외한다(self):
+        raw = json.dumps({"subject": "인공지능", "topic": "머신러닝 과제",
+                          "document_type": "과제", "semester": "2026-1"},
+                         ensure_ascii=False)
+        generate = make_generate([raw])
+        result = suggest_slim(
+            generate, **{**COMMON, "first_page_text":
+                         "인공지능 트랜스포머 과제 2026년 1학기"},
+            **self.SLIM_ARGS)
+        assert result.suggestion is not None
+        assert "머신러닝" not in result.suggestion.recommended_filename
+
+    def test_학기는_LLM_추측보다_본문_근거를_따른다(self):
+        raw = json.dumps({"subject": "데이터베이스", "topic": "정규화",
+                          "document_type": "과제", "semester": "2025-2"},
+                         ensure_ascii=False)
+        generate = make_generate([raw])
+        result = suggest_slim(
+            generate, **{**COMMON, "first_page_text":
+                         "데이터베이스 정규화 과제, 2026년 1학기 제출"},
+            **self.SLIM_ARGS)
+        assert result.suggestion is not None
+        assert result.suggestion.recommended_filename.endswith("_2026-1.pdf")
+
+    def test_유사_예시의_AI_표기_관례를_적용한다(self):
+        from app.contracts.ai import RetrievedExample
+        raw = json.dumps({"subject": "인공지능", "topic": "딥러닝",
+                          "document_type": "과제", "semester": "2026-1"},
+                         ensure_ascii=False)
+        examples = [RetrievedExample(
+            file_name="AI_머신러닝_과제_2025-2.pdf", category=Category.ASSIGNMENT,
+            first_page_text="머신러닝", score=0.9)]
+        generate = make_generate([raw])
+        result = suggest_slim(
+            generate, **{**COMMON, "first_page_text":
+                         "인공지능 딥러닝 과제, 2026년 1학기"},
+            examples=examples, **self.SLIM_ARGS)
+        assert result.suggestion is not None
+        assert result.suggestion.recommended_filename == "AI_딥러닝_강의자료_2026-1.pdf"
+
+    def test_새_상태명과_구버전_접근자가_같은_값이다(self):
+        raw = json.dumps({"subject": "데이터베이스", "topic": "정규화",
+                          "document_type": "강의자료", "semester": ""},
+                         ensure_ascii=False)
+        result = suggest_slim(make_generate([raw]), **COMMON, **self.SLIM_ARGS)
+        assert result.filename_normalized
+        assert result.extension_fixed == result.filename_normalized
+
+    def test_subject에_합쳐진_검증_가능한_topic을_복구한다(self):
+        raw = json.dumps({"subject": "인공지능 트랜스포머", "topic": "",
+                          "semester": "2026-1"}, ensure_ascii=False)
+        result = suggest_slim(
+            make_generate([raw]),
+            **{**COMMON, "first_page_text": "인공지능 트랜스포머 과제 2026년 1학기"},
+            **self.SLIM_ARGS)
+        assert result.suggestion.recommended_filename == \
+            "인공지능_트랜스포머_강의자료_2026-1.pdf"
+
+    def test_예시에서_구분자와_영문_대소문자를_일반화한다(self):
+        from app.contracts.ai import RetrievedExample
+        raw = json.dumps({"subject": "tsn", "topic": "스케줄링",
+                          "semester": "2026-1"}, ensure_ascii=False)
+        examples = [RetrievedExample(
+            file_name="TSN-네트워크-과제-2025.2.pdf", category=Category.ASSIGNMENT,
+            first_page_text="TSN", score=.9)]
+        result = suggest_slim(
+            make_generate([raw]),
+            **{**COMMON, "first_page_text": "TSN 스케줄링 과제 2026년 1학기"},
+            examples=examples, **self.SLIM_ARGS)
+        assert result.suggestion.recommended_filename == \
+            "TSN-스케줄링-강의자료-2026-1.pdf"
+
     def test_etc_분류도_계약을_통과한다(self):
         raw = json.dumps({"recommended_filename": "무선이어폰_사용설명서.pdf"}, ensure_ascii=False)
         generate = make_generate([raw])
@@ -197,10 +304,12 @@ class TestSuggestSlim:
         assert result.retried
         assert "recommended_filename" in generate.calls[1]["prompt"]
 
-    def test_slim_시스템_프롬프트는_파일명만_요구(self):
+    def test_slim_시스템_프롬프트는_구성요소만_요구(self):
         raw = json.dumps({"recommended_filename": "a_b_c_2025-1.pdf"})
         generate = make_generate([raw])
         suggest_slim(generate, **COMMON, **self.SLIM_ARGS)
         system = generate.calls[0]["system"]
-        assert "recommended_filename" in system
+        assert all(key in system for key in ("subject", "topic", "semester"))
+        assert '"document_type"' not in system  # JSON 출력 키로 요구하지 않는다
+        assert "recommended_filename" not in system
         assert "confidence" not in system  # 출력 토큰 절감이 목적이다

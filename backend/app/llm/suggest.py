@@ -15,6 +15,7 @@ LLM 호출은 `generate_fn(system, prompt) -> str`로 주입받는다.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Callable
 
@@ -26,12 +27,172 @@ from .prompts import (
     SYSTEM_PROMPT_FULL,
     SYSTEM_PROMPT_SLIM,
     build_retry_prompt,
+    build_slim_user_prompt,
     build_user_prompt,
     format_violations,
 )
 
 # 재시도는 정확히 1회다. CPU에서 호출당 수십 초라 더 늘리면 대기가 감당되지 않는다.
 GenerateFn = Callable[[str, str], str]
+
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+_WINDOWS_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+_CATEGORY_DOCUMENT_TYPE = {
+    Category.LECTURE: "강의자료", Category.ASSIGNMENT: "과제",
+    Category.REPORT: "보고서", Category.REFERENCE: "참고자료",
+    Category.PROJECT: "프로젝트", Category.EXAM_PREP: "시험정리",
+    Category.CAREER: "취업문서", Category.ADMIN: "행정문서",
+    Category.PERSONAL: "개인문서", Category.ETC: "기타",
+}
+_TERM_GROUPS = (
+    ("인공지능", "AI"), ("운영체제", "OS"), ("데이터베이스", "DB"),
+    ("컴퓨터네트워크", "네트워크", "NETWORK"),
+)
+_SEMANTIC_STOPWORDS = {
+    "문서", "자료", "최종", "과제", "강의자료", "보고서", "참고자료",
+    "프로젝트", "시험정리", "취업문서", "행정문서", "개인문서", "기타",
+}
+
+
+def _clean_component(value: object) -> str:
+    """LLM 구성요소를 파일명에 안전한 한 구간으로 정규화한다."""
+    text = _INVALID_FILENAME_CHARS.sub(" ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip(" ._")
+    return text.replace(" ", "_")
+
+
+def _flat_evidence(text: str) -> str:
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", text).lower()
+
+
+def _supported_component(value: str, evidence: str) -> str:
+    """subject/topic의 중요한 토큰이 실제 문서에 있을 때만 유지한다."""
+    cleaned = _clean_component(value)
+    tokens = [token for token in cleaned.split("_")
+              if len(token) >= 2 and token not in _SEMANTIC_STOPWORDS]
+    return cleaned if tokens and all(_flat_evidence(token) in evidence for token in tokens) else ""
+
+
+def _document_semester(text: str) -> str:
+    match = re.search(r"(20\d{2})\s*(?:[-./년]\s*)?([12])\s*(?:학기)?", text)
+    return f"{match.group(1)}-{match.group(2)}" if match else ""
+
+
+def _preferred_spelling(value: str, examples: list[RetrievedExample] | None) -> str:
+    """승인·유사 파일명에 반복된 한글/영문 표기를 현재 구성요소에 적용한다."""
+    if not value or not examples:
+        return value
+    # 임의의 영문 용어도 사용자가 승인한 대소문자를 그대로 따른다.
+    for example in examples:
+        for token in re.split(r"[_\s.()\-]+", example.file_name):
+            if token.lower() == value.lower():
+                return token
+    lowered = value.lower()
+    for group in _TERM_GROUPS:
+        if lowered not in {term.lower() for term in group}:
+            continue
+        for example in examples:
+            tokens = re.split(r"[_\s.()\-]+", example.file_name)
+            for token in tokens:
+                if token.lower() in {term.lower() for term in group}:
+                    return token
+    return value
+
+
+def _preferred_separator(examples: list[RetrievedExample] | None) -> str:
+    """예시 파일명 다수에서 사용한 `_`/`-` 구분자를 선택한다."""
+    if not examples:
+        return "_"
+    underscores = sum(example.file_name.count("_") for example in examples)
+    hyphens = sum(example.file_name.rsplit(".", 1)[0].count("-") for example in examples)
+    return "-" if hyphens > underscores else "_"
+
+
+def _split_known_subject(value: str, evidence: str) -> tuple[str, str]:
+    """`인공지능 트랜스포머`처럼 합쳐진 subject에서 검증 가능한 topic을 복구한다."""
+    cleaned = _clean_component(value)
+    lowered = cleaned.lower()
+    for group in _TERM_GROUPS:
+        for term in group:
+            prefix = f"{term.lower()}_"
+            if lowered.startswith(prefix):
+                topic = cleaned[len(term) + 1:]
+                if _supported_component(topic, evidence):
+                    return term, topic
+    return cleaned, ""
+
+
+def build_filename(payload: dict, extension: str,
+                   category: Category | None = None, *,
+                   evidence_text: str = "",
+                   examples: list[RetrievedExample] | None = None) -> str:
+    """구조화된 LLM 응답을 결정론적으로 조립한다. 구형 파일명 응답도 호환한다."""
+    normalized_ext = extension.lower().lstrip(".")
+    component_keys = ("subject", "topic", "document_type", "semester")
+    has_components = any(key in payload for key in component_keys)
+
+    if has_components:
+        values = {key: _clean_component(payload.get(key)) for key in component_keys}
+        if evidence_text:
+            evidence = _flat_evidence(evidence_text)
+            split_subject, recovered_topic = _split_known_subject(
+                values["subject"], evidence)
+            values["subject"] = split_subject
+            values["subject"] = _supported_component(values["subject"], evidence)
+            values["topic"] = _supported_component(values["topic"], evidence)
+            if not values["topic"] and recovered_topic:
+                values["topic"] = recovered_topic
+            # 모델이 추측한 학기 대신 본문에서 직접 찾은 학기만 사용한다.
+            values["semester"] = _document_semester(evidence_text)
+        values["subject"] = _preferred_spelling(values["subject"], examples)
+        values["topic"] = _preferred_spelling(values["topic"], examples)
+        if category is not None:
+            # 분류기가 LLM보다 정확하므로 문서 유형도 최종 분류와 일치시킨다.
+            values["document_type"] = _CATEGORY_DOCUMENT_TYPE[category]
+        separator = _preferred_separator(examples)
+        stem = separator.join(value for value in values.values() if value)
+    else:
+        legacy = str(payload.get("recommended_filename") or "")
+        if legacy.lower().endswith(f".{normalized_ext}"):
+            # 정상인 구형 응답은 대소문자를 포함해 그대로 둔다.
+            return legacy
+        # 기존 확장자가 무엇이든 한 번 제거하고 원본 확장자로 정확히 교체한다.
+        # 금지 문자는 여기서 숨기지 않고 Pydantic 검증과 재시도가 잡게 한다.
+        stem = legacy.rsplit(".", 1)[0] if "." in legacy else legacy
+
+    if not stem:
+        return ""
+    if stem.upper() in _WINDOWS_RESERVED:
+        stem = f"문서_{stem}"
+    # FileSuggestion의 150자 계약 안에서 확장자 공간을 먼저 확보한다.
+    stem = stem[:max(1, 149 - len(normalized_ext))].rstrip(" ._")
+    return f"{stem}.{normalized_ext}"
+
+
+def _prepare_payload(raw: str, extension: str,
+                     category: Category | None = None, *,
+                     evidence_text: str = "",
+                     examples: list[RetrievedExample] | None = None) -> tuple[str, bool]:
+    """구조화/구형 응답을 최종 FileSuggestion 계약 형태로 바꾼다."""
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return raw, False
+    if not isinstance(payload, dict):
+        return raw, False
+
+    before = payload.get("recommended_filename")
+    filename = build_filename(payload, extension, category,
+                              evidence_text=evidence_text, examples=examples)
+    for key in ("subject", "topic", "document_type", "semester"):
+        payload.pop(key, None)
+    payload["recommended_filename"] = filename
+    changed = before != filename
+    return json.dumps(payload, ensure_ascii=False), changed
 
 
 @dataclass
@@ -40,8 +201,13 @@ class SuggestResult:
 
     suggestion: FileSuggestion | None
     retried: bool = False
-    extension_fixed: bool = False
+    filename_normalized: bool = False
     error: str = ""
+
+    @property
+    def extension_fixed(self) -> bool:
+        """구버전 호출자 호환. 새 코드는 filename_normalized를 사용한다."""
+        return self.filename_normalized
 
 
 def autofix_extension(raw: str, extension: str) -> tuple[str, bool]:
@@ -50,21 +216,7 @@ def autofix_extension(raw: str, extension: str) -> tuple[str, bool]:
     ADR-0002 "⚠️ 필수 후속 조치" 그 자체다. 프롬프트로 고칠 문제가 아니라
     백엔드가 아는 값을 채우는 후처리가 맞다는 결론이 1주차에 났다.
     """
-    try:
-        payload = json.loads(raw)
-    except Exception:
-        return raw, False
-
-    if not isinstance(payload, dict):
-        return raw, False
-
-    name = payload.get("recommended_filename")
-    normalized = extension.lower().lstrip(".")
-    if not isinstance(name, str) or not name or name.lower().endswith(f".{normalized}"):
-        return raw, False
-
-    payload["recommended_filename"] = f"{name}.{normalized}"
-    return json.dumps(payload, ensure_ascii=False), True
+    return _prepare_payload(raw, extension)
 
 
 def _short(text: str, limit: int = 180) -> str:
@@ -73,9 +225,12 @@ def _short(text: str, limit: int = 180) -> str:
     return text[:limit]
 
 
-def _attempt_full(raw: str, extension: str) -> tuple[FileSuggestion | None, ValidationError | None, bool]:
+def _attempt_full(raw: str, extension: str,
+                  category: Category | None = None, *, evidence_text: str = "",
+                  examples: list[RetrievedExample] | None = None) -> tuple[FileSuggestion | None, ValidationError | None, bool]:
     """full 응답 1회분을 보정·검증한다."""
-    raw, fixed = autofix_extension(raw, extension)
+    raw, fixed = _prepare_payload(raw, extension, category,
+                                  evidence_text=evidence_text, examples=examples)
     try:
         return FileSuggestion.model_validate_json(raw), None, fixed
     except ValidationError as exc:
@@ -151,9 +306,10 @@ def suggest_full(
     except LLMRequestError as exc:
         return SuggestResult(None, error=_short(f"llm_request_error: {exc}"))
 
-    suggestion, error, fixed = _attempt_full(raw, extension)
+    suggestion, error, fixed = _attempt_full(
+        raw, extension, category, evidence_text=first_page_text, examples=examples)
     if suggestion is not None:
-        return SuggestResult(finalize(suggestion), extension_fixed=fixed)
+        return SuggestResult(finalize(suggestion), filename_normalized=fixed)
 
     # 1회 재시도: 위반한 제약을 그대로 보여 준다.
     violations = format_violations(error)
@@ -164,10 +320,11 @@ def suggest_full(
         return SuggestResult(None, retried=True,
                              error=_short(f"llm_request_error(재시도): {exc}"))
 
-    suggestion, error_retry, fixed_retry = _attempt_full(raw_retry, extension)
+    suggestion, error_retry, fixed_retry = _attempt_full(
+        raw_retry, extension, category, evidence_text=first_page_text, examples=examples)
     if suggestion is not None:
         return SuggestResult(finalize(suggestion), retried=True,
-                             extension_fixed=fixed or fixed_retry)
+                             filename_normalized=fixed or fixed_retry)
 
     return SuggestResult(
         None, retried=True,
@@ -192,9 +349,12 @@ def _assemble_slim(
     confidence: float,
     method: str,
     model_label: str,
+    evidence_text: str = "",
+    examples: list[RetrievedExample] | None = None,
 ) -> tuple[FileSuggestion | None, ValidationError | None, bool]:
     """slim 응답(파일명만)에 자동 분류 결과를 합쳐 full 계약으로 조립·검증한다."""
-    raw, fixed = autofix_extension(raw, extension)
+    raw, fixed = _prepare_payload(raw, extension, category,
+                                  evidence_text=evidence_text, examples=examples)
     try:
         payload = json.loads(raw)
         filename = payload.get("recommended_filename", "") if isinstance(payload, dict) else ""
@@ -236,9 +396,8 @@ def suggest_slim(
     ADR-0002 §5-1 저사양 대책 — CPU 실측 81.1초/파일 → 13.0초/파일.
     2.4b 파일명 품질 84%로 확정됨 (3주차 측정).
     """
-    user_prompt = build_user_prompt(
+    user_prompt = build_slim_user_prompt(
         current_name=current_name,
-        current_path=current_path,
         extension=extension,
         first_page_text=first_page_text,
         examples=examples,
@@ -251,9 +410,10 @@ def suggest_slim(
 
     suggestion, error, fixed = _assemble_slim(
         raw, extension=extension, category=category,
-        confidence=confidence, method=method, model_label=model_label)
+        confidence=confidence, method=method, model_label=model_label,
+        evidence_text=first_page_text, examples=examples)
     if suggestion is not None:
-        return SuggestResult(suggestion, extension_fixed=fixed)
+        return SuggestResult(suggestion, filename_normalized=fixed)
 
     violations = format_violations(error)
     try:
@@ -265,9 +425,11 @@ def suggest_slim(
 
     suggestion, error_retry, fixed_retry = _assemble_slim(
         raw_retry, extension=extension, category=category,
-        confidence=confidence, method=method, model_label=model_label)
+        confidence=confidence, method=method, model_label=model_label,
+        evidence_text=first_page_text, examples=examples)
     if suggestion is not None:
-        return SuggestResult(suggestion, retried=True, extension_fixed=fixed or fixed_retry)
+        return SuggestResult(suggestion, retried=True,
+                             filename_normalized=fixed or fixed_retry)
 
     return SuggestResult(
         None, retried=True,

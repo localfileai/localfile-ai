@@ -15,8 +15,10 @@ dry_run=True면 위 검증만 수행하고 파일은 건드리지 않는다 — 
 from __future__ import annotations
 
 import json
+import errno
 import os
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +27,11 @@ from ..core.config import BASE_DIR
 
 # 작업 이력 저장 위치. server.exe로 패키징돼도 실행 파일 옆이라 쓰기 가능하다.
 HISTORY_DIR = Path(os.getenv("LOCAL_FILE_AI_HISTORY", BASE_DIR / "apply_history"))
+_apply_lock = threading.Lock()
+MAX_CONFLICT_SUFFIX = 9999
+MAX_FILENAME_CHARS = 150
+_UNSUPPORTED_LINK_ERRNOS = {errno.EXDEV, errno.EPERM, errno.EACCES,
+                            getattr(errno, "EOPNOTSUPP", 95), getattr(errno, "ENOTSUP", 95)}
 
 
 def _resolve_root(root: str) -> Path:
@@ -46,7 +53,55 @@ def _is_inside(path: Path, root: Path) -> bool:
         return False
 
 
-def _apply_one(root: Path, item: ApplyItem, dry_run: bool) -> AppliedItem:
+def _numbered_target(target: Path, number: int) -> Path:
+    """접미사를 포함해도 파일명이 150자를 넘지 않는 후보를 만든다."""
+    if number == 0:
+        return target
+    suffix = f" ({number})"
+    available = MAX_FILENAME_CHARS - len(target.suffix) - len(suffix)
+    stem = target.stem[:max(1, available)].rstrip(" .")
+    return target.with_name(f"{stem}{suffix}{target.suffix}")
+
+
+def _available_target(target: Path, reserved: set[Path]) -> tuple[Path | None, bool]:
+    """기존 파일을 덮어쓰지 않도록 첫 번째 빈 `이름 (n).확장자`를 찾는다."""
+    if not target.exists() and target not in reserved:
+        return target, False
+
+    for number in range(1, MAX_CONFLICT_SUFFIX + 1):
+        candidate = _numbered_target(target, number)
+        if not candidate.exists() and candidate not in reserved:
+            return candidate, True
+    return None, True
+
+
+def _atomic_move_no_replace(source: Path, target: Path) -> None:
+    """같은 파일 시스템 안에서 기존 대상을 덮어쓰지 않고 원자적으로 이동한다.
+
+    hard link 생성은 대상이 이미 있으면 FileExistsError로 실패한다. 링크가 만들어진
+    뒤 원본 이름을 제거하면 파일 내용 복사 없이 move가 완성된다.
+    """
+    os.link(source, target)
+    try:
+        source.unlink()
+    except Exception:
+        # 원본 제거에 실패하면 방금 만든 링크를 회수해 이동 전 상태로 되돌린다.
+        try:
+            target.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_move_error(exc: OSError) -> str:
+    if exc.errno in _UNSUPPORTED_LINK_ERRNOS:
+        return ("atomic_move_unsupported: 이 위치는 안전한 파일 이동(hard link)을 "
+                "지원하지 않거나 다른 드라이브입니다. 같은 로컬 드라이브 폴더를 선택하세요")
+    return f"atomic_move_error: {exc}"
+
+
+def _apply_one(root: Path, item: ApplyItem, dry_run: bool,
+               reserved: set[Path]) -> AppliedItem:
     """항목 1건을 검증·적용한다. 어떤 실패도 예외로 새지 않고 결과에 담긴다."""
     source = Path(item.source_path).expanduser()
     try:
@@ -75,16 +130,34 @@ def _apply_one(root: Path, item: ApplyItem, dry_run: bool) -> AppliedItem:
     if target == source:
         return AppliedItem(source_path=str(source), target_path=str(target),
                            status="skipped", reason="already_in_place: 이미 제자리입니다")
-    if target.exists():
-        return AppliedItem(source_path=str(source), target_path=str(target),
-                           status="skipped", reason="conflict: 대상에 같은 이름의 파일이 있습니다")
-
     if dry_run:
-        return AppliedItem(source_path=str(source), target_path=str(target), status="valid")
+        target, renamed = _available_target(target, reserved)
+        if target is None:
+            return AppliedItem(source_path=str(source), status="failed",
+                               reason="conflict_exhausted: 사용 가능한 파일명을 찾지 못했습니다")
+        reserved.add(target)
+        reason = "conflict_renamed: 같은 이름이 있어 번호를 붙였습니다" if renamed else ""
+        return AppliedItem(source_path=str(source), target_path=str(target),
+                           status="valid", reason=reason)
 
+    target_dir.mkdir(parents=True, exist_ok=True)
     try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(source), str(target))
+        chosen = None
+        for number in range(0, MAX_CONFLICT_SUFFIX + 1):
+            candidate = _numbered_target(target, number)
+            if candidate in reserved:
+                continue
+            try:
+                _atomic_move_no_replace(source, candidate)
+            except FileExistsError:
+                # exists() 확인 뒤 외부 프로세스가 만든 경우도 여기서 안전하게 재시도한다.
+                continue
+            chosen = candidate
+            reserved.add(candidate)
+            break
+        if chosen is None:
+            return AppliedItem(source_path=str(source), status="failed",
+                               reason="conflict_exhausted: 사용 가능한 파일명을 찾지 못했습니다")
     except PermissionError:
         # 기획안 4주차 '파일 권한 에러 방지' — 사용 중이거나 권한이 없는 파일은
         # 이 항목만 실패로 남기고 나머지는 계속 진행한다.
@@ -93,9 +166,12 @@ def _apply_one(root: Path, item: ApplyItem, dry_run: bool) -> AppliedItem:
                            reason="permission: 파일이 사용 중이거나 권한이 없습니다")
     except OSError as exc:
         return AppliedItem(source_path=str(source), target_path=str(target),
-                           status="failed", reason=f"os_error: {exc}"[:200])
+                           status="failed", reason=_atomic_move_error(exc)[:200])
 
-    return AppliedItem(source_path=str(source), target_path=str(target), status="moved")
+    renamed = chosen != target
+    reason = "conflict_renamed: 같은 이름이 있어 번호를 붙였습니다" if renamed else ""
+    return AppliedItem(source_path=str(source), target_path=str(chosen),
+                       status="moved", reason=reason)
 
 
 def _write_history(root: Path, moved: list[AppliedItem]) -> str:
@@ -115,12 +191,13 @@ def _write_history(root: Path, moved: list[AppliedItem]) -> str:
 
 def apply_changes(root: str, items: list[ApplyItem], dry_run: bool = False) -> ApplyResponse:
     """승인된 항목들을 적용한다. root가 유효하지 않으면 ValueError."""
-    resolved_root = _resolve_root(root)
+    with _apply_lock:
+        resolved_root = _resolve_root(root)
+        reserved: set[Path] = set()
+        results = [_apply_one(resolved_root, item, dry_run, reserved) for item in items]
+        moved = [r for r in results if r.status == "moved"]
 
-    results = [_apply_one(resolved_root, item, dry_run) for item in items]
-    moved = [r for r in results if r.status == "moved"]
-
-    history_id = _write_history(resolved_root, moved) if moved else ""
+        history_id = _write_history(resolved_root, moved) if moved else ""
 
     return ApplyResponse(
         total=len(results),

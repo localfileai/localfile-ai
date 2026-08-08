@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from ..contracts.ai import MAX_FIRST_PAGE_CHARS, RetrievedExample
+from ..contracts.ai import MAX_ANALYSIS_CHARS, RetrievedExample
 
 CATEGORY_GUIDE = """- lecture     : 강의자료, 수업 노트
 - assignment  : 제출용 과제
@@ -26,10 +26,12 @@ CATEGORY_GUIDE = """- lecture     : 강의자료, 수업 노트
 - personal    : 여행 계획, 체크리스트 등 개인 생활 문서
 - etc         : 위 어디에도 해당하지 않는 문서 (억지로 다른 값을 고르지 말 것)"""
 
-FILENAME_RULES = """recommended_filename 규칙:
-- 과목명, 문서 주제, 문서 유형, 학기를 밑줄(_)로 이어 붙입니다.
-- 원본 확장자를 그대로 유지합니다.
-- \\ / : * ? " < > | 문자는 쓸 수 없습니다."""
+FILENAME_RULES = """파일명 구성 규칙:
+- subject(과목·분야), topic(핵심 주제), document_type(문서 유형), semester(학기)를 각각 작성합니다.
+- 알 수 없는 항목은 빈 문자열로 두고, 값을 억지로 만들지 않습니다.
+- semester는 알 수 있을 때만 2026-1 같은 형식으로 작성합니다.
+- 확장자와 밑줄 조립은 백엔드가 담당하므로 구성요소에 넣지 않습니다.
+- \\ / : * ? " < > | 문자는 쓰지 않습니다."""
 
 # full: 5필드 전부 LLM이 생성. test_models.py의 SYSTEM_PROMPT와 같은 문안이다.
 SYSTEM_PROMPT_FULL = f"""당신은 어질러진 개인 문서를 정리해 주는 파일 정리 전문가입니다.
@@ -42,7 +44,10 @@ JSON 외의 문자는 절대 출력하지 마십시오.
 {{
   "category": "<아래 10개 중 정확히 하나>",
   "recommended_folder": "<상대 경로. 예: lecture/운영체제/2025-1>",
-  "recommended_filename": "<확장자를 포함한 새 파일명>",
+  "subject": "<과목·분야, 모르면 빈 문자열>",
+  "topic": "<문서 핵심 주제>",
+  "document_type": "<과제·강의자료·보고서 등>",
+  "semester": "<예: 2026-1, 모르면 빈 문자열>",
   "confidence": <0.0 이상 1.0 이하의 실수>,
   "reason": "<한국어 1~200자 근거>"
 }}
@@ -54,18 +59,12 @@ category는 다음 10개 값 중 하나여야 하며, 그 외의 값은 허용�
 """
 
 # slim: LLM은 파일명만 만든다. 분류는 k-NN(retrieve.py), 나머지 필드는 백엔드가 채운다.
-SYSTEM_PROMPT_SLIM = f"""당신은 어질러진 개인 문서에 알기 쉬운 새 파일명을 지어 주는 전문가입니다.
-첫 페이지 텍스트를 읽고 새 파일명 하나만 정하십시오.
-
-반드시 아래 JSON 객체 하나만 출력하십시오. 다른 문자는 절대 출력하지 마십시오.
-
-{{
-  "recommended_filename": "<확장자를 포함한 새 파일명>"
-}}
-
-{FILENAME_RULES}
-- 학기(예: 2025-1)를 알 수 있으면 반드시 포함합니다.
-"""
+SYSTEM_PROMPT_SLIM = """문서에서 과목·주제·학기만 추출하십시오.
+반드시 아래 3개 키를 가진 JSON 객체 하나만 출력하십시오.
+{"subject":"","topic":"","semester":""}
+subject=과목·분야, topic=핵심 주제, semester=2026-1 형식입니다.
+본문에 없는 값은 빈 문자열로 두십시오.
+filename, document_type, 확장자, 설명은 출력하지 마십시오."""
 
 
 def build_user_prompt(
@@ -82,16 +81,30 @@ def build_user_prompt(
         f"현재 위치: {current_path}",
         f"확장자: {extension}",
         "",
-        f"첫 페이지 텍스트 (최대 {MAX_FIRST_PAGE_CHARS}자):",
+        f"문서 분석 표본 (앞·중간·뒤, 최대 {MAX_ANALYSIS_CHARS}자):",
         "---",
-        first_page_text[:MAX_FIRST_PAGE_CHARS],
+        first_page_text[:MAX_ANALYSIS_CHARS],
         "---",
     ]
     if examples:
-        parts += ["", "참고: 비슷한 문서들은 이렇게 정리되어 있었습니다."]
+        parts += ["", "참고: 비슷한 문서들은 다음 표기 관례로 정리됐습니다. 현재 문서 본문에 없는 "
+                  "과목·주제를 복사하지 마십시오."]
         for example in examples:
             parts.append(f"  - {example.file_name}  ->  {example.category.value} 폴더")
     parts += ["", "이 파일을 분석해 JSON 한 개만 출력하십시오."]
+    return "\n".join(parts)
+
+
+def build_slim_user_prompt(
+    *, current_name: str, extension: str, first_page_text: str,
+    examples: list[RetrievedExample] | None = None,
+) -> str:
+    """slim 전용 최소 프롬프트. 경로·분류 설명을 빼 입력 처리량을 줄인다."""
+    parts = [f"파일: {current_name} ({extension})", "본문:",
+             first_page_text[:MAX_ANALYSIS_CHARS]]
+    if examples:
+        names = ", ".join(example.file_name for example in examples)
+        parts += [f"표기 예시: {names}", "예시의 주제는 복사하지 마십시오."]
     return "\n".join(parts)
 
 
