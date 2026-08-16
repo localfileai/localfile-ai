@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  RenameRecommendation, 
+import {
+  RenameRecommendation,
   StructureRecommendation,
   CurrentFileItem,
+  FailedFileInfo,
   applyRenameRecommendations,
-  applyStructureRecommendations
+  applyStructureRecommendations,
+  undoApply
 } from '../api/organizeApi';
 
 interface OrganizeViewProps {
@@ -15,6 +17,10 @@ interface OrganizeViewProps {
   currentFiles?: CurrentFileItem[];
   setCurrentFiles?: React.Dispatch<React.SetStateAction<CurrentFileItem[]>>;
   totalFiles?: number;
+  /** 이번에 실제 분석한 수 (추천+실패). totalFiles보다 작으면 상한에 걸린 것 */
+  analyzedCount?: number;
+  /** 분석하지 못한 파일과 이유 — 숨기지 않고 화면에 보여 준다 */
+  failedFiles?: FailedFileInfo[];
   onRefreshData?: () => void;
   /** 고른 폴더. 없으면 분석할 대상이 없다는 안내를 띄운다 */
   selectedPath?: string;
@@ -189,6 +195,8 @@ export default function OrganizeView({
   // props 타입에는 남겨 두어 App이 그대로 넘길 수 있게 하고, 구조 분해에서만 뺐습니다.
   setCurrentFiles,
   totalFiles = 0,
+  analyzedCount,
+  failedFiles = [],
   onRefreshData,
   selectedPath = '',
   isAnalyzing = false,
@@ -213,8 +221,20 @@ export default function OrganizeView({
 
   useEffect(() => {
     setStructureList(initialStructureList);
-    setSelectedMoveIds(initialStructureList.map((item) => item.id));
+    // 기본 미선택 — 파일명 변경 탭과 같은 규칙이다. 예전에는 결과가 도착하면
+    // 전부 선택돼 있어서, 검토 없이 버튼을 누르면 모든 파일이 한 번에 이동했다.
+    setSelectedMoveIds([]);
   }, [initialStructureList]);
+
+  // --- [적용 진행·검사·되돌리기 상태] ---
+  // isApplying: 요청이 나가 있는 동안 버튼을 잠근다 — 더블클릭이 같은 파일에
+  //             적용을 두 번 보내 "원본 없음" 실패를 만들던 문제의 방지선.
+  // lastCheck : 적용 직전 dry_run 검사의 실제 결과. 예전에는 검사 없이
+  //             "충돌·오류 0 · 적용 전 검사 완료"를 **고정 문구로** 보여줬다.
+  // lastUndo  : 방금 적용한 작업의 이력 id — 백엔드 undo를 화면에 연결한다.
+  const [isApplying, setIsApplying] = useState(false);
+  const [lastCheck, setLastCheck] = useState<{ ok: number; renamed: number; failed: number } | null>(null);
+  const [lastUndo, setLastUndo] = useState<{ id: string; moved: number } | null>(null);
 
   // 💡 API로 전달받은 structureList를 실시간 동적 트리로 변환
   const currentTree = useMemo(
@@ -266,16 +286,63 @@ export default function OrganizeView({
     return { doneIds, summary };
   };
 
+  // 적용 전 dry_run 결과를 요약·표시하고, 계속할지 사용자에게 확인받는다.
+  // 검사가 불가능한 상태(mock 모드)면 null이 와서 그대로 진행한다.
+  const confirmAfterDryRun = (
+    check: Awaited<ReturnType<typeof applyRenameRecommendations>>,
+  ): boolean => {
+    if (!check) return true;
+    const ok = check.items.filter((item) => item.status === 'valid').length;
+    const renamed = check.items.filter(
+      (item) => item.status === 'valid' && item.reason.startsWith('conflict_renamed')).length;
+    const problems = check.items.filter((item) => item.status !== 'valid');
+    setLastCheck({ ok, renamed, failed: problems.length });
+
+    if (problems.length === 0) return true;
+    const lines = problems.slice(0, 8).map((item) => {
+      const name = item.source_path.split(/[\\/]/).filter(Boolean).at(-1);
+      return `• ${name}: ${item.reason || item.status}`;
+    });
+    if (ok === 0) {
+      alert(`적용 전 검사 결과, 적용할 수 있는 항목이 없습니다:\n${lines.join('\n')}`);
+      return false;
+    }
+    return confirm(
+      `적용 전 검사 결과 ${problems.length}건은 적용할 수 없습니다:\n${lines.join('\n')}\n\n` +
+      `나머지 ${ok}건만 적용할까요?`,
+    );
+  };
+
   const handleApplySelected = async () => {
+    if (isApplying) return;
+    setIsApplying(true);
+    try {
+      await runApplySelected();
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const runApplySelected = async () => {
     if (activeTab === 'rename') {
       if (selectedRenameIds.length === 0) return;
+      // 사용자가 입력 칸에서 고친 이름이 있으면 그 이름으로 적용한다.
+      // 화면의 최신 값을 직접 넘긴다 — 분석 시점 캐시만 믿으면 편집이 무시된다.
+      const editedNames = Object.fromEntries(
+        renameList
+          .filter((item) => selectedRenameIds.includes(item.id))
+          .map((item) => [item.id, item.recommendedName]),
+      );
       let outcome;
       try {
-        outcome = await applyRenameRecommendations(selectedRenameIds);
+        const check = await applyRenameRecommendations(selectedRenameIds, editedNames, true);
+        if (!confirmAfterDryRun(check)) return;
+        outcome = await applyRenameRecommendations(selectedRenameIds, editedNames);
       } catch (error) {
         alert(`적용 중 오류가 발생했습니다:\n${(error as Error).message}`);
         return;
       }
+      if (outcome?.history_id) setLastUndo({ id: outcome.history_id, moved: outcome.moved });
       const { doneIds, summary } = appliedIdsFrom(outcome, selectedRenameIds);
 
       const renameMap = new Map();
@@ -306,11 +373,14 @@ export default function OrganizeView({
       if (selectedMoveIds.length === 0) return;
       let outcome;
       try {
+        const check = await applyStructureRecommendations(selectedMoveIds, true);
+        if (!confirmAfterDryRun(check)) return;
         outcome = await applyStructureRecommendations(selectedMoveIds);
       } catch (error) {
         alert(`적용 중 오류가 발생했습니다:\n${(error as Error).message}`);
         return;
       }
+      if (outcome?.history_id) setLastUndo({ id: outcome.history_id, moved: outcome.moved });
       const { doneIds, summary } = appliedIdsFrom(outcome, selectedMoveIds);
 
       const moveMap = new Map();
@@ -340,6 +410,32 @@ export default function OrganizeView({
 
       alert(`파일 이동: ${summary}`);
       setSelectedMoveIds([]);
+    }
+  };
+
+  // 방금 적용한 작업을 역순으로 되돌린다 (백엔드 /apply/undo).
+  const handleUndo = async () => {
+    if (!lastUndo || isApplying) return;
+    setIsApplying(true);
+    try {
+      const result = await undoApply(lastUndo.id);
+      let message = `${result.restored}건을 원래 자리로 되돌렸습니다.`;
+      if (result.skipped.length > 0) {
+        const lines = result.skipped.slice(0, 5).map((entry) => {
+          const name = entry.path.split(/[\\/]/).filter(Boolean).at(-1);
+          return `• ${name}: ${entry.reason}`;
+        });
+        message += `\n되돌리지 못함 ${result.skipped.length}건:\n${lines.join('\n')}`;
+      }
+      alert(message);
+      setLastUndo(null);
+      setLastCheck(null);
+      // 화면의 추천 목록은 적용 시점에 지워졌다 — 폴더를 다시 읽어야 맞는 상태가 된다.
+      onRefreshData?.();
+    } catch (error) {
+      alert(`되돌리기 중 오류가 발생했습니다:\n${(error as Error).message}`);
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -453,23 +549,49 @@ export default function OrganizeView({
           <div className="flex items-center gap-2">
             <button 
               onClick={handleReanalyze}
-              className="px-4 py-2 bg-white dark:bg-[#16161e] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
+              disabled={isApplying}
+              className="px-4 py-2 bg-white dark:bg-[#16161e] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
             >
               {mode === 'rename' ? '↻ 이름 다시 짓기' : '↻ 다시 정리하기'}
             </button>
             <button
               onClick={handleApplySelected}
               disabled={
-                activeTab === 'rename'
-                  ? selectedRenameIds.length === 0
-                  : selectedMoveIds.length === 0
+                isApplying || (
+                  activeTab === 'rename'
+                    ? selectedRenameIds.length === 0
+                    : selectedMoveIds.length === 0
+                )
               }
               className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-200 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
             >
-              선택 항목 적용
+              {isApplying ? '적용 중…' : '선택 항목 적용'}
             </button>
           </div>
         </div>
+
+        {/* 방금 적용한 작업의 되돌리기 — 백엔드에 있던 undo가 처음으로 화면에 연결된다 */}
+        {lastUndo && (
+          <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3">
+            <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
+              방금 {lastUndo.moved}건을 적용했습니다. 잘못 적용했다면 바로 되돌릴 수 있습니다.
+            </span>
+            <button
+              onClick={handleUndo}
+              disabled={isApplying}
+              className="px-3 py-1.5 bg-white dark:bg-transparent border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition cursor-pointer"
+            >
+              ↩ 되돌리기
+            </button>
+            <button
+              onClick={() => setLastUndo(null)}
+              className="ml-auto px-1 text-xs font-bold text-emerald-400 hover:text-emerald-600 cursor-pointer"
+              title="닫기"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* ========================================================= */}
         {/* 탭 1: 파일명 변경 모드                                     */}
@@ -479,8 +601,12 @@ export default function OrganizeView({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
                 <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">분석된 파일</div>
-                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{totalFiles}</div>
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">PDF · TXT · MD</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{analyzedCount ?? totalFiles}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
+                  {analyzedCount != null && totalFiles > analyzedCount
+                    ? `전체 ${totalFiles}개 중 (한 번에 최대 20개)`
+                    : 'PDF · DOCX · PPT · HWP 등 7종'}
+                </div>
               </div>
 
               <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
@@ -496,11 +622,35 @@ export default function OrganizeView({
               </div>
 
               <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
+                {/* 실행하지 않은 검사를 "완료"로 표시하지 않는다 — 적용 버튼을
+                    누르면 dry_run 검사가 먼저 돌고, 그 실제 결과가 여기 남는다. */}
                 <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">충돌·오류</div>
-                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">0</div>
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">적용 전 검사 완료</div>
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{lastCheck ? lastCheck.failed : '—'}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
+                  {lastCheck
+                    ? `검사 결과: 가능 ${lastCheck.ok}건${lastCheck.renamed ? ` · 이름 조정 ${lastCheck.renamed}건` : ''}`
+                    : '적용 시 자동 검사'}
+                </div>
               </div>
             </div>
+
+            {/* 분석하지 못한 파일 — 숨기면 "8개 중 5개만 추천"의 이유를 알 수 없다 */}
+            {failedFiles.length > 0 && (
+              <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-200/80 dark:border-amber-500/30">
+                <div className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                  분석하지 못한 파일 {failedFiles.length}개
+                </div>
+                <ul className="mt-1.5 space-y-0.5">
+                  {failedFiles.map((file) => (
+                    <li key={file.path} className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                      <b className="font-semibold">{file.name}</b>
+                      {' — '}
+                      {file.reason.includes(':') ? file.reason.split(':').slice(1).join(':').trim() : file.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
               <div className="lg:col-span-3 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden flex flex-col">
@@ -697,8 +847,12 @@ export default function OrganizeView({
               </div>
 
               <div className="p-4 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs space-y-1">
-                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">생성될 폴더 수</div>
-                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">{selectedMoveIds.length}</div>
+                <div className="text-[11px] font-bold text-gray-400 dark:text-gray-500">이동할 폴더 수</div>
+                {/* 파일 수가 아니라 서로 다른 대상 폴더의 수다 — 10개 파일이 전부
+                    "과제" 한 폴더로 가면 1이다. */}
+                <div className="text-2xl font-black text-gray-900 dark:text-gray-50">
+                  {new Set(activeStructureList.map((item) => item.targetFolder)).size}
+                </div>
                 <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">자동 디렉터리 구성</div>
               </div>
             </div>

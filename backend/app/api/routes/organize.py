@@ -237,7 +237,10 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
     stages_ms = {name: int(seconds * 1000) for name, seconds in stage_seconds.items()}
     stages_ms["other"] = max(0, int((elapsed - measured) * 1000))
     return OrganizeResponse(
-        total_files=len(extracted[: request.max_files]),
+        # 전체 **발견** 수를 준다. 예전에는 상한(max_files)으로 자른 수를 total로
+        # 줘서, 파일 80개 폴더를 골라도 화면에 "전체 20개"로 보였고 어떤 파일이
+        # 빠졌는지 알 길이 없었다. 이번에 처리한 수는 suggestions+failed로 센다.
+        total_files=len(extracted),
         success_count=len(suggestions),
         suggestions=suggestions,
         failed=failed,

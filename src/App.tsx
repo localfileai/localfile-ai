@@ -7,6 +7,7 @@ import AllFilesView from './components/AllFilesView'
 import {
   analyzeFolder,
   type CurrentFileItem,
+  type FailedFileInfo,
   type RenameRecommendation,
   type StructureRecommendation,
 } from './api/organizeApi'
@@ -27,6 +28,10 @@ function App() {
   const [structureList, setStructureList] = useState<StructureRecommendation[]>([])
   const [currentFiles, setCurrentFiles] = useState<CurrentFileItem[]>([])
   const [totalFiles, setTotalFiles] = useState(0)
+  // 이번에 실제 분석한 수와 실패 목록 — 정리 화면이 "전체 N개 중 M개 분석,
+  // 그중 K개는 왜 안 됐는지"를 말할 수 있어야 한다.
+  const [analyzedCount, setAnalyzedCount] = useState(0)
+  const [failedFiles, setFailedFiles] = useState<FailedFileInfo[]>([])
 
   // FE1: OS에서 인식한 경로
   const [selectedPath, setSelectedPath] = useState('')
@@ -50,6 +55,8 @@ function App() {
       setStructureList([])
       setCurrentFiles([])
       setTotalFiles(0)
+      setAnalyzedCount(0)
+      setFailedFiles([])
       setAnalyzedPath('')
       setAnalyzeError('')
       return
@@ -63,6 +70,8 @@ function App() {
       setStructureList(data.structureList)
       setCurrentFiles(data.currentFiles)
       setTotalFiles(data.totalFilesCount)
+      setAnalyzedCount(data.analyzedCount)
+      setFailedFiles(data.failedFiles)
       setAnalyzedPath(selectedPath)
     } catch (error) {
       // 조용히 비워 두면 "기능이 없는 것"처럼 보인다. 이유를 화면까지 올린다.
@@ -205,6 +214,8 @@ function App() {
               currentFiles={currentFiles}
               setCurrentFiles={setCurrentFiles}
               totalFiles={totalFiles}
+              analyzedCount={analyzedCount}
+              failedFiles={failedFiles}
               onRefreshData={loadOrganizeData}
               selectedPath={selectedPath}
               isAnalyzing={isAnalyzing}
