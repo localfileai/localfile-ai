@@ -70,10 +70,22 @@ interface OrganizeResponseBody {
   failed: { path: string; reason: string }[];
 }
 
+/** 분석하지 못한 파일 1건. 이유를 버리지 않고 화면까지 올린다 —
+ *  스캔 PDF처럼 사용자가 원인을 알면 해결할 수 있는 경우가 많다. */
+export interface FailedFileInfo {
+  name: string;
+  path: string;
+  reason: string;
+}
+
 export interface OrganizeData {
   renameList: RenameRecommendation[];
   structureList: StructureRecommendation[];
   currentFiles: CurrentFileItem[];
+  failedFiles: FailedFileInfo[];
+  /** 이번에 실제로 분석한 수 (추천 성공 + 실패). totalFilesCount와 다를 수 있다 */
+  analyzedCount: number;
+  /** 폴더에서 발견한 지원 문서 전체 수 (처리 상한과 무관) */
   totalFilesCount: number;
 }
 
@@ -128,7 +140,8 @@ const relativeFolder = (root: string, absoluteDir: string): string => {
 const postApply = async (
   root: string,
   ids: string[],
-  toItem: (analyzed: AnalyzedItem) => { target_folder: string; target_filename: string },
+  toItem: (analyzed: AnalyzedItem, id: string) => { target_folder: string; target_filename: string },
+  dryRun = false,
 ): Promise<ApplyOutcome> => {
   const selected = ids
     .map((id) => ({ id, analyzed: lastAnalysis?.items.get(id) }))
@@ -140,9 +153,12 @@ const postApply = async (
     body: JSON.stringify({
       approved: true, // 이 요청은 사용자가 체크박스로 승인한 항목만 담는다
       root,
-      items: selected.map(({ analyzed }) => ({
+      // dry_run=true면 백엔드가 검증만 하고 파일은 건드리지 않는다 —
+      // 화면의 "적용 전 검사"가 이 결과를 근거로 말한다.
+      dry_run: dryRun,
+      items: selected.map(({ analyzed, id }) => ({
         source_path: analyzed.sourcePath,
-        ...toItem(analyzed),
+        ...toItem(analyzed, id),
       })),
     }),
   });
@@ -153,19 +169,45 @@ const postApply = async (
   const body = await response.json();
 
   // 개명 후 이동(또는 그 반대)이 이어져도 원본 경로가 낡지 않도록,
-  // 실제로 옮겨진 항목은 캐시를 새 경로로 갱신한다.
-  (body.items as AppliedItem[]).forEach((applied, index) => {
-    const entry = selected[index];
-    if (applied.status !== 'moved' || !entry) return;
-    const analyzed = lastAnalysis?.items.get(entry.id);
-    if (!analyzed) return;
-    analyzed.sourcePath = applied.target_path;
-    analyzed.sourceName = applied.target_path.split(/[\\/]/).filter(Boolean).at(-1)
-      || analyzed.sourceName;
-    analyzed.sourceRelFolder = relativeFolder(root, parentFolder(applied.target_path));
-  });
+  // 실제로 옮겨진 항목은 캐시를 새 경로로 갱신한다. (검사만 했으면 건드리지 않는다)
+  if (!dryRun) {
+    (body.items as AppliedItem[]).forEach((applied, index) => {
+      const entry = selected[index];
+      if (applied.status !== 'moved' || !entry) return;
+      const analyzed = lastAnalysis?.items.get(entry.id);
+      if (!analyzed) return;
+      analyzed.sourcePath = applied.target_path;
+      analyzed.sourceName = applied.target_path.split(/[\\/]/).filter(Boolean).at(-1)
+        || analyzed.sourceName;
+      analyzed.sourceRelFolder = relativeFolder(root, parentFolder(applied.target_path));
+    });
+  }
 
   return { ...body, appliedIds: selected.map(({ id }) => id) };
+};
+
+/** 되돌리기 결과 (백엔드 fileops.undo 응답과 동일). */
+export interface UndoOutcome {
+  id: string;
+  restored: number;
+  skipped: { path: string; reason: string }[];
+}
+
+/**
+ * 최근 적용 1회분을 역순으로 되돌린다 (POST /apply/undo).
+ * 백엔드는 4주차부터 작업 이력·undo를 갖고 있었지만 화면에 연결돼 있지 않아,
+ * 잘못 옮긴 파일을 사용자가 탐색기에서 직접 복구해야 했다.
+ */
+export const undoApply = async (historyId = ''): Promise<UndoOutcome> => {
+  const response = await fetch(
+    `${BASE_URL}/apply/undo?history_id=${encodeURIComponent(historyId)}`,
+    { method: 'POST' },
+  );
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null))?.detail;
+    throw new Error(typeof detail === 'string' ? detail : `되돌리기 실패 (HTTP ${response.status})`);
+  }
+  return response.json();
 };
 
 /**
@@ -233,7 +275,21 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
     })),
   ];
 
-  return { renameList, structureList, currentFiles, totalFilesCount: data.total_files };
+  // 실패 이유는 버리지 않는다 — "분석 8개인데 추천 5개"의 차이를 화면이 설명해야 한다.
+  const failedFiles: FailedFileInfo[] = data.failed.map((item) => ({
+    name: item.path.split(/[\\/]/).filter(Boolean).at(-1) || item.path,
+    path: item.path,
+    reason: item.reason,
+  }));
+
+  return {
+    renameList,
+    structureList,
+    currentFiles,
+    failedFiles,
+    analyzedCount: data.suggestions.length + data.failed.length,
+    totalFilesCount: data.total_files,
+  };
 };
 
 /**
@@ -317,13 +373,19 @@ export const getRenameRecommendations = async (): Promise<RenameRecommendation[]
 /**
  * 2. 파일명 변경 적용 (POST /apply — 4주차부터 실제 개명)
  *
- * 파일은 지금 있는 폴더에 그대로 두고 이름만 추천안으로 바꾼다.
+ * 파일은 지금 있는 폴더에 그대로 두고 이름만 바꾼다.
+ * `editedNames`에 사용자가 화면에서 직접 고친 이름이 오면 **그 이름이 우선**이다 —
+ * 예전에는 분석 시점의 AI 추천값만 보내서, 사용자가 입력 칸에서 고친 이름이
+ * 조용히 무시됐다 (UX 리뷰 #1, 최우선 결함).
  * 분석 캐시가 없으면(폴더 미선택 데모 상태) 기존 mock 적용으로 폴백한다.
  */
 export const applyRenameRecommendations = async (
   selectedIds: string[],
+  editedNames?: Record<string, string>,
+  dryRun = false,
 ): Promise<ApplyOutcome | null> => {
   if (!lastAnalysis) {
+    if (dryRun) return null;
     try {
       await fetch(`${BASE_URL}/mock/rename/apply`, {
         method: 'POST',
@@ -335,10 +397,10 @@ export const applyRenameRecommendations = async (
     }
     return null;
   }
-  return postApply(lastAnalysis.root, selectedIds, (analyzed) => ({
+  return postApply(lastAnalysis.root, selectedIds, (analyzed, id) => ({
     target_folder: analyzed.sourceRelFolder,
-    target_filename: analyzed.recommendedName,
-  }));
+    target_filename: editedNames?.[id] ?? analyzed.recommendedName,
+  }), dryRun);
 };
 
 /**
@@ -392,8 +454,10 @@ export const getStructureRecommendations = async (): Promise<StructureResult> =>
  */
 export const applyStructureRecommendations = async (
   selectedIds: string[],
+  dryRun = false,
 ): Promise<ApplyOutcome | null> => {
   if (!lastAnalysis) {
+    if (dryRun) return null;
     try {
       await fetch(`${BASE_URL}/mock/move/apply`, {
         method: 'POST',
@@ -408,7 +472,7 @@ export const applyStructureRecommendations = async (
   return postApply(lastAnalysis.root, selectedIds, (analyzed) => ({
     target_folder: analyzed.recommendedFolder,
     target_filename: analyzed.sourceName,
-  }));
+  }), dryRun);
 };
 
 /**
