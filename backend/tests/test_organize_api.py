@@ -125,6 +125,27 @@ def test_추출_실패_파일은_failed로_분리(client, happy_path, monkeypatc
     assert "텍스트 레이어 없음" in body.failed[0].reason
 
 
+def test_offset으로_다음_묶음을_이어서_분석(client, happy_path, monkeypatch):
+    """상한(max_files)을 넘는 폴더의 "이어서 분석" 회귀 테스트.
+
+    80개 폴더에서 20개를 분석한 뒤, offset=20으로 다시 부르면 그다음 묶음이
+    처리되어야 한다. total_files는 offset과 무관하게 전체 발견 수다.
+    """
+    files = [extracted_item(path=f"C:/a/문서{i:02d}.pdf", name=f"문서{i:02d}.pdf")
+             for i in range(5)]
+    monkeypatch.setattr(organize_route, "extract_from_path",
+                        lambda path, max_chars: files)
+
+    first = client.post("/organize", json={"path": "C:/a", "max_files": 2}).json()
+    second = client.post("/organize", json={"path": "C:/a", "max_files": 2,
+                                            "offset": 2}).json()
+
+    assert first["total_files"] == 5 and second["total_files"] == 5
+    names = lambda body: [s["current"]["name"] for s in body["suggestions"]]  # noqa: E731
+    assert names(first) == ["문서00.pdf", "문서01.pdf"]
+    assert names(second) == ["문서02.pdf", "문서03.pdf"]
+
+
 def test_slim_모드는_자동_분류를_쓴다(client, happy_path, monkeypatch):
     options = []
 

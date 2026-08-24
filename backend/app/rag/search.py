@@ -320,10 +320,17 @@ _STOPWORDS = frozenset({
     # _name_score의 통짜 비교가 담당하므로 여기서 빼도 잃는 것이 없다).
 }) | frozenset(ALLOWED_EXTENSIONS)
 
-# "최근 것"을 찾는 시간 표현. 보이면 최신 파일을 위로 올린다. (긴 표현 먼저 지운다.)
-_TEMPORAL_WORDS = ("얼마 전", "얼마전", "지난 주", "지난주", "저번주", "이번주",
-                   "지난 달", "지난달", "저번달", "이번달",
-                   "최근", "최신", "요즘", "오늘", "어제", "그저께", "엊그제")
+# "최근 것"을 찾는 시간 표현과 그 폭(최신성 반감기, 일). "어제 받은 파일"과
+# "최근 자료"는 폭이 다른 질문이다 — 좁은 표현일수록 오래된 파일의 최신성
+# 점수가 빠르게 죽어야 한다. 여러 표현이 함께 나오면 가장 좁은 폭을 쓴다.
+# (긴 표현을 먼저 지우도록 나열 순서를 유지할 것: "지난 주"가 "주"보다 먼저)
+_TEMPORAL_HALF_LIFE_DAYS = (
+    ("그저께", 3.0), ("엊그제", 3.0), ("어제", 3.0), ("오늘", 2.0),
+    ("얼마 전", 14.0), ("얼마전", 14.0),
+    ("지난 주", 10.0), ("지난주", 10.0), ("저번주", 10.0), ("이번주", 7.0),
+    ("지난 달", 45.0), ("지난달", 45.0), ("저번달", 45.0), ("이번달", 30.0),
+    ("요즘", 14.0), ("최근", 30.0), ("최신", 30.0),
+)
 
 # 토큰 끝에 붙는 흔한 조사. "공모전에서" → "공모전". 남는 부분이 2자 이상일 때만
 # 떼어낸다 — "회의"의 "의"까지 떼면 안 된다.
@@ -338,16 +345,17 @@ def _strip_particle(token: str) -> str:
     return token
 
 
-def parse_query(query: str) -> tuple[list[str], bool, str]:
-    """질의를 (내용 키워드, "최근" 의도, 임베딩용 문장)으로 해석한다.
+def parse_query(query: str) -> tuple[list[str], float | None, str]:
+    """질의를 (내용 키워드, 최신성 반감기[일] 또는 None, 임베딩용 문장)으로 해석한다.
 
     시간 표현은 문서 내용이 아니라 **파일 속성(수정 시각)**에 대한 조건이므로
-    키워드·임베딩 양쪽에서 빼고, 대신 최신성 랭킹을 켠다.
+    키워드·임베딩 양쪽에서 빼고, 대신 그 표현의 폭에 맞는 최신성 랭킹을 켠다.
     """
-    temporal = any(word in query for word in _TEMPORAL_WORDS)
+    half_life: float | None = None
     cleaned = query
-    if temporal:
-        for word in _TEMPORAL_WORDS:
+    for word, days in _TEMPORAL_HALF_LIFE_DAYS:
+        if word in cleaned:
+            half_life = days if half_life is None else min(half_life, days)
             cleaned = cleaned.replace(word, " ")
     cleaned = " ".join(cleaned.split())
 
@@ -361,7 +369,7 @@ def parse_query(query: str) -> tuple[list[str], bool, str]:
             continue
         if token not in tokens:
             tokens.append(token)
-    return tokens, temporal, cleaned
+    return tokens, half_life, cleaned
 
 
 # =========================================================================
@@ -489,11 +497,14 @@ def _keyword_score(metadata: dict, document: str, tokens: list[str],
     return min(1.0, max(token_score, paste))
 
 
-def _recency_score(metadata: dict, file_ref: FileRef, now: datetime) -> float:
-    """최신성(0~1). 30일에 절반으로 줄어든다.
+def _recency_score(metadata: dict, file_ref: FileRef, now: datetime,
+                   half_life_days: float = RECENCY_HALF_LIFE_DAYS) -> float:
+    """최신성(0~1). half_life_days가 지나면 절반으로 줄어든다.
 
-    파일이 그 자리에 있으면 실제 mtime(FileRef.modified_at)을, 없으면 색인 당시
-    기록한 mtime_us를 쓴다 — 어느 쪽도 재색인을 요구하지 않는다.
+    질의의 시간 표현이 폭을 정한다 — "어제"(3일)는 "최근"(30일)보다 오래된
+    파일을 훨씬 빨리 밀어낸다. 파일이 그 자리에 있으면 실제 mtime
+    (FileRef.modified_at)을, 없으면 색인 당시 기록한 mtime_us를 쓴다 —
+    어느 쪽도 재색인을 요구하지 않는다.
     """
     modified = file_ref.modified_at
     if modified is None:
@@ -506,7 +517,7 @@ def _recency_score(metadata: dict, file_ref: FileRef, now: datetime) -> float:
     if modified is None:
         return 0.0
     age_days = max(0.0, (now - modified).total_seconds() / 86_400)
-    return 1.0 / (1.0 + age_days / RECENCY_HALF_LIFE_DAYS)
+    return 1.0 / (1.0 + age_days / half_life_days)
 
 
 def _excerpt(document: str, tokens: list[str]) -> str:
@@ -546,7 +557,7 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
             "문서를 읽어 검색을 준비합니다."
         )
 
-    tokens, temporal, cleaned = parse_query(query)
+    tokens, recency_half_life, cleaned = parse_query(query)
 
     # ① 키워드 후보 — 파일명뿐 아니라 **본문**도 대조한다. 이름에 "공모전"이
     #    없어도 본문에 있으면 찾아야 한다.
@@ -593,7 +604,7 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
 
     best_vector = max(vector.values(), default=0.0)
     weight_vector, weight_keyword, weight_recency = (
-        _WEIGHTS_TEMPORAL if temporal else _WEIGHTS_DEFAULT)
+        _WEIGHTS_TEMPORAL if recency_half_life is not None else _WEIGHTS_DEFAULT)
     now = datetime.now()
 
     # 경로 기준으로 최고 점수만 남긴다 (사용자 색인은 id=경로라 사실상 1:1).
@@ -618,7 +629,9 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
         if root and not _is_under(file_ref.path, root):
             continue
 
-        recency = _recency_score(metadata, file_ref, now)
+        recency = _recency_score(
+            metadata, file_ref, now,
+            half_life_days=recency_half_life or RECENCY_HALF_LIFE_DAYS)
         combined = (weight_vector * vector_part + weight_keyword * keyword_part
                     + weight_recency * recency)
         # 파일명을 통째로 붙여넣었으면 이건 추정이 아니라 확인이다 — 만점.

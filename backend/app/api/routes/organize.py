@@ -144,7 +144,10 @@ async def organize(request: OrganizeRequest) -> OrganizeResponse:
     failed: list[FailedFile] = []
     rag_unavailable_reason = ""
 
-    for item in extracted[: request.max_files]:
+    # "이어서 분석": FE가 지금까지 분석한 수를 offset으로 보내면 그다음 묶음을
+    # 처리한다. 정렬이 실행마다 같아야 이어붙임이 성립한다 — extract_from_path가
+    # 경로순으로 돌려주므로 성립.
+    for item in extracted[request.offset : request.offset + request.max_files]:
         if item["error"]:
             failed.append(FailedFile(path=item["path"], reason=_short(item["error"])))
             continue
