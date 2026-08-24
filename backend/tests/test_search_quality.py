@@ -136,6 +136,42 @@ class Test공모전_시나리오:
 
         assert "공모전" in response.hits[0].matched_text
 
+    def test_유사도가_뭉치는_모델에서도_무관_파일이_잘린다(self, searchable):
+        """벡터 유사도 분포가 좁은 임베딩 모델에 대한 회귀 테스트.
+
+        e5 심 서버 실측: 문서들끼리 유사도가 전부 0.8~0.9로 나와, 벡터 비율
+        컷(RELATIVE_CUTOFF)이 아무것도 거르지 못하고 무관 파일이 하위 순위를
+        전부 채웠다. 키워드 증거가 있는 선두와의 **결합 점수** 격차로 거른다.
+        """
+        searchable.add("교내공모전_안내.pdf", "참가 부문과 일정 안내", sim=0.90)
+        # 무관 파일인데 벡터 유사도는 선두의 95% — 벡터 비율 컷은 통과한다.
+        searchable.add("노래가사모음.pdf", "좋아하는 노래 가사", sim=0.86)
+        searchable.add("수업필기.pdf", "미적분 필기", sim=0.85)
+
+        response = search_module.search("공모전 자료", top_k=5)
+
+        assert names(response) == ["교내공모전_안내.pdf"]
+
+    def test_확장자_토큰은_키워드_증거가_아니다(self, searchable):
+        # "….docx 찾아줘"의 "docx"가 모든 문서와 매치되면, 무관 파일이
+        # "키워드 있음"으로 승격해 결합 점수 컷을 빠져나간다.
+        searchable.add("운영체제_기말_정리.pdf", "본문", sim=0.2)
+        searchable.add("노래가사모음.pdf", "좋아하는 노래 가사", sim=0.86)
+
+        response = search_module.search("운영체제_기말_정리.pdf 이거 찾아줘")
+
+        assert names(response) == ["운영체제_기말_정리.pdf"]
+
+    def test_키워드가_없는_질의는_벡터_순위로_동작(self, searchable):
+        # 의역 질의(질의 단어가 문서에 없음)는 2차 컷의 대상이 아니어야 한다 —
+        # 키워드 증거가 있는 선두가 없으면 벡터 순위를 그대로 신뢰한다.
+        searchable.add("시험_정리본.pdf", "핵심 요약", sim=0.80)
+        searchable.add("여행_계획.pdf", "제주 일정", sim=0.45)
+
+        response = search_module.search("밤샘 공부 벼락치기")
+
+        assert names(response)[0] == "시험_정리본.pdf"
+
     def test_임베딩이_죽어도_키워드_검색은_동작(self, searchable, monkeypatch):
         def broken(text, model=None):
             raise embedding.EmbeddingUnavailable("모델 준비 중")
