@@ -314,7 +314,11 @@ _STOPWORDS = frozenset({
     "어디", "어디에", "어딨어", "어딨지", "뭐지", "뭐더라",
     "이거", "그거", "저거", "요거", "나의", "해줘", "주세요",
     "파일", "문서", "자료", "폴더", "파일들", "문서들", "자료들",
-})
+    # 확장자 토큰도 내용을 구분하지 못한다. "보고서.docx 찾아줘"처럼 파일명을
+    # 통째로 넣으면 "docx"가 모든 문서와 매치되어, 무관 파일이 "키워드 증거
+    # 있음"으로 승격해 컷을 빠져나갔다 (파일명 전체 대조는 토큰이 아니라
+    # _name_score의 통짜 비교가 담당하므로 여기서 빼도 잃는 것이 없다).
+}) | frozenset(ALLOWED_EXTENSIONS)
 
 # "최근 것"을 찾는 시간 표현. 보이면 최신 파일을 위로 올린다. (긴 표현 먼저 지운다.)
 _TEMPORAL_WORDS = ("얼마 전", "얼마전", "지난 주", "지난주", "저번주", "이번주",
@@ -409,6 +413,12 @@ VECTOR_FLOOR = 0.35
 # 최고 후보 대비 상대 컷. 또렷한 관련 문서가 있으면 한참 뒤처진 후보는 버린다 —
 # 관련 문서가 1~2개뿐일 때 무관한 파일이 top_k를 채우던 문제의 방지선.
 RELATIVE_CUTOFF = 0.75
+# 결합 점수 기준의 2차 상대 컷. 벡터 유사도만의 비율 컷(RELATIVE_CUTOFF)은
+# 임베딩 모델의 유사도 분포가 좁게 뭉치면(문서들끼리 전부 0.8~0.9로 나오는
+# 모델) 아무것도 거르지 못한다 — e5 심 서버 실측에서 무관 파일이 전부
+# 살아남았다. 키워드 증거가 있는 최고 후보와의 **결합 점수** 격차는 모델과
+# 무관하게 벌어지므로, 증거 없는(키워드 0) 후보가 한참 뒤처지면 버린다.
+COMBINED_RELATIVE_CUTOFF = 0.75
 # 본문에만 나온 키워드는 파일명에 나온 것보다 약한 신호로 본다.
 CONTENT_MATCH_WEIGHT = 0.7
 # 최신성 반감 척도: 30일 지난 파일의 최신성 신호는 절반이 된다.
@@ -587,7 +597,7 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
     now = datetime.now()
 
     # 경로 기준으로 최고 점수만 남긴다 (사용자 색인은 id=경로라 사실상 1:1).
-    ranked: dict[str, tuple[float, FileRef, str]] = {}
+    ranked: dict[str, tuple[float, float, FileRef, str]] = {}
     for id_ in set(keyword) | set(vector):
         metadata, document = row_map[id_]
         keyword_part = keyword.get(id_, 0.0)
@@ -617,9 +627,23 @@ def search(query: str, top_k: int = 5, root: str = "") -> SearchResponse:
 
         known = ranked.get(file_ref.path)
         if known is None or combined > known[0]:
-            ranked[file_ref.path] = (combined, file_ref, document)
+            ranked[file_ref.path] = (combined, keyword_part, file_ref, document)
 
-    ordered = sorted(ranked.values(), key=lambda row: row[0], reverse=True)[:top_k]
+    # 2차 컷: 키워드 증거가 하나라도 있는 후보가 선두라면, 증거가 전혀 없는
+    # 후보는 결합 점수가 그에 한참 못 미칠 때 버린다. 벡터 컷만으로는 유사도가
+    # 좁게 뭉치는 임베딩 모델에서 무관 파일이 하위 순위를 채우는 것을 못 막는다.
+    # (키워드가 맞은 후보는 구체적 증거가 있으므로 이 컷의 대상이 아니다.)
+    survivors = list(ranked.values())
+    keyword_backed = [row for row in survivors if row[1] > 0.0]
+    if keyword_backed:
+        best_combined = max(row[0] for row in keyword_backed)
+        survivors = [row for row in survivors
+                     if row[1] > 0.0
+                     or row[0] >= best_combined * COMBINED_RELATIVE_CUTOFF]
+
+    ordered = [(combined, file_ref, document)
+               for combined, _, file_ref, document in
+               sorted(survivors, key=lambda row: row[0], reverse=True)][:top_k]
 
     hits: list[SearchHit] = []
     for combined, file_ref, document in ordered:

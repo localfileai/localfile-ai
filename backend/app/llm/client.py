@@ -27,15 +27,18 @@ def check_generate_model(model: str = config.OLLAMA_GENERATE_MODEL) -> tuple[boo
         response = _session.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=5)
         response.raise_for_status()
     except requests.exceptions.RequestException:
+        # 이 문구는 화면까지 그대로 올라간다 — 내부 스택 이름(Ollama)과 터미널
+        # 명령을 노출하지 않는다. 배포본 사용자에게 터미널은 존재하지 않는 세계다.
         return False, (
-            f"Ollama 서버에 연결할 수 없습니다 ({config.OLLAMA_BASE_URL}). "
-            "`ollama serve` 로 서버를 띄우세요."
+            "문서 분석 도구가 실행되지 않았습니다. 앱을 껐다 다시 열면 "
+            "자동으로 시작됩니다."
         )
 
     installed = {m["name"] for m in response.json().get("models", [])}
     tag = model if ":" in model else f"{model}:latest"
     if tag not in installed:
-        return False, f"생성 모델이 없습니다: {model}. `ollama pull {model}` 로 받으세요."
+        return False, (f"정리 모델({model})이 아직 설치되지 않았습니다. "
+                       f"설정에서 준비 화면을 열어 모델을 받아 주세요.")
 
     return True, ""
 
