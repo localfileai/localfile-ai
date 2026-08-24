@@ -209,6 +209,9 @@ class OrganizeRequest(Strict):
                     "ADR-0002 §5-1 참고")
     max_files: int = Field(default=20, ge=1, le=100,
                            description="한 번에 처리할 최대 파일 수. CPU에서 파일당 수십 초라 상한을 둔다")
+    offset: int = Field(default=0, ge=0,
+                        description="이 순번부터 분석한다. 상한을 넘는 폴더를 \"이어서 분석\"할 때 "
+                                    "FE가 지금까지 분석한 수를 넣는다")
     use_rag: bool = Field(default=True,
                           description="유사 문서 예시를 프롬프트에 주입할지 여부")
 

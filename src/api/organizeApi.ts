@@ -213,12 +213,16 @@ export const undoApply = async (historyId = ''): Promise<UndoOutcome> => {
 /**
  * 선택한 폴더를 실제 AI로 분석해 추천을 받는다.
  * CPU 환경에서는 파일당 수십 초가 걸릴 수 있다(저사양이면 백엔드가 slim 모드로 자동 강등).
+ *
+ * offset을 주면 그 순번부터 다음 묶음을 분석한다 ("이어서 분석"). 이때 id와
+ * 적용 캐시는 앞 묶음과 이어지도록 offset 기반으로 만들고 **병합**한다 —
+ * 캐시를 새로 만들면 앞 묶음의 추천이 적용 불가 상태가 된다.
  */
-export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
+export const analyzeFolder = async (path: string, offset = 0): Promise<OrganizeData> => {
   const response = await fetch(`${BASE_URL}/organize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path, offset }),
   });
   if (!response.ok) {
     // 503(모델 없음)·400(잘못된 경로)의 이유를 그대로 화면까지 올린다.
@@ -229,19 +233,22 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
   const data: OrganizeResponseBody = await response.json();
 
   // 적용(POST /apply)에 필요한 원본 경로·추천값을 id로 찾을 수 있게 캐시한다.
-  lastAnalysis = {
-    root: path,
-    items: new Map(data.suggestions.map((item, index) => [String(index + 1), {
+  const batch: [string, AnalyzedItem][] = data.suggestions.map((item, index) => [
+    String(offset + index + 1), {
       sourcePath: item.current.path,
       sourceName: item.current.name,
       sourceRelFolder: relativeFolder(path, parentFolder(item.current.path)),
       recommendedName: item.suggestion.recommended_filename,
       recommendedFolder: item.suggestion.recommended_folder,
-    }])),
-  };
+    }]);
+  if (offset > 0 && lastAnalysis && lastAnalysis.root === path) {
+    batch.forEach(([id, item]) => lastAnalysis!.items.set(id, item));
+  } else {
+    lastAnalysis = { root: path, items: new Map(batch) };
+  }
 
   const renameList: RenameRecommendation[] = data.suggestions.map((item, index) => ({
-    id: String(index + 1),
+    id: String(offset + index + 1),
     path: item.current.path,
     currentName: item.current.name,
     recommendedName: item.suggestion.recommended_filename,
@@ -251,7 +258,7 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
   }));
 
   const structureList: StructureRecommendation[] = data.suggestions.map((item, index) => ({
-    id: String(index + 1),
+    id: String(offset + index + 1),
     path: item.current.path,
     fileName: item.current.name,
     currentFolder: parentFolder(item.current.path),
@@ -262,13 +269,13 @@ export const analyzeFolder = async (path: string): Promise<OrganizeData> => {
   // 파일 목록에는 추천 실패분(스캔 PDF 등)도 포함해 보여 준다.
   const currentFiles: CurrentFileItem[] = [
     ...data.suggestions.map((item, index) => ({
-      id: String(index + 1),
+      id: String(offset + index + 1),
       name: item.current.name,
       ext: item.current.extension.toUpperCase(),
       path: parentFolder(item.current.path),
     })),
     ...data.failed.map((item, index) => ({
-      id: `failed-${index + 1}`,
+      id: `failed-${offset + index + 1}`,
       name: item.path.split(/[\\/]/).filter(Boolean).at(-1) || item.path,
       ext: (item.path.split('.').at(-1) || '').toUpperCase(),
       path: parentFolder(item.path),

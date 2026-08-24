@@ -81,6 +81,27 @@ function App() {
     }
   }, [selectedPath])
 
+  // "이어서 분석": 처리 상한(한 번에 20개) 때문에 남은 파일이 있을 때,
+  // 지금까지 분석한 수를 offset으로 넘겨 다음 묶음을 받아 **이어 붙인다**.
+  const analyzeMore = useCallback(async () => {
+    if (!selectedPath || isAnalyzing) return
+    setIsAnalyzing(true)
+    setAnalyzeError('')
+    try {
+      const data = await analyzeFolder(selectedPath, analyzedCount)
+      setRenameList((prev) => [...prev, ...data.renameList])
+      setStructureList((prev) => [...prev, ...data.structureList])
+      setCurrentFiles((prev) => [...prev, ...data.currentFiles])
+      setFailedFiles((prev) => [...prev, ...data.failedFiles])
+      setAnalyzedCount((prev) => prev + data.analyzedCount)
+      setTotalFiles(data.totalFilesCount)
+    } catch (error) {
+      setAnalyzeError((error as Error).message)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }, [selectedPath, isAnalyzing, analyzedCount])
+
   // 정리 추천은 **그 화면을 열었을 때만** 계산한다.
   //
   // 폴더를 고르자마자 돌리면, 검색 준비(색인)와 LLM 분석이 동시에 Ollama를 두고
@@ -217,6 +238,7 @@ function App() {
               analyzedCount={analyzedCount}
               failedFiles={failedFiles}
               onRefreshData={loadOrganizeData}
+              onAnalyzeMore={analyzeMore}
               selectedPath={selectedPath}
               isAnalyzing={isAnalyzing}
               analyzeError={analyzeError}

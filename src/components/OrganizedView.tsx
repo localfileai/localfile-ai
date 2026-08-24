@@ -22,6 +22,8 @@ interface OrganizeViewProps {
   /** 분석하지 못한 파일과 이유 — 숨기지 않고 화면에 보여 준다 */
   failedFiles?: FailedFileInfo[];
   onRefreshData?: () => void;
+  /** 남은 파일의 다음 묶음을 이어서 분석한다 (처리 상한 20개 초과 폴더용) */
+  onAnalyzeMore?: () => void;
   /** 고른 폴더. 없으면 분석할 대상이 없다는 안내를 띄운다 */
   selectedPath?: string;
   /** 추천을 계산하는 중 (파일당 몇 초씩 걸린다) */
@@ -198,6 +200,7 @@ export default function OrganizeView({
   analyzedCount,
   failedFiles = [],
   onRefreshData,
+  onAnalyzeMore,
   selectedPath = '',
   isAnalyzing = false,
   analyzeError = '',
@@ -547,7 +550,16 @@ export default function OrganizeView({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button 
+            {analyzedCount != null && totalFiles > analyzedCount && (
+              <button
+                onClick={() => onAnalyzeMore?.()}
+                disabled={isApplying}
+                className="px-4 py-2 bg-white dark:bg-[#16161e] border border-indigo-200 dark:border-indigo-500/40 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 disabled:opacity-50 text-indigo-600 dark:text-indigo-300 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
+              >
+                ▶ 이어서 분석 (남은 {totalFiles - analyzedCount}개)
+              </button>
+            )}
+            <button
               onClick={handleReanalyze}
               disabled={isApplying}
               className="px-4 py-2 bg-white dark:bg-[#16161e] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"

@@ -185,9 +185,9 @@ class Test공모전_시나리오:
 
 class TestParseQuery:
     def test_군말과_일반명사는_키워드에서_뺀다(self):
-        tokens, temporal, _ = search_module.parse_query("공모전 자료 찾아줘")
+        tokens, half_life, _ = search_module.parse_query("공모전 자료 찾아줘")
         assert tokens == ["공모전"]
-        assert temporal is False
+        assert half_life is None
 
     def test_조사가_붙어도_어간을_잡는다(self):
         tokens, _, _ = search_module.parse_query("공모전에서 받은 것")
@@ -199,10 +199,20 @@ class TestParseQuery:
         assert "회의" in tokens
 
     def test_시간표현은_키워드가_아니라_최신성_신호(self):
-        tokens, temporal, cleaned = search_module.parse_query("최근 공모전 자료")
-        assert temporal is True
+        tokens, half_life, cleaned = search_module.parse_query("최근 공모전 자료")
+        assert half_life == 30.0
         assert tokens == ["공모전"]
         assert "최근" not in cleaned
+
+    def test_시간표현의_폭이_최신성_반감기를_정한다(self):
+        # "어제"는 "최근"보다 훨씬 좁은 질문이다.
+        _, narrow, _ = search_module.parse_query("어제 받은 계획서")
+        _, wide, _ = search_module.parse_query("최근 계획서")
+        assert narrow < wide
+
+    def test_여러_시간표현이_겹치면_가장_좁은_폭(self):
+        _, half_life, _ = search_module.parse_query("최근에, 그러니까 어제 만든 문서")
+        assert half_life == 3.0
 
 
 class TestEmbedQuery:
