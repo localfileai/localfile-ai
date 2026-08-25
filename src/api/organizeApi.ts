@@ -193,6 +193,25 @@ export interface UndoOutcome {
   skipped: { path: string; reason: string }[];
 }
 
+/** 작업 이력 1건 (백엔드 fileops.list_history 응답과 동일). */
+export interface ApplyHistoryEntry {
+  id: string;
+  root: string;
+  applied_at: string;
+  moves: number;
+  undone: boolean;
+}
+
+/** 최근 적용 이력 목록 (GET /apply/history). "정리 내역" 패널이 그린다. */
+export const getApplyHistory = async (limit = 20): Promise<ApplyHistoryEntry[]> => {
+  const response = await fetch(`${BASE_URL}/apply/history?limit=${limit}`);
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null))?.detail;
+    throw new Error(typeof detail === 'string' ? detail : `이력 조회 실패 (HTTP ${response.status})`);
+  }
+  return (await response.json()).history ?? [];
+};
+
 /**
  * 최근 적용 1회분을 역순으로 되돌린다 (POST /apply/undo).
  * 백엔드는 4주차부터 작업 이력·undo를 갖고 있었지만 화면에 연결돼 있지 않아,
