@@ -4,8 +4,10 @@ import {
   StructureRecommendation,
   CurrentFileItem,
   FailedFileInfo,
+  ApplyHistoryEntry,
   applyRenameRecommendations,
   applyStructureRecommendations,
+  getApplyHistory,
   undoApply
 } from '../api/organizeApi';
 
@@ -32,6 +34,13 @@ interface OrganizeViewProps {
   analyzeError?: string;
   /** 이 화면이 다루는 것. 사이드바 메뉴가 정한다 */
   mode?: 'rename' | 'structure';
+}
+
+// "20260824-150233-…" 형태의 이력 시각을 사람이 읽는 형태로.
+function formatAppliedAt(appliedAt: string): string {
+  const parsed = new Date(appliedAt);
+  if (Number.isNaN(parsed.getTime())) return appliedAt;
+  return `${parsed.getMonth() + 1}/${parsed.getDate()} ${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`;
 }
 
 // 💡 백엔드 동적 트리를 위한 노드 타입
@@ -238,6 +247,26 @@ export default function OrganizeView({
   const [isApplying, setIsApplying] = useState(false);
   const [lastCheck, setLastCheck] = useState<{ ok: number; renamed: number; failed: number } | null>(null);
   const [lastUndo, setLastUndo] = useState<{ id: string; moved: number } | null>(null);
+  // "정리 내역" 패널 — 과거 적용 목록에서 골라서 되돌린다. 배너는 "방금
+  // 적용"만 다루므로, 앱을 껐다 켠 뒤나 몇 번 적용한 뒤의 복구는 이쪽이다.
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyList, setHistoryList] = useState<ApplyHistoryEntry[]>([]);
+  const [historyError, setHistoryError] = useState('');
+
+  const refreshHistory = async () => {
+    try {
+      setHistoryError('');
+      setHistoryList(await getApplyHistory());
+    } catch (error) {
+      setHistoryError((error as Error).message);
+    }
+  };
+
+  const handleToggleHistory = () => {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (next) void refreshHistory();
+  };
 
   // 💡 API로 전달받은 structureList를 실시간 동적 트리로 변환
   const currentTree = useMemo(
@@ -321,6 +350,7 @@ export default function OrganizeView({
     setIsApplying(true);
     try {
       await runApplySelected();
+      if (showHistory) void refreshHistory();  // 방금 적용이 내역에 바로 보이게
     } finally {
       setIsApplying(false);
     }
@@ -433,7 +463,31 @@ export default function OrganizeView({
       alert(message);
       setLastUndo(null);
       setLastCheck(null);
+      if (showHistory) void refreshHistory();
       // 화면의 추천 목록은 적용 시점에 지워졌다 — 폴더를 다시 읽어야 맞는 상태가 된다.
+      onRefreshData?.();
+    } catch (error) {
+      alert(`되돌리기 중 오류가 발생했습니다:\n${(error as Error).message}`);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  // 내역 패널에서 고른 과거 적용 1회분을 되돌린다.
+  const handleUndoEntry = async (entry: ApplyHistoryEntry) => {
+    if (isApplying) return;
+    if (!confirm(`${formatAppliedAt(entry.applied_at)}에 적용한 ${entry.moves}건을 되돌릴까요?\n` +
+                 '그 뒤에 옮기거나 이름을 바꾼 파일은 건너뜁니다.')) return;
+    setIsApplying(true);
+    try {
+      const result = await undoApply(entry.id);
+      let message = `${result.restored}건을 원래 자리로 되돌렸습니다.`;
+      if (result.skipped.length > 0) {
+        message += `\n되돌리지 못함 ${result.skipped.length}건 (이후에 변경된 파일)`;
+      }
+      alert(message);
+      if (lastUndo?.id === entry.id) setLastUndo(null);
+      await refreshHistory();
       onRefreshData?.();
     } catch (error) {
       alert(`되돌리기 중 오류가 발생했습니다:\n${(error as Error).message}`);
@@ -550,6 +604,12 @@ export default function OrganizeView({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleToggleHistory}
+              className="px-4 py-2 bg-white dark:bg-[#16161e] border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs"
+            >
+              🕘 정리 내역
+            </button>
             {analyzedCount != null && totalFiles > analyzedCount && (
               <button
                 onClick={() => onAnalyzeMore?.()}
@@ -581,6 +641,42 @@ export default function OrganizeView({
             </button>
           </div>
         </div>
+
+        {/* 정리 내역 — 과거 적용 목록에서 골라 되돌린다. 배너("방금 적용")가
+            못 다루는 경우(앱 재시작 후, 여러 번 적용한 뒤)의 복구 경로. */}
+        {showHistory && (
+          <div className="mb-6 bg-white dark:bg-[#16161e] rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-2xs overflow-hidden">
+            <div className="bg-gray-50/80 dark:bg-white/5 px-5 py-3 border-b border-gray-100 dark:border-gray-700/70 flex items-center justify-between">
+              <h3 className="font-bold text-gray-900 dark:text-gray-50 text-xs">정리 내역</h3>
+              <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium">
+                파일을 실제로 옮기거나 이름을 바꾼 기록입니다. 회차 단위로 되돌릴 수 있습니다.
+              </span>
+            </div>
+            {historyError && (
+              <div className="px-5 py-3 text-[11px] text-red-500">{historyError}</div>
+            )}
+            {!historyError && historyList.length === 0 && (
+              <div className="px-5 py-4 text-[11px] text-gray-400 dark:text-gray-500">아직 적용한 내역이 없습니다.</div>
+            )}
+            {historyList.map((entry) => (
+              <div key={entry.id} className="px-5 py-2.5 border-b border-gray-50 dark:border-gray-700/40 last:border-b-0 flex items-center gap-3">
+                <span className="text-[11px] font-semibold text-gray-700 dark:text-gray-200 w-24 shrink-0">{formatAppliedAt(entry.applied_at)}</span>
+                <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate flex-1">{entry.moves}건 · {entry.root}</span>
+                {entry.undone ? (
+                  <span className="text-[10px] font-bold text-gray-300 dark:text-gray-600 shrink-0">되돌림</span>
+                ) : (
+                  <button
+                    onClick={() => handleUndoEntry(entry)}
+                    disabled={isApplying}
+                    className="px-2.5 py-1 border border-gray-200 dark:border-gray-600 text-[11px] font-bold text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50 transition cursor-pointer shrink-0"
+                  >
+                    ↩ 되돌리기
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* 방금 적용한 작업의 되돌리기 — 백엔드에 있던 undo가 처음으로 화면에 연결된다 */}
         {lastUndo && (
