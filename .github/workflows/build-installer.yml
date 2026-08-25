@@ -13,8 +13,23 @@
 name: 설치 파일 빌드 (Windows)
 
 on:
-  # Actions 탭에서 버튼으로 직접 실행
+  # Actions 탭에서 버튼으로 직접 실행.
+  #
+  # release_tag를 입력하면 **릴리스까지 발행한다** — 태그를 로컬에서 만들어
+  # 밀 필요가 없다. 태그 push 권한이 없는 환경(자동화 세션 등)에서도 릴리스를
+  # 낼 수 있고, 사람이 하더라도 "빌드가 끝난 뒤에 릴리스가 생긴다"는 순서가
+  # 보장된다 — 웹 UI로 먼저 릴리스를 만들면 설치 파일이 붙기 전 20분 동안
+  # 다운로드 버튼이 빈 릴리스를 가리킨다.
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '릴리스로 발행할 태그 (예: v0.4.1). 비우면 빌드만 합니다.'
+        required: false
+        default: ''
+      release_notes:
+        description: '릴리스 노트 본문 (선택). 자동 생성 목록 위에 붙습니다.'
+        required: false
+        default: ''
   # 코드가 바뀌면 자동으로 — 문서·홈페이지만 고친 커밋은 건너뛴다
   push:
     branches:
@@ -128,10 +143,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # 일반 사용자 배포용 — 태그일 때만. 로그인 없이 받을 수 있는 유일한 경로다.
+      # 일반 사용자 배포용 — 태그를 밀었거나, Actions 탭에서 release_tag를 넣어
+      # 실행했을 때. 로그인 없이 받을 수 있는 유일한 경로다.
+      #
+      # 수동 실행이면 이 단계에서 태그와 릴리스를 함께 만든다 (지금 빌드한
+      # 커밋에 태그가 붙는다). 설치 파일 검증까지 끝난 뒤에 실행되므로,
+      # 릴리스가 생기는 순간 이미 받을 수 있는 상태다.
       - name: 릴리스에 설치 파일 첨부
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ inputs.release_tag || github.ref_name }}
+          body: ${{ inputs.release_notes }}
           files: release/*.exe
           generate_release_notes: true
